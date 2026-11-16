@@ -326,7 +326,8 @@ public struct DisplaySettings: Codable, Equatable, Sendable {
             phaseWeighted: quantity == .phase && phaseWeighted,
             viewUm: viewRect,
             outsideRgba: [0, 0, 0, 0],
-            pecRgba: [128, 128, 128, 255]
+            // Conductors are filled with vector outlines over the raster instead.
+            pecRgba: nil
         )
         return (try? SimScene.jsonEncoder.encode(view)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
     }
@@ -349,7 +350,7 @@ private struct ViewJSON: Encodable {
     var phaseWeighted: Bool
     var viewUm: RectUm?
     var outsideRgba: [UInt8]
-    var pecRgba: [UInt8]
+    var pecRgba: [UInt8]?
 
     enum CodingKeys: String, CodingKey {
         case quantity

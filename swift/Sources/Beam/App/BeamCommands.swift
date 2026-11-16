@@ -42,7 +42,7 @@ private struct FileMenuItems: View {
             .keyboardShortcut("s")
         Menu("Templates") {
             ForEach(model.examples, id: \.name) { example in
-                Button(example.title) { model.loadExample(example) }
+                Button(example.menuTitle) { model.loadExample(example) }
             }
         }
 

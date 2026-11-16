@@ -71,6 +71,10 @@ public final class AppState {
         didSet { if viewOverride != oldValue { scheduleRender() } }
     }
     public var hover: HoverReadout?
+    /// The animated phase while playback runs. Kept out of the document so a frame tick
+    /// redraws the field without touching every view that reads the document; written back
+    /// when playback stops.
+    public private(set) var playbackPhase: Double?
 
     public let solver = SolveController()
     public let renderer = RenderController()
@@ -141,9 +145,10 @@ public final class AppState {
         return Double(containerSize.width / containerSize.height)
     }
 
-    /// Width over height of the output in pixels; the domain has the same shape.
+    /// Width over height of the image; the domain has the same shape. The exact ratio, not
+    /// the rounded pixel size, so a 16:9 domain stays exactly 16:9.
     public var imageAspect: Double {
-        output.pixelAspect(windowAspect: windowAspect)
+        output.aspect.ratio ?? windowAspect
     }
 
     public var outputSummary: String {
@@ -282,6 +287,7 @@ public final class AppState {
                 let current = model.document
                 var restored = snapshot
                 restored.display.isPlaying = current.display.isPlaying
+                if current.display.isPlaying { model.playbackPhase = restored.display.phaseDeg }
                 model.lastEdit = nil
                 model.document = restored
                 model.enforceShapeLock()
@@ -315,7 +321,7 @@ public final class AppState {
 
     /// The shape lock: domain height = width / image aspect (spec §11.5).
     private func lockShape(_ doc: inout BeamDocument) {
-        let aspect = doc.output.pixelAspect(windowAspect: windowAspect)
+        let aspect = doc.output.aspect.ratio ?? windowAspect
         if abs(doc.scene.domain.aspect - aspect) > 1e-9 * aspect {
             doc.applyShapeLock(imageAspect: aspect)
         }
@@ -374,7 +380,7 @@ public final class AppState {
         let size = viewportPixelSize
         guard size.width > 0, size.height > 0 else { return }
         let rect = viewRect
-        let json = display.viewJSON(viewRect: rect, incidentAmplitude: result.info.incidentPeak)
+        let json = display.viewJSON(viewRect: rect, incidentAmplitude: result.info.incidentPeak, phaseDeg: playbackPhase)
         renderer.submit(RenderRequest(field: result.field, viewJSON: json, viewRect: rect, width: size.width, height: size.height))
     }
 
@@ -615,18 +621,29 @@ public final class AppState {
     }
 
     public func togglePlaying() {
-        if !display.isPlaying, !display.quantity.dependsOnPhase {
-            // Only the real part and the phase move with φ.
-            setQuantity(.real)
+        if display.isPlaying {
+            // Keep the phase where the animation stopped. Not an undo step.
+            var doc = document
+            doc.display.isPlaying = false
+            if let phase = playbackPhase { doc.display.phaseDeg = (phase * 10).rounded() / 10 }
+            playbackPhase = nil
+            document = doc
+        } else {
+            if !display.quantity.dependsOnPhase {
+                // Only the real part and the phase move with φ.
+                setQuantity(.real)
+            }
+            playbackPhase = display.phaseDeg
+            document.display.isPlaying = true
         }
-        document.display.isPlaying.toggle()
     }
 
-    /// Advances the phase during playback by `seconds` of wall time. Not an undo step.
+    /// Advances the phase during playback by `seconds` of wall time.
     public func advancePhase(by seconds: Double) {
-        guard display.isPlaying, seconds > 0 else { return }
+        guard display.isPlaying, seconds > 0, let phase = playbackPhase else { return }
         let degrees = 360 * display.playbackSpeed * min(seconds, 0.25)
-        document.display.phaseDeg = (display.phaseDeg + degrees).truncatingRemainder(dividingBy: 360)
+        playbackPhase = (phase + degrees).truncatingRemainder(dividingBy: 360)
+        scheduleRender()
     }
 
     public func stepPhase(by degrees: Double) {
@@ -860,7 +877,7 @@ public final class AppState {
         if let shown = solver.shown, let value = shown.field.sample(x: plane.x, y: plane.y, part: display.part) {
             let a = max(1e-300, shown.info.incidentPeak)
             readout.intensity = (value.re * value.re + value.im * value.im) / (a * a)
-            var phase = (atan2(value.im, value.re) * 180 / .pi + display.phaseDeg).truncatingRemainder(dividingBy: 360)
+            var phase = (atan2(value.im, value.re) * 180 / .pi + (playbackPhase ?? display.phaseDeg)).truncatingRemainder(dividingBy: 360)
             if phase > 180 { phase -= 360 }
             if phase <= -180 { phase += 360 }
             readout.phaseDeg = phase

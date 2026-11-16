@@ -35,13 +35,13 @@ public struct Legend: Sendable {
             }
             middle = nil
         case .real:
-            title = "Re(E e^{jφ})" + (incident ? " / A" : "")
+            title = "Re E" + (incident ? " / A" : "")
             let edge = incident ? "1" : (fixed ? "\(s) A" : "max")
             low = "−" + edge
             middle = "0"
             high = "+" + edge
         case .phase:
-            title = "arg(E e^{jφ})"
+            title = "∠E"
             low = "−180°"
             middle = "0°"
             high = "180°"
@@ -90,7 +90,7 @@ public enum VectorRenderer {
         minimumTextScale: CGFloat = 0
     ) {
         let display = model.display
-        guard display.showOverlays, size.width > 0, size.height > 0 else { return }
+        guard size.width > 0, size.height > 0 else { return }
 
         let scale = size.height / 720.0
         let painter = OverlayPainter(
@@ -115,6 +115,11 @@ public enum VectorRenderer {
             context.restoreGState()
         }
         context.clip(to: CGRect(origin: .zero, size: size))
+
+        // Conductors are solid whatever the overlays: the field inside them is zero, and a
+        // vector fill gives them the exact outline the raster cannot.
+        painter.fillConductors()
+        guard display.showOverlays else { return }
 
         if display.showPML { painter.drawPML() }
         if display.showOutlines { painter.drawOutlines() }
@@ -145,6 +150,9 @@ public enum VectorRenderer {
     static func beamArrowLength(source: Source, viewRect: RectUm) -> Double {
         max(2.5 * source.waistUm, 0.12 * viewRect.width)
     }
+
+    /// The same grey the core uses for conductors.
+    static let conductorColor = CGColor(srgbRed: 128.0 / 255, green: 128.0 / 255, blue: 128.0 / 255, alpha: 1)
 
     static let beamColor = CGColor(red: 0.35, green: 0.9, blue: 1.0, alpha: 0.95)
 }
@@ -260,6 +268,13 @@ private struct OverlayPainter {
         return path
     }
 
+    func fillConductors() {
+        guard let outlines = model.outlines else { return }
+        for body in outlines.bodies where body.pec {
+            fill(path(body.outline), color: VectorRenderer.conductorColor)
+        }
+    }
+
     func drawOutlines() {
         guard let outlines = model.outlines else { return }
         for body in outlines.bodies where body.elementId != model.selectedID {
@@ -341,8 +356,8 @@ private struct OverlayPainter {
             // A k-arrow inside the upstream edge of the domain.
             let interior = model.interior
             let extent = 0.5 * interior.width * abs(dir.x) + 0.5 * interior.height * abs(dir.y)
-            let back = 0.82 * extent
-            let length = 0.12 * min(model.viewRect.width, 2.5 * model.viewRect.height)
+            let length = 0.07 * (interior.width + interior.height)
+            let back = extent - 0.03 * (interior.width + interior.height)
             let start = (x: interior.centerX - dir.x * back, y: interior.centerY - dir.y * back)
             let normal = (x: -dir.y, y: dir.x)
             let spread = 0.18 * min(interior.width, interior.height)

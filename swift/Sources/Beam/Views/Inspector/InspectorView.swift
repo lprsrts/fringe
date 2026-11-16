@@ -10,7 +10,10 @@ struct InspectorView: View {
                 SourceForm(model: model)
             case .element(let id):
                 if model.scene[element: id] != nil {
+                    // A fresh identity per element, so text fields never show another
+                    // element's half-typed value.
                     ElementForm(model: model, id: id)
+                        .id(id)
                 } else {
                     SourceForm(model: model)
                 }

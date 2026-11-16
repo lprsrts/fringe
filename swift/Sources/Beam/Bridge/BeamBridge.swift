@@ -56,8 +56,24 @@ public struct ExampleInfo: Decodable, Hashable, Sendable {
 
     public var solver: SolverMethod? { SolverMethod(rawValue: method) }
 
-    /// The title with its first letter capitalised for a menu ("Young's double slit").
-    public var menuTitle: String { title }
+    /// The title in title case for a menu: "Young's Double Slit".
+    public var menuTitle: String { Self.titleCased(title) }
+
+    /// macOS title case: every word capitalised except articles, coordinating conjunctions
+    /// and prepositions of three letters or fewer, unless first or last. Words that already
+    /// contain capitals (PEC, Talbot) are left alone.
+    static func titleCased(_ text: String) -> String {
+        let minor: Set<String> = ["a", "an", "the", "and", "but", "or", "nor", "for", "so", "yet",
+                                  "as", "at", "by", "in", "of", "on", "to", "up", "via"]
+        let words = text.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+        return words.enumerated().map { index, word in
+            let isEdge = index == 0 || index == words.count - 1
+            if word.contains(where: \.isUppercase) || (!isEdge && minor.contains(word)) { return word }
+            return word.split(separator: "-", omittingEmptySubsequences: false)
+                .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+                .joined(separator: "-")
+        }.joined(separator: " ")
+    }
 
     enum CodingKeys: String, CodingKey {
         case name

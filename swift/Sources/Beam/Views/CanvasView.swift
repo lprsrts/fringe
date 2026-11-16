@@ -250,8 +250,9 @@ private struct ImageLayer: View {
                     .saturation(isInvalid ? 0 : 1)
                     .opacity(solver.isShownStale || isInvalid ? 0.85 : 1)
             }
+            // Built here rather than in the Canvas closure, so observation sees what it reads.
+            let overlay = model.overlayModel(viewRect: model.viewRect, forExport: false)
             Canvas { context, size in
-                let overlay = model.overlayModel(viewRect: model.viewRect, forExport: false)
                 context.withCGContext { cg in
                     VectorRenderer.drawOverlays(in: cg, size: size, flipped: false, model: overlay, minimumTextScale: 1)
                 }
@@ -419,7 +420,7 @@ private struct StatusBar: View {
     }
 
     private func readout(_ hover: HoverReadout) -> String {
-        var parts = ["x \(Format.micrometres(hover.xUm))  y \(Format.micrometres(hover.yUm))"]
+        var parts = ["x \(Format.number(hover.xUm, digits: 2...2)) µm  y \(Format.number(hover.yUm, digits: 2...2)) µm"]
         if let intensity = hover.intensity {
             parts.append("|E|² \(Format.number(intensity, digits: 2...2))")
         }
