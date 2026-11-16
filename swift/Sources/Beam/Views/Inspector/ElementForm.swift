@@ -181,7 +181,7 @@ private struct ShapeFields: View {
                 model: model, id: id, title: "Back Radius R₂", flatTitle: "Flat back surface", path: \Element.shape.lens.r2Um, flatDefault: -12,
                 issues: model.elementIssues(index, key: "r2_um")
             )
-            length("Centre Thickness", \.lens, \.centerThicknessUm, key: "center_thickness_um", range: 0.1...max(10, span / 4))
+            length("Center Thickness", \.lens, \.centerThicknessUm, key: "center_thickness_um", range: 0.1...max(10, span / 4))
             length("Aperture", \.lens, \.apertureUm, key: "aperture_um", range: 0.5...max(10, span))
         case .slab:
             length("Thickness", \.slab, \.thicknessUm, key: "thickness_um", range: 0.05...max(10, span / 2))
@@ -286,7 +286,7 @@ private struct OptionalRadiusField: View {
                         limits: -1e5...1e5,
                         issues: issues
                     )
-                    Text("Positive: centre of curvature on the +x side of the element.")
+                    Text("Positive: center of curvature on the +x side of the element.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {

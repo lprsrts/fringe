@@ -34,7 +34,7 @@ struct DisplayForm: View {
 
         if quantity != .phase || display.phaseWeighted {
             Section {
-                Picker("Scale", selection: model.binding("Change Normalisation", \.display.normalization)) {
+                Picker("Scale", selection: model.binding("Change Normalization", \.display.normalization)) {
                     ForEach(NormalizationMode.allCases) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
@@ -70,7 +70,7 @@ struct DisplayForm: View {
                     }
                 }
             } header: {
-                Text("Normalisation")
+                Text("Normalization")
             } footer: {
                 Text(normalizationFootnote(display.normalization))
                     .foregroundStyle(.secondary)
@@ -111,7 +111,7 @@ struct DisplayForm: View {
             Text("Phase")
         } footer: {
             Text(quantity.dependsOnPhase
-                 ? "Shows Re(E e^{jφ}) or arg(E e^{jφ}); increasing φ moves wavefronts forward."
+                 ? "Shows Re(E·exp(jφ)) or arg(E·exp(jφ)); increasing φ moves wavefronts forward."
                  : "Intensity and magnitude don't change with φ. Play switches to the real part.")
                 .foregroundStyle(.secondary)
         }
@@ -151,7 +151,7 @@ struct OverlayToggles: View {
             Toggle(title("Paraxial Focus", "Paraxial focus"), isOn: model.binding("Change Overlays", \.display.showParaxialFocus))
             Toggle(title("Scale Bar", "Scale bar"), isOn: model.binding("Change Overlays", \.display.showScaleBar))
             Toggle(title("Caption", "Caption"), isOn: model.binding("Change Overlays", \.display.showCaption))
-            Toggle(title("Colour Legend", "Colour legend"), isOn: model.binding("Change Overlays", \.display.showLegend))
+            Toggle(title("Color Legend", "Color legend"), isOn: model.binding("Change Overlays", \.display.showLegend))
         }
         .disabled(!model.display.showOverlays)
 

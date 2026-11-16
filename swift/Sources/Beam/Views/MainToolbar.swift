@@ -65,7 +65,7 @@ struct MainToolbar: CustomizableToolbarContent {
             ControlGroup {
                 Button("Zoom Out", systemImage: "minus.magnifyingglass") { model.zoom(by: 1 / AppState.zoomStep) }
                     .help("Zoom out (⌘−)")
-                Button("Fit to Elements", systemImage: "arrow.up.left.and.down.right.magnifyingglass") { model.fitDomainToElements() }
+                Button("Fit Domain to Elements", systemImage: "arrow.up.left.and.down.right.magnifyingglass") { model.fitDomainToElements() }
                     .help("Fit the domain to the elements (⌘0)")
                 Button("Zoom In", systemImage: "plus.magnifyingglass") { model.zoom(by: AppState.zoomStep) }
                     .help("Zoom in (⌘=)")

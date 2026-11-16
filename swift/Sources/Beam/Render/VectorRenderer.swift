@@ -68,6 +68,9 @@ public struct OverlayModel: Sendable {
     public var showsHandles: Bool
     /// Element anchors, [x, y] in µm, for the move handle.
     public var anchors: [String: [Double]]
+    /// Bodies of the scene the field was solved for, whose conductors are filled; nil
+    /// fills the conductors of `outlines`.
+    public var conductors: SceneOutlines? = nil
 }
 
 /// Draws the vector overlays (outlines, source glyph, focus marks, PML hatch, scale bar,
@@ -276,7 +279,7 @@ private struct OverlayPainter {
     }
 
     func fillConductors() {
-        guard let outlines = model.outlines else { return }
+        guard let outlines = model.conductors ?? model.outlines else { return }
         for body in outlines.bodies where body.pec {
             fill(path(body.outline), color: VectorRenderer.conductorColor)
         }

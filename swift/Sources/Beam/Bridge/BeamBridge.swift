@@ -273,7 +273,7 @@ public final class FieldHandle: @unchecked Sendable {
             buffer.deallocate()
             throw BeamError.take(error)
         }
-        // The image takes ownership of the buffer and frees it when released.
+        // The provider takes ownership of the buffer and frees it when released.
         guard let provider = CGDataProvider(
             dataInfo: nil,
             data: buffer,
@@ -281,7 +281,11 @@ public final class FieldHandle: @unchecked Sendable {
             releaseData: { _, data, _ in
                 UnsafeMutableRawPointer(mutating: data).deallocate()
             }
-        ), let image = CGImage(
+        ) else {
+            buffer.deallocate()
+            throw BeamError(code: "internal", message: "Could not wrap the rendered pixels in an image.")
+        }
+        guard let image = CGImage(
             width: width,
             height: height,
             bitsPerComponent: 8,

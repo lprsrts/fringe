@@ -251,7 +251,7 @@ private struct ImageLayer: View {
                     .opacity(solver.isShownStale || isInvalid ? 0.85 : 1)
             }
             // Built here rather than in the Canvas closure, so observation sees what it reads.
-            let overlay = model.overlayModel(viewRect: model.viewRect, forExport: false)
+            let overlay = model.overlayModel(viewRect: model.viewRect)
             Canvas { context, size in
                 context.withCGContext { cg in
                     VectorRenderer.drawOverlays(in: cg, size: size, flipped: false, model: overlay, minimumTextScale: 1)
@@ -444,7 +444,7 @@ enum IssueFix {
 
     var title: String {
         switch self {
-        case .setCenterThickness(_, let value): return "Set Centre Thickness to \(Format.micrometres(value))"
+        case .setCenterThickness(_, let value): return "Set Center Thickness to \(Format.micrometres(value))"
         case .select: return "Select Element"
         case .fitDomain: return "Fit Domain to Elements"
         case .makePEC: return "Make It PEC"
@@ -476,7 +476,7 @@ extension AppState {
     func apply(_ fix: IssueFix) {
         switch fix {
         case .setCenterThickness(let id, let value):
-            edit("Change Centre Thickness") { $0.scene[element: id]?.shape.lens.centerThicknessUm = value }
+            edit("Change Center Thickness") { $0.scene[element: id]?.shape.lens.centerThicknessUm = value }
             selection = .element(id)
         case .select(let id):
             selection = .element(id)

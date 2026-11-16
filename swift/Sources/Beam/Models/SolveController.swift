@@ -340,12 +340,17 @@ public final class SolveController {
         runningQuality = nil
         userCancelled = false
         do {
-            if let field = try job.takeResult(), let info = field.info {
-                let result = SolveResult(field: field, info: info, revision: revision, scene: scene, quality: quality, finishedAt: Date())
-                if quality == .final { lastFinal = result } else { lastPreview = result }
-                if failure?.revision == revision || failure?.quality == quality { failure = nil }
-                Self.log.debug("Finished \(quality.rawValue) in \(info.meta.wallS) s")
+            guard let field = try job.takeResult() else {
+                throw BeamError(code: "internal", message: "The solver stopped without a result.")
             }
+            guard let info = field.info else {
+                Self.log.error("Unreadable field info: \(field.infoJSON, privacy: .public)")
+                throw BeamError(code: "internal", message: "Could not read the solved field's info.")
+            }
+            let result = SolveResult(field: field, info: info, revision: revision, scene: scene, quality: quality, finishedAt: Date())
+            if quality == .final { lastFinal = result } else { lastPreview = result }
+            if failure?.revision == revision || failure?.quality == quality { failure = nil }
+            Self.log.debug("Finished \(quality.rawValue) in \(info.meta.wallS) s")
         } catch let error as BeamError {
             if error.code == "cancelled" {
                 if wasUserCancel { onNotice("\(quality.title) solve cancelled") }

@@ -24,12 +24,12 @@ struct SimulationForm: View {
 
         Section {
             LengthField(
-                title: "Centre x",
+                title: "Center x",
                 value: Binding(get: { domain.centerX }, set: { model.setDomainCenter(x: $0) }),
                 lambda: lambda
             )
             LengthField(
-                title: "Centre y",
+                title: "Center y",
                 value: Binding(get: { domain.centerY }, set: { model.setDomainCenter(y: $0) }),
                 lambda: lambda
             )
@@ -45,7 +45,7 @@ struct SimulationForm: View {
                     .foregroundStyle(.secondary)
             }
             IssueLines(issues: model.checkReport?.issues(withPrefix: "domain").filter { $0.path != "domain.pml_wl" } ?? [])
-            Button("Fit to Elements") { model.fitDomainToElements() }
+            Button("Fit Domain to Elements") { model.fitDomainToElements() }
         } header: {
             Text("Domain")
         } footer: {

@@ -108,7 +108,7 @@ struct SourceForm: View {
             )
             IssueLines(issues: model.issues(at: "source.amplitude") + model.issues(at: "source"))
         } footer: {
-            Text("Defined in the background as if no elements were present. Ez polarisation (out of plane). 2D: elements are infinite extrusions.")
+            Text("Defined in the background as if no elements were present. Ez polarization (out of plane, s). 2D: elements are infinite extrusions.")
                 .foregroundStyle(.secondary)
         }
 

@@ -26,9 +26,6 @@ struct BeamCommands: Commands {
         CommandMenu("Display") {
             DisplayMenuItems(model: model)
         }
-
-        // There is no help book, so the default item would only show "Help isn't available".
-        CommandGroup(replacing: .help) {}
     }
 }
 
@@ -97,7 +94,7 @@ private struct ViewMenuItems: View {
             .keyboardShortcut("=")
         Button("Zoom Out") { model.zoom(by: 1 / AppState.zoomStep) }
             .keyboardShortcut("-")
-        Button("Fit to Elements") { model.fitDomainToElements() }
+        Button("Fit Domain to Elements") { model.fitDomainToElements() }
             .keyboardShortcut("0")
 
         Divider()
@@ -158,9 +155,9 @@ private struct SimulationMenuItems: View {
         Button(model.selectedElement?.enabled == false ? "Enable Element" : "Disable Element") {
             model.toggleSelectedElementEnabled()
         }
-        .keyboardShortcut("d", modifiers: [.command, .option])
+        // ⇧⌘D: ⌥⌘D belongs to the system (Dock hiding) and never reaches the app.
+        .keyboardShortcut("d", modifiers: [.command, .shift])
         .disabled(model.selectedElementID == nil)
-        Button("Fit Domain to Elements") { model.fitDomainToElements() }
     }
 }
 
@@ -209,9 +206,11 @@ private struct DisplayMenuItems: View {
 
         Button(model.display.isPlaying ? "Pause Phase" : "Play Phase") { model.togglePlaying() }
             .keyboardShortcut("p", modifiers: [.command, .option])
+        // ⌥⌘ rather than ⌥ alone: menu shortcuts win over text fields, and ⌥← / ⌥→ must
+        // keep moving by word in the inspector.
         Button("Step Phase Forward") { model.stepPhase(by: 15) }
-            .keyboardShortcut(.rightArrow, modifiers: [.option])
+            .keyboardShortcut(.rightArrow, modifiers: [.option, .command])
         Button("Step Phase Back") { model.stepPhase(by: -15) }
-            .keyboardShortcut(.leftArrow, modifiers: [.option])
+            .keyboardShortcut(.leftArrow, modifiers: [.option, .command])
     }
 }

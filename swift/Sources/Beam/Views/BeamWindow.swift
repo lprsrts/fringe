@@ -24,7 +24,7 @@ struct BeamWindow: View {
         .toolbarRole(.editor)
         .fileExporter(
             isPresented: $model.isExporterPresented,
-            item: model.isExporterPresented ? model.pngExport : nil,
+            item: model.presentedExport,
             contentTypes: [.png],
             defaultFilename: model.suggestedFilename
         ) { result in
@@ -55,13 +55,15 @@ struct BeamWindow: View {
                 }
         }
         .confirmationDialog(
-            "Export a Preview?",
+            model.solver.isShownStale ? "Export an Out-of-Date Image?" : "Export a Preview?",
             isPresented: $model.isExportChoicePresented
         ) {
             Button("Run Final and Export") { model.runFinalAndExport() }
                 .keyboardShortcut(.defaultAction)
                 .disabled(!model.solver.canRunFinal)
-            Button("Export Preview") { model.isExporterPresented = true }
+            Button(model.solver.shown?.quality == .final ? "Export Anyway" : "Export Preview") {
+                model.isExporterPresented = true
+            }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(model.solver.isShownStale

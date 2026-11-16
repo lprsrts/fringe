@@ -36,7 +36,19 @@ public final class AppState {
     public var isInspectorPresented = true
 
     // Export and file panels.
-    public var isExporterPresented = false
+    public var isExporterPresented = false {
+        // Snapshot the frame when the panel opens, so playback neither changes what gets
+        // written nor re-evaluates the window every frame while the panel is up.
+        didSet {
+            if isExporterPresented, !oldValue {
+                presentedExport = pngExport
+            } else if !isExporterPresented {
+                presentedExport = nil
+            }
+        }
+    }
+    /// What the open export panel writes.
+    public private(set) var presentedExport: PNGExport?
     public var isExportChoicePresented = false
     public var isSceneImporterPresented = false
     public var isSceneExporterPresented = false
@@ -80,6 +92,13 @@ public final class AppState {
     public let renderer = RenderController()
     /// Body outlines and source placement for the current scene.
     public private(set) var outlines: SceneOutlines?
+    /// Body outlines of the scene the shown field was solved for. Conductors are filled
+    /// from these, so the grey sits on the field's zero region even when the image is out
+    /// of date and the current outlines have moved on.
+    public private(set) var shownOutlines: SceneOutlines?
+    @ObservationIgnored private weak var shownOutlinesField: FieldHandle?
+    @ObservationIgnored private weak var shownFocusField: FieldHandle?
+    @ObservationIgnored private var shownFocusPoints: [[Double]] = []
     public let examples: [ExampleInfo] = BeamBridge.examples()
 
     @ObservationIgnored public var undoManager: UndoManager?
@@ -335,6 +354,15 @@ public final class AppState {
     }
 
     private func solveResultChanged() {
+        if let shown = solver.shown {
+            if shown.field !== shownOutlinesField {
+                shownOutlinesField = shown.field
+                shownOutlines = BeamBridge.outlines(shown.scene)
+            }
+        } else {
+            shownOutlinesField = nil
+            shownOutlines = nil
+        }
         scheduleRender()
         if exportAfterFinal, !solver.isRunning {
             exportAfterFinal = false
@@ -394,11 +422,14 @@ public final class AppState {
         return lut
     }
 
-    /// Everything the vector overlays need, as a value that can go to another thread.
-    public func overlayModel(viewRect: RectUm, forExport: Bool) -> OverlayModel {
+    /// The canvas overlays. Outlines, handles and the source glyph follow the scene being
+    /// edited; conductors are filled where the shown field was solved with them.
+    /// It does not read the animated phase, which the overlays don't draw, so playback
+    /// does not redraw them every frame.
+    public func overlayModel(viewRect: RectUm) -> OverlayModel {
         OverlayModel(
             viewRect: viewRect,
-            interior: forExport ? scene.domain.rect : interiorRect,
+            interior: interiorRect,
             pmlUm: pmlUm,
             outlines: outlines,
             source: scene.source,
@@ -406,15 +437,61 @@ public final class AppState {
             display: display,
             caption: caption,
             legend: display.showLegend ? Legend(lut: legendLUT, display: display) : nil,
-            selectedID: forExport ? nil : selectedElementID,
-            showsHandles: !forExport,
-            anchors: forExport ? [:] : Dictionary(scene.elements.map { ($0.id, [$0.xUm, $0.yUm]) }, uniquingKeysWith: { a, _ in a })
+            selectedID: selectedElementID,
+            showsHandles: true,
+            anchors: Dictionary(scene.elements.map { ($0.id, [$0.xUm, $0.yUm]) }, uniquingKeysWith: { a, _ in a }),
+            conductors: solver.shown == nil ? outlines : shownOutlines
         )
+    }
+
+    /// The scene the exported image shows: the one the shown field was solved for, so an
+    /// out-of-date export draws its outlines, conductors and source where the field has them.
+    private var exportScene: SimScene { solver.shown?.scene ?? scene }
+
+    /// The export overlays, all taken from `exportScene`, at the frame on screen.
+    private func exportOverlayModel(viewRect: RectUm) -> OverlayModel {
+        let source = exportScene
+        let stale = solver.isShownStale
+        var display = self.display
+        display.phaseDeg = playbackPhase ?? display.phaseDeg
+        let lut = stale
+            ? BeamBridge.colormapLUT(display.colormap.rawValue, wavelengthUm: source.wavelengthUm)
+            : legendLUT
+        let bodies = stale ? shownOutlines : outlines
+        return OverlayModel(
+            viewRect: viewRect,
+            interior: source.domain.rect,
+            pmlUm: source.domain.pmlWl * source.lambdaB,
+            outlines: bodies,
+            source: source.source,
+            focusPoints: stale ? shownSceneFocusPoints : paraxialFocusPoints,
+            display: display,
+            caption: caption,
+            legend: display.showLegend ? Legend(lut: lut, display: display) : nil,
+            selectedID: nil,
+            showsHandles: false,
+            anchors: [:],
+            conductors: bodies
+        )
+    }
+
+    /// Focus points of the shown field's scene, checked once per result.
+    private var shownSceneFocusPoints: [[Double]] {
+        guard let shown = solver.shown else { return [] }
+        if shown.field !== shownFocusField {
+            shownFocusField = shown.field
+            shownFocusPoints = Self.focusPoints(in: shown.scene, derived: BeamBridge.check(shown.scene).derived)
+        }
+        return shownFocusPoints
     }
 
     /// Paraxial focus points of enabled lenses and curved mirrors.
     public var paraxialFocusPoints: [[Double]] {
-        guard let derived = checkReport?.derived else { return [] }
+        Self.focusPoints(in: scene, derived: checkReport?.derived)
+    }
+
+    private static func focusPoints(in scene: SimScene, derived: Derived?) -> [[Double]] {
+        guard let derived else { return [] }
         var points: [[Double]] = []
         for element in scene.elements where element.enabled {
             guard let info = derived.element(element.id) else { continue }
@@ -555,7 +632,7 @@ public final class AppState {
     public func fitDomainToElements() {
         let aspect = imageAspect
         let outlines = self.outlines
-        edit("Fit to Elements") { $0.fitDomain(outlines: outlines, imageAspect: aspect) }
+        edit("Fit Domain to Elements") { $0.fitDomain(outlines: outlines, imageAspect: aspect) }
     }
 
     public func setAspect(_ aspect: OutputAspect) {
@@ -725,14 +802,18 @@ public final class AppState {
         solver.runFinal()
     }
 
-    /// A snapshot of the shown field at the output size.
+    /// A snapshot of the shown field at the output size, at the phase on screen.
     public var pngExport: PNGExport {
         let size = outputPixelSize
         let rect = exportViewRect
         return PNGExport(
             field: solver.shown?.field,
-            viewJSON: display.viewJSON(viewRect: rect, incidentAmplitude: solver.shown?.info.incidentPeak ?? 1),
-            overlay: overlayModel(viewRect: rect, forExport: true),
+            viewJSON: display.viewJSON(
+                viewRect: rect,
+                incidentAmplitude: solver.shown?.info.incidentPeak ?? 1,
+                phaseDeg: playbackPhase
+            ),
+            overlay: exportOverlayModel(viewRect: rect),
             width: size.width,
             height: size.height,
             onBusyChange: { @MainActor [weak self] busy in
@@ -741,11 +822,12 @@ public final class AppState {
         )
     }
 
-    /// The committed view (no gesture in progress).
+    /// The committed view of `exportScene` (no gesture in progress), at the output aspect.
     private var exportViewRect: RectUm {
-        let interior = scene.domain.rect
-        guard display.showPML else { return interior }
-        return interior.insetBy(-pmlUm).grown(toAspect: imageAspect)
+        let source = exportScene
+        let interior = source.domain.rect
+        guard display.showPML else { return interior.grown(toAspect: imageAspect) }
+        return interior.insetBy(-source.domain.pmlWl * source.lambdaB).grown(toAspect: imageAspect)
     }
 
     public func finishExport(_ result: Result<URL, Error>) {
