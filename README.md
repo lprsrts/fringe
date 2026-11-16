@@ -132,7 +132,7 @@ scene, against MoM at 20 panels/λ (itself within 4.8e-5 of 16 panels/λ):
 The intensity maximum along the axis is very flat (it changes by 0.1 % over
 ±0.1 µm), so the focal peak position moves by a few hundredths of a micrometre
 with errors of 1e-3 in the field. On the double slit (x ≥ −4 µm), FEM is
-within 2.0e-2 of MoM and FDTD within 3.6e-2.
+within 2.0e-2 of MoM and FDTD within 4.3e-2.
 
 The paraxial focus that the app marks for a lens (and `beam-cli check`
 reports) is the thick-lens geometric focus, x ≈ 9.0 µm on the default
