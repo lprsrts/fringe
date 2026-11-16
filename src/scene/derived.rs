@@ -57,7 +57,10 @@ pub fn derived(scene: &Scene) -> Value {
     let source = match scene.source {
         Source::GaussianBeam { waist_um: w0, .. } => json!({
             "rayleigh_range_um": PI * w0 * w0 * n_b / lambda0,
-            "divergence_deg": (lambda0 / (PI * n_b * w0)).to_degrees(),
+            // atan of the paraxial λ/(π n w0): the same for wide beams, and
+            // below 90° for the sub-wavelength waists where the paraxial value
+            // would exceed it.
+            "divergence_deg": (lambda0 / (PI * n_b * w0)).atan().to_degrees(),
         }),
         Source::PlaneWave { .. } => json!({}),
     };

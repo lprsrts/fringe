@@ -257,3 +257,16 @@ fn thin_and_huge_polygons_are_refused() {
     }).collect());
     assert_eq!(codes_at(&s, "elements[0].shape.vertices_um"), ["polygon_vertices"]);
 }
+
+/// The divergence readout is an angle below 90° even for a sub-wavelength waist.
+#[test]
+fn divergence_stays_below_ninety_degrees() {
+    use beam_core::scene::Source;
+    let mut s = examples::default();
+    if let Source::GaussianBeam { waist_um, .. } = &mut s.source {
+        *waist_um = 0.1;
+    }
+    let d = check(&s).derived;
+    let theta = d["source"]["divergence_deg"].as_f64().unwrap();
+    assert!(theta > 70.0 && theta < 90.0, "{theta}");
+}
