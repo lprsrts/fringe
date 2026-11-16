@@ -32,8 +32,8 @@ struct BeamWindow: View {
         }
         .fileExporterFilenameLabel("Export As:")
         .fileDialogConfirmationLabel("Export")
+        // Each file panel gets its own view: one view presents one of each kind reliably.
         .background {
-            // A second file exporter needs its own view: one view holds one.
             Color.clear
                 .fileExporter(
                     isPresented: $model.isSceneExporterPresented,
@@ -43,6 +43,10 @@ struct BeamWindow: View {
                 ) { result in
                     if case .failure(let error) = result { model.exportErrorMessage = error.localizedDescription }
                 }
+                .fileDialogConfirmationLabel("Save")
+        }
+        .background {
+            Color.clear
                 .fileImporter(isPresented: $model.isSceneImporterPresented, allowedContentTypes: [.json]) { result in
                     switch result {
                     case .success(let url): model.openScene(at: url)
