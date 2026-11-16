@@ -257,7 +257,7 @@ pub fn render_rgba(field: &FieldGrid, view: &View, width: u32, height: u32, out:
         let y = rect.y_max_um - (row as f64 + 0.5) * py;
         let fy = (y - g.y0) / g.dx;
         if !(fy >= -EDGE && fy <= last_y + EDGE) {
-            for px in line.chunks_exact_mut(4) {
+            for px in line.as_chunks_mut::<4>().0 {
                 px.copy_from_slice(&view.outside_rgba);
             }
             return;

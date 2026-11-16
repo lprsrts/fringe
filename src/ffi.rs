@@ -455,7 +455,7 @@ pub unsafe extern "C" fn beam_colormap_lut(name: *const c_char, wavelength_um: f
     guard(false, || {
         let Some(cm) = str_arg(name).and_then(|n| n.parse::<Colormap>().ok()) else { return false };
         let out = std::slice::from_raw_parts_mut(out_rgba, 1024);
-        for (dst, c) in out.chunks_exact_mut(4).zip(cm.lut(wavelength_um * 1000.0, 256)) {
+        for (dst, c) in out.as_chunks_mut::<4>().0.iter_mut().zip(cm.lut(wavelength_um * 1000.0, 256)) {
             dst.copy_from_slice(&c);
         }
         true
