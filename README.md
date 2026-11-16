@@ -213,6 +213,12 @@ scripts/bundle.sh                          # the above, then target/Fringe.app, 
 scripts/check-schema.sh                    # build, then check that the app and the core agree on the scene JSON
 ```
 
+The app icon is a field the core computes: the photonic nanojet behind a glass
+cylinder, `icon/nanojet.json`, in the inferno colormap. `icon/build.sh` solves
+it, frames it in the macOS icon shape and writes `icon/AppIcon.icns`, which
+`scripts/bundle.sh` copies into the app. Run it after changing the scene or
+`icon/compose.swift`; the `.icns` is checked in so a bundle does not need a solve.
+
 The app's minimum macOS is tied to the Rust toolchain: Homebrew's `rustc`
 ships its standard library built for macOS 26, and the Swift target must not
 claim anything older or `ld` warns about every std object.
@@ -246,5 +252,6 @@ src/bin/fringe_cli.rs fringe-cli
 include/            C header for the ABI
 swift/              SwiftUI app (Swift package "Fringe")
 scripts/            build, bundle and schema-check scripts
+icon/               app icon: its scene, the compose script and the built .icns
 tests/              integration tests; tests/fixtures holds example scenes and Bessel references
 ```
