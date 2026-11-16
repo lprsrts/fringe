@@ -1108,17 +1108,14 @@ public struct OutputSampling: Codable, Equatable, Sendable {
 
 // MARK: - Formatting
 
-/// Number formatting for text that may end up in exported images and JSON-adjacent labels,
-/// where a decimal point is used whatever the locale.
+/// Fixed-precision readouts (estimates, captions, preset names, the legend) with the
+/// user's decimal separator, like every other number in the window.
 public enum SceneFormat {
-    public static func fixed(_ value: Double, _ digits: Int) -> String {
-        guard value.isFinite else { return "—" }
-        let s = String(format: "%.\(digits)f", value)
-        // A minus sign rather than a hyphen, and no "-0.00".
-        if s.hasPrefix("-") {
-            let body = String(s.dropFirst())
-            if body.allSatisfy({ $0 == "0" || $0 == "." }) { return body }
-            return "−" + body
+    public static func fixed(_ value: Double, _ digits: Int, locale: Locale = .current) -> String {
+        let s = Format.number(value, digits: digits...digits, locale: locale)
+        // No "−0.00".
+        if s.hasPrefix("−"), !s.dropFirst().contains(where: { $0.isNumber && $0 != "0" }) {
+            return String(s.dropFirst())
         }
         return s
     }
