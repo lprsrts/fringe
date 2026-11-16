@@ -109,7 +109,7 @@ fn g_dny(rad: &Radial, x: Vec2, y: Vec2, n_y: Vec2, r: f64) -> (C64, C64) {
 
 /// J0, J1, Y0, Y1 at real x > 0: the shared [`j_y_01_real`] below x = 64, and
 /// above it Hankel's expansion with a fixed five terms and one `sin_cos`
-/// (the omitted terms are below 3e−12 relative there).
+/// (the omitted terms are below 1e−11 relative there).
 #[inline]
 pub fn j_y_01_fast(x: f64) -> (f64, f64, f64, f64) {
     if x < 64.0 {
