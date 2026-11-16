@@ -4,21 +4,24 @@
 //! The unknown is the scattered field E_s on the outer rectangle (interior + PML)
 //! with E_s = 0 on its edge and E_s = −E_inc on PEC boundaries (PEC bodies are holes
 //! in the mesh). The sparse LU factorisation cannot be interrupted: a cancel
-//! request is honoured before and after it, not during it.
+//! request is honoured before and after it, not during it, and its entry in
+//! `SolverMeta::timings` is labelled "factor (uninterruptible)". Everything else
+//! (meshing, assembly chunks, sampling rows) checks the cancel flag.
 //!
 //! Files: `mesh.rs` (spade CDT and refinement), `element.rs` (reference element),
 //! `pml.rs` (stretching), `assemble.rs` (DOFs and the sparse system), `sample.rs`
 //! (evaluation on the output grid).
 
-pub mod assemble;
-pub mod element;
-pub mod mesh;
-pub mod pml;
-pub mod sample;
+mod assemble;
+mod element;
+mod mesh;
+mod pml;
+mod sample;
+#[cfg(test)]
+mod tests;
 
 use std::time::Instant;
 
-use crate::geometry::BodyMaterial;
 use crate::linalg::SparseLu;
 use crate::problem::Problem;
 use crate::types::C64;
@@ -41,7 +44,7 @@ const C_T: f64 = 2.0e-7;
 
 /// Estimated number of DOFs (all nodes) of the mesh `mesh::build` makes: about
 /// p² · (2/√3)/h² per unit area plus the finer constraint points along contours.
-pub fn estimate_dofs(p: &Problem) -> f64 {
+pub(crate) fn estimate_dofs(p: &Problem) -> f64 {
     let order = p.settings.fem.order.clamp(1, 3) as f64;
     let h_b = mesh::background_h(p, order);
     let per_area = |h: f64| order * order * 2.0 / 3f64.sqrt() / (h * h);
@@ -60,7 +63,7 @@ pub fn estimate_dofs(p: &Problem) -> f64 {
 
 /// Estimated size of the global system: P3 face DOFs (2 per vertex, 2/9 of all)
 /// are condensed out per element.
-pub fn estimate_unknowns(p: &Problem) -> f64 {
+pub(crate) fn estimate_unknowns(p: &Problem) -> f64 {
     let d = estimate_dofs(p);
     if p.settings.fem.order >= 3 {
         d * 7.0 / 9.0
@@ -145,7 +148,8 @@ impl Solver for FemSolver {
             vec![C64::new(0.0, 0.0); dofs.n_free]
         } else {
             let lu = SparseLu::factor(std::mem::take(&mut sys.matrix)).map_err(|e| SolveError::Numerical(format!("FEM factorisation: {e}")))?;
-            lap("factor", &mut timings);
+            // The factorisation cannot be interrupted; the label says so in the meta.
+            lap("factor (uninterruptible)", &mut timings);
             ctx.checkpoint()?;
             lu.solve(&sys.rhs)
         };
@@ -186,59 +190,4 @@ impl Solver for FemSolver {
             },
         })
     }
-}
-
-/// Mesh statistics for tests and diagnostics.
-#[doc(hidden)]
-#[derive(Clone, Debug)]
-pub struct MeshReport {
-    pub vertices: usize,
-    pub triangles: usize,
-    pub seeded_vertices: usize,
-    pub refined_vertices: usize,
-    pub min_angle_deg: f64,
-    pub dofs: usize,
-    pub free_dofs: usize,
-    pub estimated_dofs: f64,
-    pub warnings: Vec<String>,
-    /// Largest distance from a recorded arc-edge end to its arc point (should be ~0).
-    pub max_arc_error: f64,
-    /// Total area of the triangles tagged dielectric.
-    pub dielectric_area: f64,
-}
-
-#[doc(hidden)]
-pub fn mesh_report(p: &Problem) -> Result<MeshReport, SolveError> {
-    let order = p.settings.fem.order as usize;
-    let m = mesh::build(p, order)?;
-    let el = element::RefElement::new(order);
-    let dofs = assemble::number_dofs(p, &m, &el);
-    let mut max_arc_error = 0.0f64;
-    for (&(lo, hi), r) in &m.arcs {
-        let seg = &p.bodies[r.body as usize].contour.segments[r.seg as usize];
-        for (v, t) in [(lo, r.t_lo), (hi, r.t_hi)] {
-            max_arc_error = max_arc_error.max(seg.point(t).dist(m.verts[v as usize]));
-        }
-    }
-    let mut dielectric_area = 0.0;
-    for (t, tr) in m.tris.iter().enumerate() {
-        let b = m.tri_body[t];
-        if b != mesh::BACKGROUND && matches!(p.bodies[b as usize].material, BodyMaterial::Dielectric { .. }) {
-            let [a, bb, c] = tr.map(|v| m.verts[v as usize]);
-            dielectric_area += 0.5 * (bb - a).cross(c - a).abs();
-        }
-    }
-    Ok(MeshReport {
-        vertices: m.verts.len(),
-        triangles: m.tris.len(),
-        seeded_vertices: m.seeded_vertices,
-        refined_vertices: m.refined_vertices,
-        min_angle_deg: mesh::min_angle_deg(&m),
-        dofs: dofs.n,
-        free_dofs: dofs.n_free,
-        estimated_dofs: estimate_dofs(p),
-        warnings: m.warnings,
-        max_arc_error,
-        dielectric_area,
-    })
 }

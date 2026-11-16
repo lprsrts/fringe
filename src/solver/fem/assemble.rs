@@ -37,8 +37,6 @@ pub struct Dofs {
     pub dirichlet: Vec<Option<C64>>,
     /// Free index of each DOF, or `u32::MAX` for Dirichlet and face DOFs.
     pub free: Vec<u32>,
-    /// First face DOF; face DOFs are eliminated by static condensation.
-    pub face0: usize,
     pub n_free: usize,
 }
 
@@ -173,7 +171,7 @@ pub fn number_dofs(p: &Problem, mesh: &Mesh, el: &RefElement) -> Dofs {
             n_free += 1;
         }
     }
-    Dofs { n, elem, pos, curved, dirichlet, free, face0, n_free }
+    Dofs { n, elem, pos, curved, dirichlet, free, n_free }
 }
 
 /// Basis tables at the quadrature points of one rule.
@@ -315,7 +313,12 @@ pub fn assemble(p: &Problem, mesh: &Mesh, el: &RefElement, dofs: &Dofs, ctx: &So
             tl.b.iter().map(move |b| map_point(&x, n, b)).collect::<Vec<_>>()
         })
         .collect();
-    let load_inc = p.incident.eval_points(&load_pts);
+    // In blocks, so that a cancel request is seen within a few milliseconds.
+    let mut load_inc = Vec::with_capacity(load_pts.len());
+    for block in load_pts.chunks(1 << 14) {
+        ctx.checkpoint()?;
+        load_inc.extend(p.incident.eval_points(block));
+    }
     let mut load_slot = vec![NONE; mesh.tris.len()];
     for (s, &t) in load_elems.iter().enumerate() {
         load_slot[t] = s as u32;

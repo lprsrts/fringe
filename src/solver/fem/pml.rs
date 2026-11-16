@@ -42,12 +42,6 @@ impl Pml {
         C64::new(1.0, -self.sigma0 * r * r / self.k_b)
     }
 
-    /// True if `p` lies in the PML (strictly outside the interior).
-    #[inline]
-    pub fn contains(&self, p: Vec2) -> bool {
-        !self.interior.contains(p)
-    }
-
     #[inline]
     pub fn at(&self, p: Vec2) -> Stretch {
         let r = &self.interior;

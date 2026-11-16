@@ -51,8 +51,8 @@ pub struct Mesh {
     /// Background element size.
     pub h_b: f64,
     pub warnings: Vec<String>,
-    /// Vertices before refinement, and vertices refinement added.
-    pub seeded_vertices: usize,
+    /// Vertices refinement added (diagnostics for the mesh tests).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub refined_vertices: usize,
 }
 
@@ -296,7 +296,6 @@ pub fn build(p: &Problem, order: usize) -> Result<Mesh, SolveError> {
     debug_assert!(c.edges.iter().all(|e| e[0] < n_constraint_pts && e[1] < n_constraint_pts));
 
     Ok(Mesh {
-        seeded_vertices: n_input,
         refined_vertices: verts.len() - n_input,
         verts,
         tris,
@@ -308,6 +307,7 @@ pub fn build(p: &Problem, order: usize) -> Result<Mesh, SolveError> {
 }
 
 /// Interior angles of a straight triangle, in degrees.
+#[cfg(test)]
 pub fn angles_deg(a: Vec2, b: Vec2, c: Vec2) -> [f64; 3] {
     let ang = |p: Vec2, q: Vec2, r: Vec2| {
         let u = q - p;
@@ -318,6 +318,7 @@ pub fn angles_deg(a: Vec2, b: Vec2, c: Vec2) -> [f64; 3] {
 }
 
 /// Smallest interior angle over the mesh, in degrees.
+#[cfg(test)]
 pub fn min_angle_deg(m: &Mesh) -> f64 {
     m.tris
         .par_iter()
