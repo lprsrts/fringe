@@ -85,8 +85,27 @@ fn outlines() {
     assert_eq!(o["source"]["kind"], "gaussian_beam");
     assert_eq!(o["source"]["w0_um"], 3.0);
     assert!((o["pml_um"].as_f64().unwrap() - 1.0).abs() < 1e-12);
+    assert_eq!(o["bodies"][0]["enabled"], true);
     let e = json(unsafe { beam_scene_outlines(cstr("[]").as_ptr()) });
     assert_eq!(e["error"]["code"], "parse");
+
+    // Disabled elements are listed with "enabled": false, also when their own
+    // parameters would not validate (here r1 is smaller than half the aperture).
+    let mut v: serde_json::Value = serde_json::from_str(scene.to_str().unwrap()).unwrap();
+    let mut off = v["elements"][0].clone();
+    off["id"] = "lens-2".into();
+    off["enabled"] = false.into();
+    off["x_um"] = 8.0.into();
+    let mut bad = off.clone();
+    bad["id"] = "lens-3".into();
+    bad["shape"]["r1_um"] = 2.0.into();
+    v["elements"].as_array_mut().unwrap().extend([off, bad]);
+    let o = json(unsafe { beam_scene_outlines(cstr(&v.to_string()).as_ptr()) });
+    let bodies = o["bodies"].as_array().unwrap();
+    let find = |id: &str| bodies.iter().find(|b| b["element_id"] == id);
+    assert_eq!(find("lens-1").unwrap()["enabled"], true);
+    assert_eq!(find("lens-2").unwrap()["enabled"], false);
+    assert_eq!(find("lens-3").unwrap()["enabled"], false);
 }
 
 #[test]
@@ -110,15 +129,16 @@ fn job_lifecycle_on_the_default_scene() {
     assert_eq!(info["method"], "fdtd");
     assert_eq!(info["quality"], "preview");
     assert_eq!(info["incident_peak"], 1.0);
-    // The incident part is A at the waist centre (to the FDTD's Yee matching),
-    // and the total there differs from it only by the weak lens reflection.
+    // The incident part is A at the waist centre (to the FDTD's Yee matching).
+    // The waist is 0.5 µm in front of the lens, so the scattered part there is
+    // the reflection off its two faces: |r| = 0.2 each, at most about 0.4.
     let (mut re, mut im) = (0.0, 0.0);
     assert!(unsafe { beam_field_sample(field, -6.0, 0.0, 2, &mut re, &mut im) });
     assert!(((re * re + im * im).sqrt() - 1.0).abs() < 1e-3, "incident {re} {im}");
     let (mut sre, mut sim) = (0.0, 0.0);
     assert!(unsafe { beam_field_sample(field, -6.0, 0.0, 1, &mut sre, &mut sim) });
     let s = (sre * sre + sim * sim).sqrt();
-    assert!(s > 1e-3 && s < 0.3, "scattered {s}");
+    assert!(s > 0.05 && s < 0.45, "scattered {s}");
     let (mut tre, mut tim) = (0.0, 0.0);
     assert!(unsafe { beam_field_sample(field, -6.0, 0.0, 0, &mut tre, &mut tim) });
     assert!((tre - re - sre).abs() < 1e-12 && (tim - im - sim).abs() < 1e-12);

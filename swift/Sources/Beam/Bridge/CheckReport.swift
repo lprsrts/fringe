@@ -401,12 +401,15 @@ public struct FieldInfo: Decodable, Equatable, Sendable {
 public struct SceneOutlines: Decodable, Equatable, Sendable {
     public struct Body: Decodable, Equatable, Sendable {
         public var elementId: String
+        /// False for a disabled element: drawn dashed, not part of the solve.
+        public var enabled: Bool
         public var pec: Bool
         /// Closed polyline, [x, y] pairs in µm.
         public var outline: [[Double]]
 
         enum CodingKeys: String, CodingKey {
             case elementId = "element_id"
+            case enabled
             case pec
             case outline
         }

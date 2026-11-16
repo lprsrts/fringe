@@ -964,19 +964,22 @@ public final class AppState {
             if phase <= -180 { phase += 360 }
             readout.phaseDeg = phase
         }
-        if let id = hitTestElement(x: plane.x, y: plane.y, tolerancePoints: 0), let element = scene[element: id] {
+        if let id = hitTestElement(x: plane.x, y: plane.y, tolerancePoints: 0, includeDisabled: false),
+           let element = scene[element: id] {
             readout.body = "\(element.displayName) (\(element.material.badge))"
         }
         hover = readout
     }
 
     /// The element whose outline contains the point, or whose edge is within
-    /// `tolerancePoints` of it.
-    public func hitTestElement(x: Double, y: Double, tolerancePoints: CGFloat = 6) -> String? {
+    /// `tolerancePoints` of it. Disabled elements can be selected on the canvas
+    /// but are not bodies of the solved field.
+    public func hitTestElement(x: Double, y: Double, tolerancePoints: CGFloat = 6,
+                               includeDisabled: Bool = true) -> String? {
         guard let outlines else { return nil }
         let tolerance = geometry.micrometres(forPoints: tolerancePoints)
         var best: (id: String, distance: Double)?
-        for body in outlines.bodies {
+        for body in outlines.bodies where includeDisabled || body.enabled {
             let inside = PlaneGeometry.contains(body.outline, x: x, y: y)
             let distance = inside ? 0 : PlaneGeometry.distance(body.outline, x: x, y: y)
             if distance <= tolerance, best.map({ distance < $0.distance }) ?? true {

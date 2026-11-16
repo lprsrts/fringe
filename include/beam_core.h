@@ -64,8 +64,9 @@ char* beam_scene_example(const char* name);
 // Never NULL for non-NULL input; parse failures are reported inside the JSON.
 char* beam_scene_check(const char* scene_json);
 // Geometry for overlays without solving:
-// {"domain":{...},"pml_um":..,"bodies":[{"element_id","pec","outline":[[x,y],..]}],
+// {"domain":{...},"pml_um":..,"bodies":[{"element_id","enabled","pec","outline":[[x,y],..]}],
 //  "source":{"kind","waist_um":[x,y],"angle_deg","w0_um"}} or {"error":{...}}.
+// Bodies of disabled elements are included with "enabled": false.
 char* beam_scene_outlines(const char* scene_json);
 
 // Solving

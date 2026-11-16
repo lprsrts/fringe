@@ -5,7 +5,8 @@ import Foundation
 ///
 /// For the default scene and every example it decodes the core's JSON into `SimScene`,
 /// re-encodes it, compares the two JSON trees, runs the core's check on the re-encoded
-/// scene (it must be free of errors) and decodes it again (it must equal the first decode).
+/// scene (it must be free of errors), decodes it again (it must equal the first decode)
+/// and decodes the core's overlay outlines for it.
 public enum SchemaSelfTest {
     public struct Failure: Sendable {
         public var scene: String
@@ -68,6 +69,15 @@ public enum SchemaSelfTest {
         }
         if second != first {
             return "the second decode differs from the first"
+        }
+        // The overlay geometry decodes too, and its enabled bodies belong to exactly
+        // the enabled elements (disabled ones are listed as well, flagged).
+        guard let outlines = try? BeamBridge.decode(SceneOutlines.self, from: BeamBridge.outlinesJSON(encoded)) else {
+            return "the core's outlines JSON does not decode"
+        }
+        let enabledIDs = Set(first.elements.filter(\.enabled).map(\.id))
+        if Set(outlines.bodies.filter(\.enabled).map(\.elementId)) != enabledIDs {
+            return "the outlines do not match the enabled elements"
         }
         return nil
     }

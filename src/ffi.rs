@@ -9,7 +9,7 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 
 use crate::check::check_json;
-use crate::geometry::{bodies_from_scene, BodyMaterial};
+use crate::geometry::{element_bodies, BodyMaterial};
 use crate::job::Job;
 use crate::render::{export_png_file, render_rgba, write_npy_c128, Colormap, View};
 use crate::scene::{examples, parse_scene, to_json, validate, Issue, Source};
@@ -129,7 +129,8 @@ pub unsafe extern "C" fn beam_scene_check(scene_json: *const c_char) -> *mut c_c
     })
 }
 
-/// Body outlines, PML thickness and source placement for the app's overlays.
+/// Body outlines (of every element, disabled ones flagged), PML thickness and
+/// source placement for the app's overlays.
 pub fn scene_outlines_json(scene_json: &str) -> Value {
     let scene = match parse_scene(scene_json) {
         Ok(s) => s,
@@ -137,11 +138,24 @@ pub fn scene_outlines_json(scene_json: &str) -> Value {
     };
     let lambda_b = scene.wavelength_um / scene.background.n;
     let chord = lambda_b / 20.0;
-    let bodies: Vec<Value> = bodies_from_scene(&scene)
+    // Disabled elements are listed too (flagged), so the app can draw and select
+    // them; an element whose parameters do not give a finite outline is skipped.
+    let bodies: Vec<Value> = scene
+        .elements
         .iter()
-        .map(|b| {
+        .enumerate()
+        .flat_map(|(i, e)| element_bodies(i, e).into_iter().map(move |b| (e.enabled, b)))
+        .filter_map(|(enabled, b)| {
             let outline: Vec<[f64; 2]> = b.contour.polyline(chord, 2f64.to_radians()).iter().map(|p| p.to_array()).collect();
-            json!({ "element_id": b.element_id, "pec": matches!(b.material, BodyMaterial::Pec), "outline": outline })
+            if outline.is_empty() || outline.iter().flatten().any(|v| !v.is_finite()) {
+                return None;
+            }
+            Some(json!({
+                "element_id": b.element_id,
+                "enabled": enabled,
+                "pec": matches!(b.material, BodyMaterial::Pec),
+                "outline": outline,
+            }))
         })
         .collect();
     let d = &scene.domain;

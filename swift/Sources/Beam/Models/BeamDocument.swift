@@ -40,7 +40,7 @@ public struct BeamDocument: Codable, Equatable, Sendable {
             let p = RectUm(xMin: x, xMax: x, yMin: y, yMax: y)
             box = box.map { $0.union(p) } ?? p
         }
-        for body in outlines?.bodies ?? [] {
+        for body in outlines?.bodies ?? [] where body.enabled {
             for point in body.outline where point.count == 2 {
                 include(point[0], point[1])
             }

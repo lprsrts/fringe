@@ -280,21 +280,23 @@ private struct OverlayPainter {
 
     func fillConductors() {
         guard let outlines = model.conductors ?? model.outlines else { return }
-        for body in outlines.bodies where body.pec {
+        for body in outlines.bodies where body.pec && body.enabled {
             fill(path(body.outline), color: VectorRenderer.conductorColor)
         }
     }
 
     func drawOutlines() {
         guard let outlines = model.outlines else { return }
+        // Disabled elements are not part of the solve: a dashed outline only.
         for body in outlines.bodies where body.elementId != model.selectedID {
-            stroke(path(body.outline), color: CGColor(gray: 1, alpha: 0.6), width: 1.5)
+            stroke(path(body.outline), color: CGColor(gray: 1, alpha: body.enabled ? 0.6 : 0.5), width: 1.5,
+                   dash: body.enabled ? [] : [5, 4])
         }
         guard let selected = model.selectedID else { return }
         let accent = NSColor.controlAccentColor.cgColor
         for body in outlines.bodies(of: selected) {
             // Fixed width on screen, so the selection reads the same at any size.
-            stroke(path(body.outline), color: accent, width: 2.5, fixedWidth: true)
+            stroke(path(body.outline), color: accent, width: 2.5, dash: body.enabled ? [] : [5, 4], fixedWidth: true)
         }
         if model.showsHandles, let anchor = model.anchors[selected] {
             let p = map.point(anchor)
