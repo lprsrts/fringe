@@ -31,6 +31,7 @@ use crate::source::yee::{dispersion_corrected_eps, yee_wavenumber};
 use crate::source::Incident;
 use crate::types::C64;
 
+use super::field::GridSpec;
 use super::{Estimate, Issue, Method, Quality, SolveContext, SolveError, Solver, SolverMeta, SolverOutput, Stage};
 use grid::{min_periods, Layout};
 use materials::{body_eps, rasterize, NodeMat};
@@ -78,6 +79,48 @@ pub fn media(p: &Problem, l: &Layout) -> Media {
 pub fn matched_incident(p: &Problem, l: &Layout, eps_bg: f64) -> Incident {
     let omega = l.omega();
     p.incident.map_wavenumbers(|phi| yee_wavenumber(phi, eps_bg, omega, l.dx, l.dt))
+}
+
+/// Grid rows per incident-field block between cancellation checks.
+const BLOCK_ROWS: usize = 32;
+
+/// `inc` on every node of `g`, one GEMM per block of rows with a cancellation
+/// check after each.
+fn incident_on_grid(inc: &Incident, g: &GridSpec, ctx: &SolveContext) -> Result<Vec<C64>, SolveError> {
+    let mut out = Vec::with_capacity(g.len());
+    for j0 in (0..g.ny).step_by(BLOCK_ROWS) {
+        let rows = BLOCK_ROWS.min(g.ny - j0);
+        out.extend(inc.eval_grid(&GridSpec { y0: g.y0 + j0 as f64 * g.dx, ny: rows, ..*g }));
+        ctx.checkpoint()?;
+    }
+    Ok(out)
+}
+
+/// `inc` at the full-grid nodes `nodes` (sorted by index): GEMMs over the
+/// bounding columns of each block of rows.
+fn incident_at_nodes(
+    inc: &Incident,
+    l: &Layout,
+    nodes: &[(usize, NodeMat)],
+    ctx: &SolveContext,
+) -> Result<Vec<C64>, SolveError> {
+    let nx = l.nx;
+    let mut out = Vec::with_capacity(nodes.len());
+    let mut s = 0;
+    while s < nodes.len() {
+        let j0 = nodes[s].0 / nx;
+        let e = s + nodes[s..].partition_point(|n| n.0 / nx < j0 + BLOCK_ROWS);
+        let block = &nodes[s..e];
+        let i0 = block.iter().map(|n| n.0 % nx).min().unwrap_or(0);
+        let i1 = block.iter().map(|n| n.0 % nx).max().unwrap_or(0);
+        let j1 = block[block.len() - 1].0 / nx;
+        let g = GridSpec { x0: l.x0 + i0 as f64 * l.dx, y0: l.y0 + j0 as f64 * l.dx, dx: l.dx, nx: i1 - i0 + 1, ny: j1 - j0 + 1 };
+        let v = inc.eval_grid(&g);
+        out.extend(block.iter().map(|n| v[(n.0 / nx - j0) * g.nx + n.0 % nx - i0]));
+        ctx.checkpoint()?;
+        s = e;
+    }
+    Ok(out)
 }
 
 fn memory_mb(l: &Layout) -> f64 {
@@ -211,9 +254,7 @@ impl Solver for FdtdSolver {
             ca[jj * nx..(jj + 1) * nx].fill(0.0);
             cbd[jj * nx..(jj + 1) * nx].fill(0.0);
         }
-        let pts: Vec<_> = raster.nodes.iter().map(|&(idx, _)| l.point(idx % nx, idx / nx)).collect();
-        let e_inc = matched.eval_points(&pts);
-        ctx.checkpoint()?;
+        let e_inc = incident_at_nodes(&matched, &l, &raster.nodes, ctx)?;
         let mut src = Vec::new();
         let mut pec = Vec::new();
         for (&(idx, m), e) in raster.nodes.iter().zip(&e_inc) {
@@ -248,11 +289,14 @@ impl Solver for FdtdSolver {
         let py = cpml::profiles(&l, ny, eps_bg, p.k_b);
         let mut engine = Engine::new(l, EngineInit { ca, cbd, cb_bg: cb_bg as f32, src, pec, px, py });
         // Matched incident at the probes, the scale for the convergence measure.
-        let stride = update::PROBE_STRIDE;
-        let probe_pts: Vec<_> = (0..engine.probe_rows)
-            .flat_map(|r| (0..engine.probe_cols).map(move |c| l.point(l.np + c * stride, l.np + r * stride)))
-            .collect();
-        let inc_probe_norm = matched.eval_points(&probe_pts).iter().map(|v| v.norm_sqr()).sum::<f64>().sqrt();
+        let interior = l.interior_grid();
+        let probes = GridSpec {
+            dx: interior.dx * update::PROBE_STRIDE as f64,
+            nx: engine.probe_cols,
+            ny: engine.probe_rows,
+            ..interior
+        };
+        let inc_probe_norm = incident_on_grid(&matched, &probes, ctx)?.iter().map(|v| v.norm_sqr()).sum::<f64>().sqrt();
         timings.push(("setup".to_string(), t0.elapsed().as_secs_f64()));
         ctx.report(1.0);
         ctx.checkpoint()?;
@@ -287,7 +331,7 @@ impl Solver for FdtdSolver {
             engine.acc_re.iter().zip(&engine.acc_im).map(|(&re, &im)| C64::new(re * scale, im * scale)).collect();
         drop(engine);
         ctx.checkpoint()?;
-        let incident = matched.eval_grid(&grid);
+        let incident = incident_on_grid(&matched, &grid, ctx)?;
         timings.push(("output".to_string(), t2.elapsed().as_secs_f64()));
 
         let mut warnings = Vec::new();

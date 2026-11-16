@@ -326,3 +326,21 @@ fn estimate_calibration() {
         assert!((0.5..=2.0).contains(&worst), "worst ratio {worst:.2}");
     }
 }
+
+/// Default scene: preview against final, and the focal peak of each
+/// (diagnostic for the cross-solver bounds of spec §9.3).
+#[test]
+#[ignore]
+fn preview_against_final() {
+    use beam_core::analytic::metrics::{focal_peak, rel_l2, resample};
+    use beam_core::solver::Part;
+    use beam_core::C64;
+    let s = examples::default();
+    let pre = solve(&s, Quality::Preview, &SolveContext::new()).unwrap();
+    let fin = solve(&s, Quality::Final, &SolveContext::new()).unwrap();
+    let on_fin: Vec<C64> =
+        resample(&pre, Part::Total, &fin.grid).into_iter().map(|v| v.unwrap_or(C64::new(0.0, 0.0))).collect();
+    let mask: Vec<bool> = resample(&pre, Part::Total, &fin.grid).iter().map(|v| v.is_some()).collect();
+    eprintln!("preview vs final rel L2: {:.3e}", rel_l2(&on_fin, &fin.total, Some(&mask)));
+    eprintln!("focus preview {:?}, final {:?}", focal_peak(&pre, 0.0, 0.0, 19.0), focal_peak(&fin, 0.0, 0.0, 19.0));
+}
