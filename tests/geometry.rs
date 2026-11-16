@@ -305,3 +305,21 @@ fn ray_hits_lines_and_arcs() {
     let t = circle.ray_hit(Vec2::ZERO, Vec2::new(1.0, 0.0), 10.0).unwrap();
     assert!((t - 1.0).abs() < 1e-12);
 }
+
+#[test]
+fn polygon_width() {
+    use beam_core::geometry::polygon_min_width;
+    let rect = [Vec2::new(0.0, 0.0), Vec2::new(3.0, 0.0), Vec2::new(3.0, 0.2), Vec2::new(0.0, 0.2)];
+    assert!((polygon_min_width(&rect) - 0.2).abs() < 1e-12);
+    let mut cw = rect;
+    cw.reverse();
+    assert!((polygon_min_width(&cw) - 0.2).abs() < 1e-12);
+    // An L with a thin arm.
+    let l = [Vec2::new(0.0, 0.0), Vec2::new(4.0, 0.0), Vec2::new(4.0, 0.1), Vec2::new(1.0, 0.1), Vec2::new(1.0, 3.0), Vec2::new(0.0, 3.0)];
+    assert!((polygon_min_width(&l) - 0.1).abs() < 1e-12);
+    // A 512-gon of radius 1 is about 2 across, however short its edges.
+    let n = 512;
+    let circle: Vec<Vec2> = (0..n).map(|k| Vec2::from_angle(2.0 * std::f64::consts::PI * k as f64 / n as f64)).collect();
+    let w = polygon_min_width(&circle);
+    assert!(w > 1.99 && w <= 2.0 + 1e-12, "{w}");
+}

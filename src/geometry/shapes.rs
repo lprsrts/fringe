@@ -219,7 +219,7 @@ pub fn local_contours(shape: &Shape) -> Vec<(Contour, Option<f64>)> {
             if v.len() < 3 {
                 return Vec::new();
             }
-            vec![(Contour::polygon(&v), None)]
+            vec![(Contour::polygon(&v), Some(super::intersect::polygon_min_width(&v)))]
         }
     }
 }

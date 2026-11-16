@@ -234,3 +234,26 @@ fn far_waist_is_refused_quickly() {
     set(&mut s, -2000.0, 20.0);
     assert!(codes_at(&s, "source.waist_x_um").is_empty());
 }
+
+#[test]
+fn thin_and_huge_polygons_are_refused() {
+    let mut s = examples::default();
+    let poly = |v: Vec<[f64; 2]>| Shape::Polygon { vertices_um: v };
+    s.elements[0].shape = poly(vec![[-0.005, -1.0], [0.005, -1.0], [0.005, 1.0], [-0.005, 1.0]]);
+    let issues = validate(&s);
+    let e = issues.iter().find(|i| i.code == "polygon_thin").expect("polygon_thin");
+    assert!(e.message.contains("0.01 µm across"), "{}", e.message);
+    // A sliver triangle.
+    s.elements[0].shape = poly(vec![[-1.0, 0.0], [1.0, 0.0], [0.0, 0.0005]]);
+    assert!(validate(&s).iter().any(|i| i.code == "polygon_thin"));
+    // A finely sampled circle is fine however short its edges are.
+    let circle: Vec<[f64; 2]> =
+        (0..2000).map(|k| 2.0 * std::f64::consts::PI * k as f64 / 2000.0).map(|a| [2.0 * a.cos(), 2.0 * a.sin()]).collect();
+    s.elements[0].shape = poly(circle);
+    assert!(errors(&validate(&s)).is_empty(), "{:?}", errors(&validate(&s)));
+    s.elements[0].shape = poly((0..3000).map(|k| {
+        let a = 2.0 * std::f64::consts::PI * k as f64 / 3000.0;
+        [2.0 * a.cos(), 2.0 * a.sin()]
+    }).collect());
+    assert_eq!(codes_at(&s, "elements[0].shape.vertices_um"), ["polygon_vertices"]);
+}

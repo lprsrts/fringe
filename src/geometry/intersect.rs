@@ -207,3 +207,49 @@ pub fn polygon_self_intersects(v: &[Vec2]) -> bool {
     }
     false
 }
+
+/// Most vertices a polygon element may have. Validation and the thickness
+/// below are quadratic in the count.
+pub const MAX_POLYGON_VERTICES: usize = 2048;
+
+/// The thinnest part of a simple polygon: the shortest distance across it,
+/// measured inward from every vertex (along the bisector of its corner) and
+/// from the midpoint of every edge (along the edge's inward normal) to where the
+/// ray leaves the polygon. 0 for a degenerate polygon.
+pub fn polygon_min_width(v: &[Vec2]) -> f64 {
+    let n = v.len();
+    if n < 3 {
+        return 0.0;
+    }
+    let mut v = v.to_vec();
+    if super::signed_area(&v) < 0.0 {
+        v.reverse();
+    }
+    let edge = |i: usize| Segment::Line { a: v[i], b: v[(i + 1) % n] };
+    // Inward normal of edge i of a counter-clockwise polygon: the edge turned left.
+    let normal = |i: usize| (v[(i + 1) % n] - v[i]).normalized().perp();
+    let reach = 2.0 * crate::types::Rect::from_points(v.iter().copied()).diag();
+    // First exit of the ray p + t·dir, ignoring the edges in `skip`.
+    let exit = |p: Vec2, dir: Vec2, skip: [usize; 2]| {
+        (0..n)
+            .filter(|i| !skip.contains(i))
+            .flat_map(|i| edge(i).ray_hits(p, dir, reach))
+            .fold(f64::INFINITY, f64::min)
+    };
+    let mut width = f64::INFINITY;
+    for i in 0..n {
+        let prev = (i + n - 1) % n;
+        let bis = normal(prev) + normal(i);
+        if bis.norm() <= 1e-12 {
+            return 0.0;
+        }
+        width = width.min(exit(v[i], bis.normalized(), [prev, i]));
+        let mid = v[i].lerp(v[(i + 1) % n], 0.5);
+        width = width.min(exit(mid, normal(i), [i, i]));
+    }
+    if width.is_finite() {
+        width
+    } else {
+        0.0
+    }
+}

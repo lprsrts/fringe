@@ -4,7 +4,8 @@
 use serde::Serialize;
 
 use crate::geometry::{
-    element_bodies, lens_surface_x, min_gap, polygon_self_intersects, signed_area, Body,
+    element_bodies, lens_surface_x, min_gap, polygon_min_width, polygon_self_intersects, signed_area, Body,
+    MAX_POLYGON_VERTICES,
 };
 use crate::solver::Quality;
 use crate::source::gaussian;
@@ -566,6 +567,12 @@ fn check_element(c: &mut Checker, i: usize, e: &Element, lambda0: f64, lambda_b:
         Shape::Polygon { ref vertices_um } => {
             if vertices_um.len() < 3 {
                 c.err(s("vertices_um"), "polygon_vertices", "a polygon needs at least 3 vertices");
+            } else if vertices_um.len() > MAX_POLYGON_VERTICES {
+                c.err(
+                    s("vertices_um"),
+                    "polygon_vertices",
+                    format!("a polygon may have at most {MAX_POLYGON_VERTICES} vertices (got {})", vertices_um.len()),
+                );
             } else if vertices_um.iter().any(|v| !(v[0].is_finite() && v[1].is_finite())) {
                 c.err(s("vertices_um"), "non_finite", "polygon vertices must be finite");
             } else {
@@ -575,6 +582,19 @@ fn check_element(c: &mut Checker, i: usize, e: &Element, lambda0: f64, lambda_b:
                     c.err(s("vertices_um"), "polygon_area", "the polygon has zero area");
                 } else if polygon_self_intersects(&v) {
                     c.err(s("vertices_um"), "polygon_self_intersecting", "the polygon crosses itself");
+                } else {
+                    let width = polygon_min_width(&v);
+                    if width < thick {
+                        c.err(
+                            s("vertices_um"),
+                            "polygon_thin",
+                            format!(
+                                "the polygon is {} µm across at its thinnest; it must be at least {} µm",
+                                fmt(width),
+                                fmt(thick)
+                            ),
+                        );
+                    }
                 }
             }
         }
