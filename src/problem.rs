@@ -98,7 +98,8 @@ pub struct Resolved {
     pub mom: MomResolved,
 }
 
-/// The defaults table. Wave 3 may retune the numbers.
+/// The defaults table: resolutions per method and quality, output sampling and
+/// memory limits.
 pub mod defaults {
     use crate::solver::{Method, Quality};
 

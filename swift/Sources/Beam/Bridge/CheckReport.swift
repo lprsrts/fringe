@@ -345,11 +345,6 @@ public struct SolveMeta: Decodable, Equatable, Sendable {
         incidentKind = try c.decodeIfPresent(String.self, forKey: .incidentKind) ?? "analytic"
         wallS = try c.decodeIfPresent(Double.self, forKey: .wallS) ?? 0
     }
-
-    /// True when the solver is a placeholder that returns only the incident field.
-    public var isStub: Bool {
-        warnings.contains { $0.contains("not implemented yet") }
-    }
 }
 
 public struct BodyInfo: Decodable, Equatable, Sendable {

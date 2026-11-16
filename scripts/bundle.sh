@@ -8,8 +8,10 @@ app="$root/target/Beam.app"
 
 "$root/scripts/build.sh"
 
-# Take the minimum OS from the binary so Info.plist can't drift from Package.swift.
+# Take the minimum OS from the binary and the version from Cargo.toml, so
+# Info.plist can't drift from either.
 min_os="$(vtool -show-build "$bin" | awk '/minos/ { print $2; exit }')"
+version="$(awk -F'"' '/^version *=/ { print $2; exit }' "$root/Cargo.toml")"
 
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
@@ -33,7 +35,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>${version}</string>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>LSMinimumSystemVersion</key>

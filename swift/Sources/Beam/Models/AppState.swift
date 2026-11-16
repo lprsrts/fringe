@@ -518,7 +518,6 @@ public final class AppState {
         ]
         if info.quality == .final { parts.append(SceneFormat.seconds(info.meta.wallS)) }
         if !info.meta.converged { parts.append("not converged") }
-        if info.meta.isStub { parts.append("incident field only") }
         return parts.joined(separator: " · ")
     }
 

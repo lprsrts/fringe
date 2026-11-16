@@ -20,7 +20,15 @@ use super::metrics::{fitted_order, flux_balance, interface_band, observed_order,
 use super::{pec_plane_image, AirySlab, MieCylinder};
 
 /// One row of the tolerance table. A bound of `None` means the case does not
-/// apply to that method. Wave 3 tightens these to min(bound, 2 × measured).
+/// apply to that method.
+///
+/// Error bounds follow the spec's policy (§9): min(spec bound, 2 × measured),
+/// rounded up to two significant digits, measured at final quality on the
+/// release build. They are regression guards, so a change that makes a solver
+/// less accurate fails here even while it is still inside the spec's upper
+/// bound. Zero stays zero; MoM `transparent` keeps the spec's 1e−6 (it measures
+/// exactly 0). Order rows (`fdtd_subpixel_order`, `fem_order`) are lower bounds
+/// and keep the spec's values.
 #[derive(Clone, Copy, Debug, Serialize)]
 pub struct CaseSpec {
     pub id: &'static str,
@@ -46,33 +54,33 @@ const fn case(
 }
 
 pub const CASES: [CaseSpec; 18] = [
-    case("mie_pec", false, Some(5e-3), Some(2e-2), Some(8e-2), Some(30.0), "PEC cylinder r = 1, plane wave 0°"),
-    case("mie_pec_37", false, Some(5e-3), Some(2e-2), Some(8e-2), Some(30.0), "PEC cylinder r = 1, plane wave 37°"),
+    case("mie_pec", false, Some(6.4e-5), Some(8.6e-4), Some(8e-2), Some(30.0), "PEC cylinder r = 1, plane wave 0°"),
+    case("mie_pec_37", false, Some(6.3e-5), Some(8.7e-4), Some(8e-2), Some(30.0), "PEC cylinder r = 1, plane wave 37°"),
     case(
         "mie_pec_resonance",
         false,
-        Some(1e-2),
+        Some(7.7e-5),
         None,
         None,
         None,
         "PEC cylinder at the first interior resonance: CFIE error at 9 radii, EFIE/CFIE conditioning",
     ),
-    case("mie_diel", false, Some(5e-3), Some(1.5e-2), Some(3e-2), None, "dielectric cylinder n = 1.5, r = 1"),
-    case("mie_lossy", false, Some(5e-3), Some(1.5e-2), Some(3e-2), None, "lossy cylinder n = 1.5 + 0.05i, r = 1"),
+    case("mie_diel", false, Some(2.2e-4), Some(8e-4), Some(1.8e-2), None, "dielectric cylinder n = 1.5, r = 1"),
+    case("mie_lossy", false, Some(9.3e-5), Some(6e-4), Some(8.1e-3), None, "lossy cylinder n = 1.5 + 0.05i, r = 1"),
     case(
         "mie_high_index",
         true,
-        Some(1e-2),
-        Some(3e-2),
-        Some(8e-2),
+        Some(1.5e-4),
+        Some(1.1e-3),
+        Some(3.7e-2),
         Some(30.0),
         "cylinder n = 3.5, r = 0.5; an FDTD run that stops at the period cap must warn",
     ),
-    case("slab_airy_0", false, Some(5e-3), Some(2e-2), Some(4e-2), None, "Gaussian beam through a slab, normal incidence"),
-    case("slab_airy_30", true, Some(5e-3), Some(2e-2), Some(4e-2), None, "Gaussian beam through a slab at 30°"),
-    case("slab_lossy", true, Some(5e-3), Some(2e-2), Some(4e-2), None, "Gaussian beam through a lossy slab"),
-    case("mirror_0", false, Some(5e-3), Some(2e-2), Some(4e-2), None, "Gaussian beam on a flat PEC mirror"),
-    case("mirror_25", true, Some(5e-3), Some(2e-2), Some(4e-2), None, "Gaussian beam on a flat PEC mirror at 25°"),
+    case("slab_airy_0", false, Some(2.7e-6), Some(2.3e-3), Some(1.2e-3), None, "Gaussian beam through a slab, normal incidence"),
+    case("slab_airy_30", true, Some(2e-5), Some(1.7e-3), Some(2.2e-2), None, "Gaussian beam through a slab at 30°"),
+    case("slab_lossy", true, Some(1.8e-6), Some(1.9e-3), Some(5.1e-3), None, "Gaussian beam through a lossy slab"),
+    case("mirror_0", false, Some(3.7e-6), Some(1.1e-3), Some(5.5e-3), None, "Gaussian beam on a flat PEC mirror"),
+    case("mirror_25", true, Some(2.3e-5), Some(9.4e-4), Some(2.3e-2), None, "Gaussian beam on a flat PEC mirror at 25°"),
     case(
         "fdtd_subpixel_order",
         true,
@@ -83,9 +91,9 @@ pub const CASES: [CaseSpec; 18] = [
         "mie_diel with subpixel smoothing: least-squares order over 12–30 ppw ≥ 1.6, and at 24 ppw at least 2× more accurate than without",
     ),
     case("fem_order", true, None, Some(3.0), None, None, "observed order of mie_diel with P3 at 9 and 15 ppw (≥ bound)"),
-    case("mom_self", false, Some(3e-3), None, None, None, "mie_diel at 12 against 16 panels per wavelength"),
-    case("pml_hygiene", true, None, Some(5e-3), Some(1e-2), None, "mie_pec against the same with the domain 4 µm larger"),
-    case("balance", false, Some(1e-2), Some(1e-2), Some(3e-2), None, "energy balance of mie_lossy"),
+    case("mom_self", false, Some(5e-4), None, None, None, "mie_diel at 12 against 16 panels per wavelength"),
+    case("pml_hygiene", true, None, Some(9.9e-4), Some(1.9e-6), None, "mie_pec against the same with the domain 4 µm larger"),
+    case("balance", false, Some(2.2e-4), Some(1.7e-4), Some(2e-3), None, "energy balance of mie_lossy"),
     case("free_beam", false, Some(0.0), Some(0.0), Some(0.0), None, "no elements: the scattered field is exactly zero"),
     case("transparent", false, Some(1e-6), Some(0.0), Some(0.0), None, "cylinder with n = n_b: no scattering"),
 ];

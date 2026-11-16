@@ -213,7 +213,8 @@ fn perf() -> bool {
 }
 
 /// Default scene timings against the estimate (release build; asserted with
-/// BEAM_PERF=1).
+/// BEAM_PERF=1). Each quality runs three times and the fastest counts, so other
+/// load on the machine does not decide the result; run with --test-threads=1.
 #[test]
 #[ignore]
 fn default_scene_performance() {
@@ -221,11 +222,16 @@ fn default_scene_performance() {
         let s = examples::default();
         let p = compile(&s, q).unwrap();
         let est = solver_for(Method::Fdtd).estimate(&p);
-        let t = Instant::now();
-        let f = solve(&s, q, &SolveContext::new()).unwrap();
-        let secs = t.elapsed().as_secs_f64();
+        let mut secs = f64::INFINITY;
+        let mut f = None;
+        for _ in 0..3 {
+            let t = Instant::now();
+            f = Some(solve(&s, q, &SolveContext::new()).unwrap());
+            secs = secs.min(t.elapsed().as_secs_f64());
+        }
+        let f = f.unwrap();
         eprintln!(
-            "default {}: {:.3} s (estimate {:.3} s, {}), periods {:?}, converged {}, residual {:?}, timings {:?}",
+            "default {} (best of 3): {:.3} s (estimate {:.3} s, {}), periods {:?}, converged {}, residual {:?}, timings {:?}",
             q.name(),
             secs,
             est.seconds,
