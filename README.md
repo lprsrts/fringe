@@ -233,8 +233,12 @@ src/solver/mom/     MoM
 src/solver/         shared solver interface, field grid, cancellation
 src/analytic/       Mie, Airy slab, PEC image references; validation cases and metrics
 src/render/         colormaps, field to RGBA, PNG and .npy export
+src/problem.rs      a scene compiled for one solve: bodies, incident field, settings per quality
+src/check.rs        the check report: issues, cost estimates, derived values
+src/types.rs        complex numbers, 2D vectors, rectangles
 src/linalg.rs       dense and sparse LU (faer)
 src/job.rs, ffi.rs  background jobs and the C ABI
+src/lib.rs          crate root and re-exports
 src/bin/beam_cli.rs beam-cli
 include/            C header for the ABI
 swift/              SwiftUI app (Swift package "Beam")
