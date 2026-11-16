@@ -32,12 +32,12 @@ const MAX_DOFS_PREVIEW: f64 = 600e3;
 const MAX_DOFS_FINAL: f64 = 2.5e6;
 
 /// Calibration constants (release build, M-series, 8+ cores; measured on the
-/// default scene: preview 50k unknowns ≈ 0.9 s and 480 MB peak, final 140k
-/// unknowns ≈ 3.5 s and 1.7 GB peak).
+/// default scene: preview 50k unknowns ≈ 0.6–0.9 s and 480 MB peak, final 140k
+/// unknowns ≈ 2.2–3.5 s and 1.7 GB peak).
 /// Memory: C_MEM MB · N · log2(N) for N system unknowns.
 const C_MEM: f64 = 6.5e-4;
 /// Time: C_T s · N^1.4.
-const C_T: f64 = 2.3e-7;
+const C_T: f64 = 2.0e-7;
 
 /// Estimated number of DOFs (all nodes) of the mesh `mesh::build` makes: about
 /// p² · (2/√3)/h² per unit area plus the finer constraint points along contours.
