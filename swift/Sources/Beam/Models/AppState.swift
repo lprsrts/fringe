@@ -457,7 +457,10 @@ public final class AppState {
         let lut = stale
             ? BeamBridge.colormapLUT(display.colormap.rawValue, wavelengthUm: source.wavelengthUm)
             : legendLUT
-        let bodies = stale ? shownOutlines : outlines
+        // Disabled elements are not part of the solve, so the export leaves out their
+        // dashed outlines (the canvas still shows them).
+        var bodies = stale ? shownOutlines : outlines
+        bodies?.bodies.removeAll { !$0.enabled }
         return OverlayModel(
             viewRect: viewRect,
             interior: source.domain.rect,
