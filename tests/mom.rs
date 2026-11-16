@@ -377,19 +377,37 @@ fn examples_preview() {
     }
 }
 
+/// Serialises the two timing tests. Run them with `--test-threads=1` as well,
+/// since the other ignored tests in this binary would share the cores.
+static PERF_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Best of three timed solves (the first also warms the thread pool), so that
+/// other processes' load does not masquerade as estimate error.
+fn timed_solve(s: &Scene, q: Quality) -> (FieldGrid, f64) {
+    let mut best = f64::INFINITY;
+    let mut out = None;
+    for _ in 0..3 {
+        let t = Instant::now();
+        let f = solve(s, q, &SolveContext::new()).unwrap();
+        best = best.min(t.elapsed().as_secs_f64());
+        out = Some(f);
+    }
+    (out.unwrap(), best)
+}
+
 /// Spec §9.4: default scene preview ≤ 1.5 s and final ≤ 12 s, with the
-/// estimate within 2× of the measured time (asserted with BEAM_PERF=1).
+/// estimate within 2× of the measured time (best of three; asserted with
+/// BEAM_PERF=1).
 #[test]
 #[ignore]
 fn performance_default_scene() {
+    let _serial = PERF_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut s = example("lens").unwrap();
     s.solver.method = Method::Mom;
     for (q, budget) in [(Quality::Preview, 1.5), (Quality::Final, 12.0)] {
         let p = compile(&s, q).unwrap();
         let est = solver_for(Method::Mom).estimate(&p);
-        let t = Instant::now();
-        let f = solve(&s, q, &SolveContext::new()).unwrap();
-        let secs = t.elapsed().as_secs_f64();
+        let (f, secs) = timed_solve(&s, q);
         let ratio = est.seconds / secs;
         eprintln!(
             "default {}: {} unknowns, {secs:.3} s (estimate {:.3} s, ratio {ratio:.2}; memory estimate {:.0} MB) {:?}",
@@ -502,10 +520,11 @@ fn shapes_converge() {
 }
 
 /// Spec §9.4: `estimate()` within 2× of the measured time on every example at
-/// both qualities (asserted with BEAM_PERF=1 on a quiet machine).
+/// both qualities (best of three; asserted with BEAM_PERF=1).
 #[test]
 #[ignore]
 fn estimate_calibration() {
+    let _serial = PERF_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut worst = 1.0f64;
     for info in EXAMPLES.iter() {
         let mut s = example(info.name).unwrap();
@@ -513,9 +532,7 @@ fn estimate_calibration() {
         for q in [Quality::Preview, Quality::Final] {
             let p = compile(&s, q).unwrap();
             let est = solver_for(Method::Mom).estimate(&p);
-            let t = Instant::now();
-            let f = solve(&s, q, &SolveContext::new()).unwrap();
-            let secs = t.elapsed().as_secs_f64();
+            let (f, secs) = timed_solve(&s, q);
             let ratio = est.seconds / secs;
             eprintln!(
                 "{:14} {:7} N {:5} estimate {:6.3} s measured {:6.3} s ratio {ratio:.2}",
