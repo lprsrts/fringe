@@ -27,7 +27,7 @@ pub mod system;
 
 use std::time::Instant;
 
-use crate::geometry::min_gap;
+use crate::geometry::{min_gap, BodyMaterial};
 use crate::problem::Problem;
 
 use super::{Estimate, Issue, Method, SolveContext, SolveError, Solver, SolverMeta, SolverOutput, Stage};
@@ -73,10 +73,18 @@ fn work(p: &Problem, panels: &Panels) -> Work {
     }
     let g = p.output_grid();
     let n = panels.n_unknowns as f64;
-    // Points inside dielectric bodies cost about three exterior nodes per node
-    // (two kernels, interpolated incident traces).
-    let interior_area: f64 = p.bodies.iter().filter(|b| !b.is_pec()).map(|b| b.contour.area().abs()).sum();
-    let pts = g.len() as f64 + 2.0 * interior_area / (g.dx * g.dx);
+    // A point inside a dielectric body costs about three exterior nodes per node
+    // (two kernels, interpolated incident traces), nine when the body absorbs
+    // (complex-argument Hankel functions).
+    let interior: f64 = p
+        .bodies
+        .iter()
+        .filter_map(|b| match b.material {
+            BodyMaterial::Dielectric { n, .. } => Some(b.contour.area().abs() * if n.im != 0.0 { 8.0 } else { 2.0 }),
+            BodyMaterial::Pec => None,
+        })
+        .sum();
+    let pts = g.len() as f64 + interior / (g.dx * g.dx);
     Work { unknowns: panels.n_unknowns, fill_nodes: fill, lu: n * n * n, eval_nodes: pts * np * far_q, grid_points: g.len() }
 }
 
