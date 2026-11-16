@@ -57,10 +57,17 @@ fn phase(n: usize, p: usize, probe: bool, full: bool) -> StepPhase {
     }
 }
 
+/// Why a run stopped without a result.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stop {
+    Cancelled,
+    /// The field became infinite or NaN.
+    NonFinite,
+}
+
 /// Runs to steady state and accumulates the final DFT into `engine.acc_*`.
-/// `tick(periods_done)` is called after every step and returns true to cancel;
-/// the run then returns `None`.
-pub fn run(engine: &mut Engine, prm: &RunParams, mut tick: impl FnMut(f64) -> bool) -> Option<RunResult> {
+/// `tick(periods_done)` is called after every step and returns true to cancel.
+pub fn run(engine: &mut Engine, prm: &RunParams, mut tick: impl FnMut(f64) -> bool) -> Result<RunResult, Stop> {
     let p = engine.l.steps_per_period;
     let mut n = 0usize;
     let mut prev: Option<(Vec<f64>, Vec<f64>)> = None;
@@ -75,7 +82,7 @@ pub fn run(engine: &mut Engine, prm: &RunParams, mut tick: impl FnMut(f64) -> bo
             engine.step(&phase(n, p, true, false));
             n += 1;
             if tick(n as f64 / p as f64) {
-                return None;
+                return Err(Stop::Cancelled);
             }
         }
         period += 1;
@@ -88,6 +95,9 @@ pub fn run(engine: &mut Engine, prm: &RunParams, mut tick: impl FnMut(f64) -> bo
             }
             let den = norm.sqrt().max(0.01 * prm.inc_probe_norm);
             last_change = Some(if diff == 0.0 { 0.0 } else { diff.sqrt() / den });
+        }
+        if engine.probe_re.iter().chain(&engine.probe_im).any(|v| !v.is_finite()) {
+            return Err(Stop::NonFinite);
         }
         prev = Some((
             engine.probe_re.iter().map(|v| v * scale).collect(),
@@ -110,8 +120,11 @@ pub fn run(engine: &mut Engine, prm: &RunParams, mut tick: impl FnMut(f64) -> bo
         engine.step(&phase(n, p, false, true));
         n += 1;
         if tick(n as f64 / p as f64) {
-            return None;
+            return Err(Stop::Cancelled);
         }
     }
-    Some(RunResult { periods: period + prm.dft_periods, converged, last_change })
+    if engine.acc_re.iter().chain(&engine.acc_im).any(|v| !v.is_finite()) {
+        return Err(Stop::NonFinite);
+    }
+    Ok(RunResult { periods: period + prm.dft_periods, converged, last_change })
 }

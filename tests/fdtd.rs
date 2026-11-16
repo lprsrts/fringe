@@ -411,3 +411,25 @@ fn pec_surface_snaps_to_the_nearest_node_line() {
     let e = edges.iter().find(|e| e.free == free && !e.hx).expect("an Hy edge from the free node");
     assert!((e.len - 1.3 * dx).abs() < 1e-9 * dx, "edge length {} Δ", e.len / dx);
 }
+
+/// A field that overflows is a numerical error, not a NaN result. Validation
+/// keeps amplitudes below 1e30; this bypasses it.
+#[test]
+fn non_finite_field_is_an_error() {
+    use beam_core::problem::compile_unchecked;
+    use beam_core::scene::Source;
+    use beam_core::solver::SolveError;
+    let mut s = case_scene("mie_pec").unwrap();
+    s.solver.method = Method::Fdtd;
+    if let Source::PlaneWave { amplitude, .. } = &mut s.source {
+        *amplitude = 1e40;
+    }
+    let p = compile_unchecked(&s, Quality::Preview);
+    let t = Instant::now();
+    match FdtdSolver.solve(&p, &SolveContext::new()) {
+        Err(SolveError::Numerical(m)) => assert!(m.contains("infinite or NaN"), "{m}"),
+        Err(e) => panic!("wrong error {e}"),
+        Ok(_) => panic!("an overflowing run returned a result"),
+    }
+    assert!(t.elapsed().as_secs_f64() < 5.0, "the run went on after the field overflowed");
+}

@@ -291,9 +291,17 @@ fn check_source(c: &mut Checker, s: &Source, lambda_b: f64) {
     }
 }
 
+/// Largest accepted source amplitude. FDTD keeps its fields in f32, which
+/// overflows near 3.4e38; this leaves room for field enhancement.
+pub const MAX_AMPLITUDE: f64 = 1e30;
+
 fn check_amplitude(c: &mut Checker, a: f64) {
-    if c.finite("source.amplitude", a, "Amplitude") && a <= 0.0 {
-        c.err("source.amplitude", "out_of_range", "amplitude must be positive");
+    if c.finite("source.amplitude", a, "Amplitude") {
+        if a <= 0.0 {
+            c.err("source.amplitude", "out_of_range", "amplitude must be positive");
+        } else if a > MAX_AMPLITUDE {
+            c.err("source.amplitude", "out_of_range", "amplitude must be at most 1e30");
+        }
     }
 }
 

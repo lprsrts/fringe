@@ -196,6 +196,19 @@ fn codes_at(s: &beam_core::Scene, path: &str) -> Vec<String> {
     errors(&validate(s)).iter().filter(|i| i.path == path).map(|i| i.code.clone()).collect()
 }
 
+#[test]
+fn amplitude_is_bounded() {
+    let mut s = examples::default();
+    if let beam_core::scene::Source::GaussianBeam { amplitude, .. } = &mut s.source {
+        *amplitude = 1e40;
+    }
+    assert_eq!(codes_at(&s, "source.amplitude"), ["out_of_range"]);
+    if let beam_core::scene::Source::GaussianBeam { amplitude, .. } = &mut s.source {
+        *amplitude = 1e30;
+    }
+    assert!(codes_at(&s, "source.amplitude").is_empty());
+}
+
 /// A waist far from the domain would need a huge plane-wave sum; it is refused
 /// with a message that says how far is possible, and the check returns at once.
 #[test]

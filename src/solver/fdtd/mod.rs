@@ -369,7 +369,10 @@ impl Solver for FdtdSolver {
                 ctx.is_cancelled()
             },
         )
-        .ok_or(SolveError::Cancelled)?;
+        .map_err(|stop| match stop {
+            dft::Stop::Cancelled => SolveError::Cancelled,
+            dft::Stop::NonFinite => SolveError::Numerical("the FDTD field became infinite or NaN".into()),
+        })?;
         timings.push(("time stepping".to_string(), t1.elapsed().as_secs_f64()));
 
         // Output: the scattered phasor and the matched incident field.
