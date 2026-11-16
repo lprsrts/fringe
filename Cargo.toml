@@ -1,0 +1,16 @@
+[package]
+name = "beam_core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "beam_core"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+rayon = "1.10"
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[[bin]]
+name = "beam-cli"
+path = "src/bin/beam_cli.rs"

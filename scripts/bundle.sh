@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Build and wrap the Swift executable in target/Beam.app, ad-hoc signed.
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+bin="$root/swift/.build/release/Beam"
+app="$root/target/Beam.app"
+
+"$root/scripts/build.sh"
+
+# Take the minimum OS from the binary so Info.plist can't drift from Package.swift.
+min_os="$(vtool -show-build "$bin" | awk '/minos/ { print $2; exit }')"
+
+rm -rf "$app"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+cp "$bin" "$app/Contents/MacOS/Beam"
+
+cat > "$app/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>Beam</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.asympton.beam-bg</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>Beam</string>
+    <key>CFBundleDisplayName</key>
+    <string>Beam</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>${min_os}</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+</dict>
+</plist>
+PLIST
+
+codesign --force --sign - "$app"
+echo "$app"

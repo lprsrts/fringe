@@ -1,0 +1,6 @@
+/target/
+/swift/.build/
+/swift/.swiftpm/
+
+.claude/settings.local.json
+.DS_Store
