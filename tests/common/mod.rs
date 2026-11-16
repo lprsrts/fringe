@@ -31,7 +31,7 @@ pub fn fixture(name: &str) -> String {
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"))
 }
 
-/// Runs a validation case and asserts it passes; a stub solver passes vacuously.
+/// Runs a validation case and asserts it passes.
 pub fn assert_case(id: &str, method: Method, quality: Quality) -> CaseResult {
     let r = cases::run_case(id, method, quality).unwrap_or_else(|e| panic!("{id}: {e}"));
     eprintln!(
@@ -44,6 +44,6 @@ pub fn assert_case(id: &str, method: Method, quality: Quality) -> CaseResult {
         r.status,
         r.detail
     );
-    assert!(r.status != Status::Fail, "{id} with {} failed: {:?}", method.label(), r);
+    assert!(r.status == Status::Pass, "{id} with {} failed: {:?}", method.label(), r);
     r
 }

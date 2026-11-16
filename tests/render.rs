@@ -2,6 +2,7 @@ mod common;
 
 use std::collections::HashMap;
 
+use beam_core::analytic::cases;
 use beam_core::render::view::{scale, NormMode, Normalization, PartName, ViewRect};
 use beam_core::render::{render_rgba, write_npy_c128, Colormap, ColormapKind, Quantity, View};
 use beam_core::scene::examples;
@@ -134,11 +135,16 @@ fn outside_and_pec_colours() {
 
 #[test]
 fn parts_and_errors() {
-    let f = field("lens");
     let scattered = View { part: PartName::Scattered, ..View::default() };
-    // Stub solvers leave the scattered field at zero.
-    let buf = render(&f, &scattered, 40, 20);
+    // With no elements the scattered field is exactly zero: one flat colour.
+    let free = solve(&cases::case_scene("free_beam").unwrap(), Quality::Preview, &SolveContext::new()).unwrap();
+    let buf = render(&free, &scattered, 40, 20);
     assert!(buf.chunks_exact(4).all(|c| c == [0, 0, 4, 255]));
+    // The lens scatters, so its scattered part is not flat.
+    let f = field("lens");
+    let buf = render(&f, &scattered, 40, 20);
+    assert!(buf.chunks_exact(4).any(|c| c != [0, 0, 4, 255]));
+    assert!((0..f.grid.len()).any(|i| f.value(Part::Scattered, i).norm() > 0.05));
     let mut small = vec![0u8; 10];
     assert!(render_rgba(&f, &View::default(), 4, 4, &mut small).is_err());
     assert!(render_rgba(&f, &View { colormap: "nope".into(), ..View::default() }, 4, 4, &mut [0u8; 64]).is_err());

@@ -30,7 +30,7 @@ Usage:
   beam-cli frames SCENE -o DIR [--frames N] [options]
                                           one solve, N images over phase 0..360°
   beam-cli validate [--case ID[,ID…]|all] [--solver fdtd,fem,mom|all]
-                    [--quality preview|final] [--slow] [--strict] [--json]
+                    [--quality preview|final] [--slow] [--json]
   beam-cli compare SCENE [--solvers fem,mom,fdtd] [--quality final] [--json]
   beam-cli --help | --version
 
@@ -521,7 +521,6 @@ fn cmd_validate(a: &mut Args) -> Result<()> {
         None => Quality::Final,
     };
     let slow = a.flag(&["--slow"]);
-    let strict = a.flag(&["--strict"]);
     let as_json = a.flag(&["--json"]);
     a.finish()?;
     for id in &ids {
@@ -551,7 +550,7 @@ fn cmd_validate(a: &mut Args) -> Result<()> {
                     continue;
                 }
             };
-            failed |= r.status == Status::Fail || (strict && r.status == Status::Stub);
+            failed |= r.status == Status::Fail;
             if !as_json {
                 let num = |v: Option<f64>| v.map_or("-".to_string(), |x| format!("{x:.2e}"));
                 println!(

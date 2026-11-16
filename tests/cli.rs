@@ -108,15 +108,19 @@ fn frames() {
 }
 
 #[test]
-fn validate_reports_stubs() {
+fn validate_prints_a_row_per_case_and_solver() {
     let o = cli(&["validate", "--case", "free_beam,transparent", "--quality", "preview"], None);
     let text = String::from_utf8_lossy(&o.stdout).to_string();
-    assert!(text.contains("free_beam") && text.contains("transparent"), "{text}");
-    // Stub solvers are reported as such and only fail under --strict.
-    assert!(text.lines().any(|l| l.starts_with("free_beam") && (l.contains("STUB") || l.contains("PASS"))), "{text}");
-    assert_eq!(code(&o), 0);
-    let o = cli(&["validate", "--case", "mie_pec", "--solver", "mom", "--quality", "preview", "--strict"], None);
-    assert!(String::from_utf8_lossy(&o.stdout).contains("STUB"));
-    assert_eq!(code(&o), 1);
+    for case in ["free_beam", "transparent"] {
+        let rows: Vec<&str> = text.lines().filter(|l| l.starts_with(case)).collect();
+        assert_eq!(rows.len(), 3, "{text}");
+        assert!(rows.iter().all(|l| l.contains("| PASS")), "{text}");
+    }
+    assert_eq!(code(&o), 0, "{text}");
+    let o = cli(&["validate", "--case", "free_beam", "--solver", "mom", "--json"], None);
+    let rows: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap();
+    assert_eq!(rows[0]["status"], "pass");
+    assert_eq!(rows[0]["error"], 0.0);
     assert_eq!(code(&cli(&["validate", "--case", "nope"], None)), 2);
+    assert_eq!(code(&cli(&["validate", "--solver", "nope"], None)), 2);
 }

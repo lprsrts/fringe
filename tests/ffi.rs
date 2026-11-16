@@ -110,11 +110,18 @@ fn job_lifecycle_on_the_default_scene() {
     assert_eq!(info["method"], "fdtd");
     assert_eq!(info["quality"], "preview");
     assert_eq!(info["incident_peak"], 1.0);
-    assert!(info["meta"]["warnings"][0].as_str().unwrap().contains("not implemented yet"));
-    // Stub solvers return the incident field: |E| = A at the waist centre.
+    // The incident part is A at the waist centre (to the FDTD's Yee matching),
+    // and the total there differs from it only by the weak lens reflection.
     let (mut re, mut im) = (0.0, 0.0);
-    assert!(unsafe { beam_field_sample(field, -6.0, 0.0, 0, &mut re, &mut im) });
-    assert!(((re * re + im * im).sqrt() - 1.0).abs() < 1e-3, "{re} {im}");
+    assert!(unsafe { beam_field_sample(field, -6.0, 0.0, 2, &mut re, &mut im) });
+    assert!(((re * re + im * im).sqrt() - 1.0).abs() < 1e-3, "incident {re} {im}");
+    let (mut sre, mut sim) = (0.0, 0.0);
+    assert!(unsafe { beam_field_sample(field, -6.0, 0.0, 1, &mut sre, &mut sim) });
+    let s = (sre * sre + sim * sim).sqrt();
+    assert!(s > 1e-3 && s < 0.3, "scattered {s}");
+    let (mut tre, mut tim) = (0.0, 0.0);
+    assert!(unsafe { beam_field_sample(field, -6.0, 0.0, 0, &mut tre, &mut tim) });
+    assert!((tre - re - sre).abs() < 1e-12 && (tim - im - sim).abs() < 1e-12);
     assert!(!unsafe { beam_field_sample(field, 100.0, 0.0, 0, &mut re, &mut im) });
     assert!(!unsafe { beam_field_sample(field, 0.0, 0.0, 7, &mut re, &mut im) });
 

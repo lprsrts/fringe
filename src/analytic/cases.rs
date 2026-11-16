@@ -101,8 +101,6 @@ impl CaseSpec {
 pub enum Status {
     Pass,
     Fail,
-    /// The solver is a stub (incident field only).
-    Stub,
     /// The case does not apply to this solver.
     NotApplicable,
 }
@@ -112,7 +110,6 @@ impl Status {
         match self {
             Status::Pass => "PASS",
             Status::Fail => "FAIL",
-            Status::Stub => "STUB",
             Status::NotApplicable => "n/a",
         }
     }
@@ -220,10 +217,6 @@ fn with_method(mut s: Scene, m: Method, ppw: Option<f64>) -> Scene {
         }
     }
     s
-}
-
-fn is_stub(f: &FieldGrid) -> bool {
-    f.meta.solver.warnings.iter().any(|w| w.contains("not implemented yet"))
 }
 
 /// The analytic total field of a case at `p`.
@@ -339,13 +332,11 @@ pub fn run_case(id: &str, method: Method, quality: Quality) -> Result<CaseResult
     };
     let scene0 = case_scene(id).ok_or_else(|| format!("no scene for case {id}"))?;
     let ppw = if method == Method::Fdtd { spec.fdtd_ppw } else { None };
-    let mut stub = false;
     let mut pass;
 
     match id {
         "free_beam" | "transparent" => {
             let r = run(&with_method(scene0, method, ppw), quality)?;
-            stub = is_stub(&r.field);
             let e = max_scattered(&r.field);
             result.error = Some(e);
             result.detail = "max |E_s| / A".into();
@@ -355,7 +346,6 @@ pub fn run_case(id: &str, method: Method, quality: Quality) -> Result<CaseResult
         }
         "balance" => {
             let r = run(&with_method(scene0, method, ppw), quality)?;
-            stub = is_stub(&r.field);
             let fb = flux_balance(&r.field, r.field.scene.domain.rect().expand(-0.5));
             let e = fb.residual();
             result.error = Some(e);
@@ -367,7 +357,6 @@ pub fn run_case(id: &str, method: Method, quality: Quality) -> Result<CaseResult
         "mom_self" => {
             let a = run(&with_method(scene0.clone(), method, Some(12.0)), quality)?;
             let b = run(&with_method(scene0, method, Some(16.0)), quality)?;
-            stub = is_stub(&a.field) || is_stub(&b.field);
             let mask = region_mask(id, &b.field, method);
             let a_on_b: Vec<C64> = resample(&a.field, Part::Total, &b.field.grid)
                 .into_iter()
@@ -385,7 +374,6 @@ pub fn run_case(id: &str, method: Method, quality: Quality) -> Result<CaseResult
             let mut big_scene = scene0;
             big_scene.domain = Domain { x_min_um: -8.0, x_max_um: 8.0, y_min_um: -8.0, y_max_um: 8.0, pml_wl: 1.0 };
             let big = run(&with_method(big_scene, method, ppw), quality)?;
-            stub = is_stub(&small.field) || is_stub(&big.field);
             let mask = region_mask("mie_pec", &small.field, method);
             let big_on_small: Vec<C64> = resample(&big.field, Part::Total, &small.field.grid)
                 .into_iter()
@@ -407,7 +395,6 @@ pub fn run_case(id: &str, method: Method, quality: Quality) -> Result<CaseResult
                     let mut s = with_method(scene0.clone(), method, Some(ppw));
                     s.solver.fdtd.subpixel = subpixel;
                     let r = run(&s, quality)?;
-                    stub |= is_stub(&r.field);
                     errs[l] = field_error("mie_diel", &r.field);
                     secs += r.seconds;
                     result.unknowns = r.field.meta.solver.unknowns;
@@ -425,7 +412,6 @@ pub fn run_case(id: &str, method: Method, quality: Quality) -> Result<CaseResult
                 let mut s = with_method(scene0.clone(), method, Some(ppw));
                 s.solver.fem.order = 3;
                 let r = run(&s, quality)?;
-                stub |= is_stub(&r.field);
                 errs[l] = field_error("mie_diel", &r.field);
                 result.seconds += r.seconds;
                 result.unknowns = r.field.meta.solver.unknowns;
@@ -448,7 +434,6 @@ pub fn run_case(id: &str, method: Method, quality: Quality) -> Result<CaseResult
                     let mut s = s.clone();
                     s.solver.mom.pec_formulation = form;
                     let run = run(&s, quality)?;
-                    stub |= is_stub(&run.field);
                     result.seconds += run.seconds;
                     result.unknowns = run.field.meta.solver.unknowns;
                     let cond = run.field.meta.solver.cond_estimate.unwrap_or(f64::NAN);
@@ -466,7 +451,6 @@ pub fn run_case(id: &str, method: Method, quality: Quality) -> Result<CaseResult
         }
         _ => {
             let r = run(&with_method(scene0, method, ppw), quality)?;
-            stub = is_stub(&r.field);
             let e = field_error(id, &r.field);
             result.error = Some(e);
             result.unknowns = r.field.meta.solver.unknowns;
@@ -478,9 +462,7 @@ pub fn run_case(id: &str, method: Method, quality: Quality) -> Result<CaseResult
             }
         }
     }
-    result.status = if stub {
-        Status::Stub
-    } else if pass {
+    result.status = if pass {
         Status::Pass
     } else {
         Status::Fail

@@ -286,18 +286,3 @@ pub fn region_map(p: &Problem, g: &GridSpec) -> Vec<u16> {
     });
     region
 }
-
-/// Shared by the stub solvers: zero scattered field on the output grid.
-pub(crate) fn stub_output(p: &Problem, method: Method) -> SolverOutput {
-    let grid = p.output_grid();
-    SolverOutput {
-        scattered: vec![C64::new(0.0, 0.0); grid.len()],
-        grid,
-        incident: None,
-        meta: SolverMeta {
-            converged: true,
-            warnings: vec![format!("{} solver not implemented yet: incident field only", method.label())],
-            ..Default::default()
-        },
-    }
-}
