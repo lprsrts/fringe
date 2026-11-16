@@ -218,3 +218,14 @@ pub fn simpson(v: &[f64], h: f64) -> f64 {
 pub fn observed_order(e1: f64, e2: f64, h1: f64, h2: f64) -> f64 {
     (e1 / e2).ln() / (h1 / h2).ln()
 }
+
+/// Convergence order as the least-squares slope of ln e against ln h.
+pub fn fitted_order(h: &[f64], e: &[f64]) -> f64 {
+    assert_eq!(h.len(), e.len());
+    let n = h.len() as f64;
+    let (x, y): (Vec<f64>, Vec<f64>) = h.iter().zip(e).map(|(h, e)| (h.ln(), e.ln())).unzip();
+    let (mx, my) = (x.iter().sum::<f64>() / n, y.iter().sum::<f64>() / n);
+    let sxy: f64 = x.iter().zip(&y).map(|(a, b)| (a - mx) * (b - my)).sum();
+    let sxx: f64 = x.iter().map(|a| (a - mx) * (a - mx)).sum();
+    sxy / sxx
+}

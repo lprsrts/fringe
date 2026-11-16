@@ -144,3 +144,11 @@ fn image_vanishes_on_the_plane() {
         assert!(pec_plane_image(&inc, 4.0, Vec2::new(4.0, y)).norm() < 1e-14);
     }
 }
+
+#[test]
+fn fitted_order_recovers_a_power_law() {
+    use beam_core::analytic::metrics::fitted_order;
+    let h = [1.0 / 12.0, 1.0 / 16.0, 1.0 / 20.0, 1.0 / 24.0, 1.0 / 30.0];
+    let e: Vec<f64> = h.iter().map(|h: &f64| 3.0 * h.powf(2.2)).collect();
+    assert!((fitted_order(&h, &e) - 2.2).abs() < 1e-12);
+}

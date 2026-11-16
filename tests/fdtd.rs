@@ -254,7 +254,7 @@ fn report_cases() {
     }
 }
 
-/// Errors of `mie_diel` at 12 and 24 ppw with and without subpixel smoothing
+/// Errors of `mie_diel` at 12–30 ppw with and without subpixel smoothing
 /// (diagnostic).
 #[test]
 #[ignore]
