@@ -5,28 +5,38 @@ struct SidebarView: View {
 
     var body: some View {
         List(selection: selection) {
-            Section("Beam") {
-                BeamRow(beam: model.beam)
-                    .tag(SidebarItem.beam)
+            Section("Source") {
+                SourceRow(scene: model.scene)
+                    .tag(SidebarItem.source)
             }
 
-            Section("Optics") {
-                if model.elements.isEmpty {
+            Section("Elements") {
+                if model.scene.elements.isEmpty {
                     Text("No elements")
                         .foregroundStyle(.secondary)
                         .selectionDisabled()
                 } else {
-                    ForEach(model.elements) { element in
-                        ElementRow(element: element)
-                            .tag(SidebarItem.element(element.id))
-                            .contextMenu { ElementContextMenu(model: model, id: element.id) }
+                    ForEach(Array(model.scene.elements.enumerated()), id: \.element.id) { index, element in
+                        ElementRow(
+                            model: model,
+                            element: element,
+                            hasErrors: model.checkReport?.issues(forElement: index).contains(where: \.isError) ?? false
+                        )
+                        .tag(SidebarItem.element(element.id))
+                        .contextMenu { ElementContextMenu(model: model, id: element.id) }
                     }
                 }
             }
 
+            Section("Simulation") {
+                SimulationRow(model: model)
+                    .tag(SidebarItem.simulation)
+            }
+
             Section("Image") {
-                Label("Appearance", systemImage: "paintpalette")
-                    .tag(SidebarItem.appearance)
+                Label("Display", systemImage: "paintpalette")
+                    .badge(Text(model.display.quantity.symbol))
+                    .tag(SidebarItem.display)
                 Label("Output", systemImage: "aspectratio")
                     .badge(Text(model.outputSummary).monospacedDigit())
                     .tag(SidebarItem.output)
@@ -44,44 +54,97 @@ struct SidebarView: View {
     }
 }
 
-private struct BeamRow: View {
-    let beam: BeamParameters
+private struct SourceRow: View {
+    let scene: SimScene
 
     var body: some View {
+        let source = scene.source
+        let lambda = "λ \(Format.number(scene.wavelengthUm, digits: 2...2)) µm"
+        let summary = source.kind == .gaussianBeam
+            ? "Gaussian · \(lambda) · w₀ \(Format.number(source.waistUm, digits: 1...1)) µm"
+            : "Plane wave · \(lambda) · \(Format.degrees(source.angleDeg, digits: 0))"
         Label {
             VStack(alignment: .leading, spacing: 1) {
-                Text("Gaussian Beam")
-                Text("\(Format.wavelength(beam.wavelength)) · w₀ \(Format.millimetres(beam.w0, digits: 3))")
+                Text(summary)
+                Text("Background n \(Format.number(scene.background.n, digits: 3...3))")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .monospacedDigit()
             }
+            .monospacedDigit()
         } icon: {
-            Image(systemName: "light.beacon.max")
+            Image(systemName: source.kind == .gaussianBeam ? "light.beacon.max" : "water.waves")
         }
     }
 }
 
 private struct ElementRow: View {
-    let element: PlacedElementModel
+    let model: AppState
+    let element: Element
+    let hasErrors: Bool
 
     var body: some View {
-        Label(element.name, systemImage: element.type.symbol)
-            .badge(Text(Format.centimetres(element.z)).monospacedDigit())
-            .foregroundStyle(element.isEnabled ? .primary : .secondary)
+        HStack(spacing: 6) {
+            Label {
+                Text(element.displayName)
+                    .foregroundStyle(element.enabled ? .primary : .secondary)
+            } icon: {
+                Image(systemName: element.kind.symbol)
+            }
+            Spacer(minLength: 4)
+            if hasErrors {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+                    .help("This element has problems; select it to see them")
+            }
+            Text(element.material.badge)
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+            Toggle("Enabled", isOn: Binding(
+                get: { element.enabled },
+                set: { _ in model.toggleEnabled(element.id) }
+            ))
+            .labelsHidden()
+            .toggleStyle(.checkbox)
+            .controlSize(.small)
+            .help(element.enabled ? "Disable this element" : "Enable this element")
+        }
+    }
+}
+
+private struct SimulationRow: View {
+    let model: AppState
+
+    var body: some View {
+        let solver = model.scene.solver
+        let status = model.solver.status
+        Label {
+            VStack(alignment: .leading, spacing: 1) {
+                Text("\(solver.method.title) · final \(SceneFormat.fixed(solver.ppw(final: true), 0))/λ")
+                HStack(spacing: 4) {
+                    if model.solver.isRunning {
+                        ProgressView().controlSize(.mini)
+                    }
+                    Text(status.title)
+                }
+                .font(.subheadline)
+                .foregroundStyle(status == .error ? AnyShapeStyle(.red) : (status.isWarning ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary)))
+            }
+            .monospacedDigit()
+        } icon: {
+            Image(systemName: "function")
+        }
     }
 }
 
 struct ElementContextMenu: View {
     let model: AppState
-    let id: UUID
+    let id: String
 
     var body: some View {
-        let isEnabled = model.scene[element: id]?.isEnabled ?? true
+        let isEnabled = model.scene[element: id]?.enabled ?? true
         Button(isEnabled ? "Disable Element" : "Enable Element") {
-            model.edit(isEnabled ? "Disable Element" : "Enable Element") {
-                $0[element: id]?.isEnabled.toggle()
-            }
+            model.toggleEnabled(id)
         }
         Button("Duplicate Element") {
             model.selection = .element(id)
@@ -89,8 +152,7 @@ struct ElementContextMenu: View {
         }
         Divider()
         Button("Delete Element", role: .destructive) {
-            model.selection = .element(id)
-            model.deleteSelectedElement()
+            model.deleteElement(id)
         }
     }
 }

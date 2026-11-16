@@ -54,6 +54,11 @@ public struct ExampleInfo: Decodable, Hashable, Sendable {
     public var quantity: String?
     public var colormap: String?
 
+    public var solver: SolverMethod? { SolverMethod(rawValue: method) }
+
+    /// The title with its first letter capitalised for a menu ("Young's double slit").
+    public var menuTitle: String { title }
+
     enum CodingKeys: String, CodingKey {
         case name
         case title
@@ -63,25 +68,19 @@ public struct ExampleInfo: Decodable, Hashable, Sendable {
     }
 }
 
-public enum SolveQuality: UInt32, Sendable {
-    case preview = 0
-    case final = 1
-}
+public typealias SolveQuality = QualityName
+public typealias FieldPart = FieldPartName
 
-public enum FieldPart: UInt32, Sendable {
-    case total = 0
-    case scattered = 1
-    case incident = 2
-}
-
-/// Swift wrappers for the `beam_core` C interface. Scenes travel as JSON strings
-/// (schema version 2); typed scene models build on top of these.
+/// Swift wrappers for the `beam_core` C interface. Scenes travel as JSON (schema
+/// version 2) and come back as the typed models in `SimScene.swift` and `CheckReport.swift`.
 public enum BeamBridge {
     /// The colormap tables are sRGB, so the raster and the exported PNG are tagged as such
     /// and look the same on a wide-gamut display as in the preview.
     public static let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
 
     public static var abiVersion: UInt32 { beam_abi_version() }
+
+    public static var coreVersion: String { String(cString: beam_version()) }
 
     /// Copies a string returned by the core and frees it.
     static func takeString(_ pointer: UnsafeMutablePointer<CChar>?) -> String? {
@@ -95,13 +94,18 @@ public enum BeamBridge {
     }
 
     public static func encode<T: Encodable>(_ value: T) throws -> String {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = .sortedKeys
-        return String(decoding: try encoder.encode(value), as: UTF8.self)
+        String(decoding: try SimScene.jsonEncoder.encode(value), as: UTF8.self)
     }
+
+    // MARK: Scenes
 
     public static func defaultSceneJSON() -> String {
         takeString(beam_scene_default()) ?? "{}"
+    }
+
+    /// The core's default scene: a biconvex lens focusing a Gaussian beam.
+    public static func defaultScene() -> SimScene {
+        (try? SimScene.decode(json: defaultSceneJSON())) ?? SimScene()
     }
 
     public static func exampleSceneJSON(_ name: String) -> String? {
@@ -109,19 +113,47 @@ public enum BeamBridge {
         return takeString(beam_scene_example(name))
     }
 
+    public static func example(_ name: String) -> SimScene? {
+        exampleSceneJSON(name).flatMap { try? SimScene.decode(json: $0) }
+    }
+
     public static func examples() -> [ExampleInfo] {
         guard let json = takeString(beam_scene_example("")) else { return [] }
         return (try? decode([ExampleInfo].self, from: json)) ?? []
     }
 
-    /// The check report JSON (issues, estimates, derived values) for a scene.
+    // MARK: Checking
+
+    /// The check report JSON (issues, estimates, derived values) for scene JSON.
     public static func checkJSON(_ sceneJSON: String) -> String {
         takeString(beam_scene_check(sceneJSON)) ?? #"{"ok":false,"issues":[]}"#
+    }
+
+    /// Issues, cost estimates for both qualities and derived quantities. Never throws: a
+    /// scene the core cannot read comes back as a report with one `parse` issue.
+    public static func check(json sceneJSON: String) -> CheckReport {
+        let json = checkJSON(sceneJSON)
+        do {
+            return try decode(CheckReport.self, from: json)
+        } catch {
+            return CheckReport(ok: false, issues: [
+                Issue(path: "", code: "internal", severity: .error, message: "could not read the check report: \(error)")
+            ])
+        }
+    }
+
+    public static func check(_ scene: SimScene) -> CheckReport {
+        check(json: scene.jsonString())
     }
 
     /// Body outlines and source placement for overlays, without solving.
     public static func outlinesJSON(_ sceneJSON: String) -> String {
         takeString(beam_scene_outlines(sceneJSON)) ?? "{}"
+    }
+
+    /// nil when the core cannot read the scene.
+    public static func outlines(_ scene: SimScene) -> SceneOutlines? {
+        try? decode(SceneOutlines.self, from: outlinesJSON(scene.jsonString()))
     }
 
     /// 256 RGBA8 entries for a colour legend; empty for an unknown name.
@@ -138,9 +170,13 @@ public enum BeamBridge {
 public final class JobHandle: @unchecked Sendable {
     private let job: OpaquePointer
 
+    public convenience init(scene: SimScene, quality: SolveQuality) throws {
+        try self.init(sceneJSON: scene.jsonString(), quality: quality)
+    }
+
     public init(sceneJSON: String, quality: SolveQuality) throws {
         var error: UnsafeMutablePointer<CChar>?
-        guard let job = beam_job_start(sceneJSON, quality.rawValue, &error) else {
+        guard let job = beam_job_start(sceneJSON, quality.code, &error) else {
             throw BeamError.take(error)
         }
         self.job = job
@@ -157,6 +193,8 @@ public final class JobHandle: @unchecked Sendable {
     }
 
     public var isRunning: Bool { poll().state == BEAM_JOB_RUNNING }
+
+    public var isDone: Bool { poll().state == BEAM_JOB_DONE }
 
     public func cancel() {
         beam_job_cancel(job)
@@ -181,10 +219,13 @@ public final class FieldHandle: @unchecked Sendable {
 
     /// Grid, scene context and diagnostics as JSON.
     public let infoJSON: String
+    /// The same, decoded once.
+    public let info: FieldInfo?
 
     init(_ field: OpaquePointer) {
         self.field = field
         infoJSON = BeamBridge.takeString(beam_field_info(field)) ?? "{}"
+        info = try? BeamBridge.decode(FieldInfo.self, from: infoJSON)
     }
 
     deinit {
@@ -195,7 +236,7 @@ public final class FieldHandle: @unchecked Sendable {
     public func sample(x: Double, y: Double, part: FieldPart = .total) -> (re: Double, im: Double)? {
         var re = 0.0
         var im = 0.0
-        guard beam_field_sample(field, x, y, part.rawValue, &re, &im) else { return nil }
+        guard beam_field_sample(field, x, y, part.code, &re, &im) else { return nil }
         return (re, im)
     }
 
@@ -255,7 +296,7 @@ public final class FieldHandle: @unchecked Sendable {
     /// complex128 .npy of one part, plus a `<path>.json` grid sidecar.
     public func exportNPY(part: FieldPart, to url: URL) throws {
         var error: UnsafeMutablePointer<CChar>?
-        guard beam_field_export_npy(field, part.rawValue, url.path, &error) else {
+        guard beam_field_export_npy(field, part.code, url.path, &error) else {
             throw BeamError.take(error)
         }
     }
