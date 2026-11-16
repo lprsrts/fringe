@@ -66,6 +66,10 @@ private struct EditMenuItems: View {
 private struct ViewMenuItems: View {
     let model: AppState
 
+    private var customAspectTitle: String {
+        model.output.aspect.isCustom ? "Custom (\(model.output.aspect.title))…" : "Custom…"
+    }
+
     var body: some View {
         Button("Zoom In") { model.zoom(by: 1.25) }
             .keyboardShortcut("=")
@@ -77,13 +81,22 @@ private struct ViewMenuItems: View {
         Divider()
 
         Menu("Aspect Ratio") {
-            ForEach(OutputAspect.allCases) { aspect in
+            ForEach(OutputAspect.presets, id: \.self) { aspect in
                 Toggle(aspect.title, isOn: Binding(
                     get: { model.output.aspect == aspect },
                     set: { if $0 { model.setAspect(aspect) } }
                 ))
-                .keyboardShortcut(KeyEquivalent(aspect.shortcutDigit), modifiers: [.control, .command])
+                .keyboardShortcut(KeyEquivalent(aspect.shortcutDigit ?? "0"), modifiers: [.control, .command])
             }
+            Divider()
+            Toggle(customAspectTitle, isOn: Binding(
+                get: { model.output.aspect.isCustom },
+                set: { _ in
+                    model.setAspect(model.output.aspect.asCustom)
+                    model.selection = .output
+                    model.isInspectorPresented = true
+                }
+            ))
         }
 
         Menu("Overlays") {

@@ -249,7 +249,17 @@ private struct OutputInspector: View {
 
         Section("Format") {
             Picker("Aspect Ratio", selection: model.binding("Change Aspect Ratio", \.output.aspect)) {
-                ForEach(OutputAspect.allCases) { Text($0.title).tag($0) }
+                ForEach(OutputAspect.presets, id: \.self) { Text($0.title).tag($0) }
+                Text("Custom").tag(output.aspect.asCustom)
+            }
+            if case .custom(let width, let height) = output.aspect {
+                LabeledContent("Ratio") {
+                    HStack(spacing: 4) {
+                        ratioField("Ratio Width", value: width) { .custom(width: $0, height: height) }
+                        Text(":").foregroundStyle(.secondary)
+                        ratioField("Ratio Height", value: height) { .custom(width: width, height: $0) }
+                    }
+                }
             }
             Picker("Size", selection: model.binding("Change Size", \.output.longEdge)) {
                 ForEach(LongEdge.presets, id: \.self) { Text("\($0.pixels) px").tag($0) }
@@ -297,6 +307,20 @@ private struct OutputInspector: View {
             )
             Button("Zoom to Fit") { model.zoomToFit() }
         }
+    }
+
+    private func ratioField(_ title: String, value: Int, aspect: @escaping (Int) -> OutputAspect) -> some View {
+        TextField(title, value: Binding(
+            get: { value },
+            set: { term in
+                let term = min(OutputAspect.customTermRange.upperBound, max(OutputAspect.customTermRange.lowerBound, term))
+                model.edit("Change Aspect Ratio") { $0.output.aspect = aspect(term) }
+            }
+        ), format: .number.grouping(.never))
+        .labelsHidden()
+        .monospacedDigit()
+        .multilineTextAlignment(.trailing)
+        .frame(width: 44)
     }
 
     private var customLongEdge: Binding<Int> {

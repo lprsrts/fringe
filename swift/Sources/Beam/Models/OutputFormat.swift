@@ -1,43 +1,59 @@
 import Foundation
 
-public enum OutputAspect: String, CaseIterable, Identifiable, Sendable {
+public enum OutputAspect: Hashable, Sendable {
     case r16x9, r3x2, r4x3, r1x1, r4x5, r3x4, r9x16, window
+    /// Any width:height ratio, e.g. 21:9 for a banner.
+    case custom(width: Int, height: Int)
 
-    public var id: String { rawValue }
+    public static let presets: [OutputAspect] = [.r16x9, .r3x2, .r4x3, .r1x1, .r4x5, .r3x4, .r9x16, .window]
+    public static let customTermRange: ClosedRange<Int> = 1...999
+
+    /// Width and height terms of the ratio, or nil when the image follows the window.
+    public var terms: (width: Int, height: Int)? {
+        switch self {
+        case .r16x9: return (16, 9)
+        case .r3x2: return (3, 2)
+        case .r4x3: return (4, 3)
+        case .r1x1: return (1, 1)
+        case .r4x5: return (4, 5)
+        case .r3x4: return (3, 4)
+        case .r9x16: return (9, 16)
+        case .window: return nil
+        case .custom(let width, let height):
+            let range = Self.customTermRange
+            return (min(range.upperBound, max(range.lowerBound, width)),
+                    min(range.upperBound, max(range.lowerBound, height)))
+        }
+    }
 
     public var title: String {
-        switch self {
-        case .r16x9: return "16:9"
-        case .r3x2: return "3:2"
-        case .r4x3: return "4:3"
-        case .r1x1: return "1:1"
-        case .r4x5: return "4:5"
-        case .r3x4: return "3:4"
-        case .r9x16: return "9:16"
-        case .window: return "Window"
-        }
+        guard let terms else { return "Window" }
+        return "\(terms.width):\(terms.height)"
     }
 
     /// Width over height, or nil when the image follows the window.
     public var ratio: Double? {
-        switch self {
-        case .r16x9: return 16.0 / 9.0
-        case .r3x2: return 3.0 / 2.0
-        case .r4x3: return 4.0 / 3.0
-        case .r1x1: return 1.0
-        case .r4x5: return 4.0 / 5.0
-        case .r3x4: return 3.0 / 4.0
-        case .r9x16: return 9.0 / 16.0
-        case .window: return nil
-        }
+        terms.map { Double($0.width) / Double($0.height) }
+    }
+
+    public var isCustom: Bool {
+        if case .custom = self { return true }
+        return false
+    }
+
+    /// What picking "Custom" switches to: the current ratio, so the image doesn't jump.
+    public var asCustom: OutputAspect {
+        guard let terms else { return .custom(width: 21, height: 9) }
+        return .custom(width: terms.width, height: terms.height)
     }
 
     public var fileTag: String {
-        self == .window ? "window" : title.replacingOccurrences(of: ":", with: "x")
+        guard let terms else { return "window" }
+        return "\(terms.width)x\(terms.height)"
     }
 
-    /// The digit for ⌃⌘ in the View > Aspect ratio menu.
-    public var shortcutDigit: Character {
+    /// The digit for ⌃⌘ in the View > Aspect Ratio menu. Custom ratios have none.
+    public var shortcutDigit: Character? {
         switch self {
         case .r16x9: return "1"
         case .r3x2: return "2"
@@ -47,6 +63,7 @@ public enum OutputAspect: String, CaseIterable, Identifiable, Sendable {
         case .r3x4: return "6"
         case .r9x16: return "7"
         case .window: return "0"
+        case .custom: return nil
         }
     }
 }

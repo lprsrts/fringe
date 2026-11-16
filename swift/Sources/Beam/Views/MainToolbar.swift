@@ -93,7 +93,10 @@ struct OutputFormatMenu: View {
     var body: some View {
         Menu {
             Picker("Aspect Ratio", selection: model.binding("Change Aspect Ratio", \.output.aspect)) {
-                ForEach(OutputAspect.allCases) { Text($0.title).tag($0) }
+                ForEach(OutputAspect.presets, id: \.self) { Text($0.title).tag($0) }
+                if model.output.aspect.isCustom {
+                    Text(model.output.aspect.title).tag(model.output.aspect)
+                }
             }
             .pickerStyle(.inline)
 
@@ -106,6 +109,14 @@ struct OutputFormatMenu: View {
             .pickerStyle(.inline)
 
             Divider()
+
+            Button("Custom Ratio…") {
+                if !model.output.aspect.isCustom {
+                    model.setAspect(model.output.aspect.asCustom)
+                }
+                model.selection = .output
+                model.isInspectorPresented = true
+            }
 
             Button("Custom Size…") {
                 model.selection = .output
