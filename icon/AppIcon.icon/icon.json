@@ -1,0 +1,100 @@
+{
+  "fill": {
+    "linear-gradient": [
+      "display-p3:0.275,0.295,0.322,1.00",
+      "display-p3:0.090,0.102,0.118,1.00"
+    ],
+    "orientation": {
+      "start": {
+        "x": 0.5,
+        "y": 0
+      },
+      "stop": {
+        "x": 0.5,
+        "y": 0.85
+      }
+    }
+  },
+  "fill-specializations": [
+    {
+      "appearance": "dark",
+      "value": {
+        "linear-gradient": [
+          "display-p3:0.165,0.180,0.200,1.00",
+          "display-p3:0.055,0.063,0.075,1.00"
+        ],
+        "orientation": {
+          "start": {
+            "x": 0.5,
+            "y": 0
+          },
+          "stop": {
+            "x": 0.5,
+            "y": 0.85
+          }
+        }
+      }
+    }
+  ],
+  "groups": [
+    {
+      "layers": [
+        {
+          "image-name": "slit.svg",
+          "name": "slit",
+          "glass": true
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.15
+      },
+      "specular": true
+    },
+    {
+      "layers": [
+        {
+          "image-name": "rays_yellow.svg",
+          "name": "rays_yellow",
+          "glass": true
+        }
+      ],
+      "shadow": {
+        "kind": "layer-color",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      },
+      "specular": true
+    },
+    {
+      "layers": [
+        {
+          "image-name": "rays_grey.svg",
+          "name": "rays_grey",
+          "glass": true
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.4
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.25
+      },
+      "specular": true
+    }
+  ],
+  "supported-platforms": {
+    "squares": [
+      "macOS"
+    ]
+  }
+}

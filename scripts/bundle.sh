@@ -16,8 +16,9 @@ version="$(awk -F'"' '/^version *=/ { print $2; exit }' "$root/Cargo.toml")"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin" "$app/Contents/MacOS/Fringe"
-# Rebuilt with icon/build.sh when the artwork changes.
-cp "$root/icon/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
+# The icon, compiled from icon/AppIcon.icon by icon/build.sh: Assets.car carries the
+# Liquid Glass icon, AppIcon.icns the flat fallback.
+cp "$root/icon/compiled/Assets.car" "$root/icon/compiled/AppIcon.icns" "$app/Contents/Resources/"
 
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -27,6 +28,8 @@ cat > "$app/Contents/Info.plist" <<PLIST
     <key>CFBundleExecutable</key>
     <string>Fringe</string>
     <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleIconName</key>
     <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>com.asympton.fringe</string>

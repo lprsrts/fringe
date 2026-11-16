@@ -213,11 +213,12 @@ scripts/bundle.sh                          # the above, then target/Fringe.app, 
 scripts/check-schema.sh                    # build, then check that the app and the core agree on the scene JSON
 ```
 
-The app icon is a field the core computes: the photonic nanojet behind a glass
-cylinder, `icon/nanojet.json`, in the inferno colormap. `icon/build.sh` solves
-it, frames it in the macOS icon shape and writes `icon/AppIcon.icns`, which
-`scripts/bundle.sh` copies into the app. Run it after changing the scene or
-`icon/compose.swift`; the `.icns` is checked in so a bundle does not need a solve.
+The app icon is a Liquid Glass icon, `icon/AppIcon.icon`: a double slit with
+its fan of interference maxima, the rays at the true angles sin θ = m λ/d. Its
+SVG layers come from `icon/layers.py`. `icon/build.sh` writes them, compiles the
+icon with `actool` into `icon/compiled` and renders `icon/preview.png`; it needs
+Xcode, or open the `.icon` in Icon Composer. The compiled files are checked in,
+so `scripts/bundle.sh` works with the command-line tools alone.
 
 The app's minimum macOS is tied to the Rust toolchain: Homebrew's `rustc`
 ships its standard library built for macOS 26, and the Swift target must not
@@ -252,6 +253,6 @@ src/bin/fringe_cli.rs fringe-cli
 include/            C header for the ABI
 swift/              SwiftUI app (Swift package "Fringe")
 scripts/            build, bundle and schema-check scripts
-icon/               app icon: its scene, the compose script and the built .icns
+icon/               app icon: the Icon Composer document, its layer generator and the compiled icon
 tests/              integration tests; tests/fixtures holds example scenes and Bessel references
 ```
