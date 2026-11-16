@@ -38,16 +38,8 @@ public enum ImageExportService {
             throw ExportError.invalidDimensions
         }
 
-        guard let raster = BeamBridge.renderRaster(
-            params: export.beam.cParams,
-            elements: export.elements.filter(\.isEnabled).sorted { $0.z < $1.z }.map(\.cPlacedElement),
-            style: export.style.cStyle,
-            zMin: export.window.zMin,
-            zMax: export.window.zMax,
-            xMax: export.window.xMax,
-            width: width,
-            height: height
-        ) else {
+        guard let field = export.field,
+              let raster = try? field.render(viewJSON: export.viewJSON, width: width, height: height) else {
             throw ExportError.rasterGenerationFailed
         }
 

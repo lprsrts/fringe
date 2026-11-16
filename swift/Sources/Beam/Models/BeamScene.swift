@@ -1,5 +1,4 @@
 import Foundation
-import CBeamCore
 
 public enum OpticalElementType: Int, CaseIterable, Identifiable, Codable, Sendable {
     case thinLens = 0
@@ -27,16 +26,6 @@ public enum OpticalElementType: Int, CaseIterable, Identifiable, Codable, Sendab
         case .flatMirror: return "rectangle.portrait"
         case .dielectricInterface: return "rectangle.split.2x1"
         case .gaussianAperture: return "camera.aperture"
-        }
-    }
-
-    public var cType: COpticalElementType {
-        switch self {
-        case .thinLens: return ELEMENT_THIN_LENS
-        case .curvedMirror: return ELEMENT_CURVED_MIRROR
-        case .flatMirror: return ELEMENT_FLAT_MIRROR
-        case .dielectricInterface: return ELEMENT_DIELECTRIC_INTERFACE
-        case .gaussianAperture: return ELEMENT_GAUSSIAN_APERTURE
         }
     }
 
@@ -87,15 +76,6 @@ public struct PlacedElementModel: Identifiable, Equatable, Sendable {
         self.isEnabled = isEnabled
         self.name = name.isEmpty ? type.displayName : name
     }
-
-    public var cPlacedElement: CPlacedElement {
-        CPlacedElement(
-            z: z,
-            element_type: type.cType,
-            param1: param1,
-            param2: param2
-        )
-    }
 }
 
 public enum ColormapOption: Int, CaseIterable, Identifiable, Sendable {
@@ -119,14 +99,15 @@ public enum ColormapOption: Int, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    public var cColormap: CColormap {
+    /// The colormap's name in the core's view JSON.
+    public var coreName: String {
         switch self {
-        case .viridis: return COLORMAP_VIRIDIS
-        case .inferno: return COLORMAP_INFERNO
-        case .plasma: return COLORMAP_PLASMA
-        case .turbo: return COLORMAP_TURBO
-        case .laserGlow: return COLORMAP_LASER_GLOW
-        case .asympton: return COLORMAP_ASYMPTON
+        case .viridis: return "viridis"
+        case .inferno: return "inferno"
+        case .plasma: return "plasma"
+        case .turbo: return "turbo"
+        case .laserGlow: return "laser_glow"
+        case .asympton: return "asympton"
         }
     }
 
@@ -148,18 +129,8 @@ public struct BeamParameters: Equatable, Sendable {
 
     public init() {}
 
-    public var cParams: CBeamParams {
-        CBeamParams(
-            wavelength: wavelength,
-            w0: w0,
-            z0: z0,
-            refractive_index: refractiveIndex,
-            power: power
-        )
-    }
-
     public var rayleighRange: Double {
-        BeamBridge.rayleighRange(w0: w0, wavelength: wavelength, refractiveIndex: refractiveIndex)
+        LegacyBeamMath.rayleighRange(w0: w0, wavelength: wavelength, refractiveIndex: refractiveIndex)
     }
 
     /// Far-field divergence half-angle θ = λ / (π n w0), in radians.
@@ -185,15 +156,6 @@ public struct RenderStyleModel: Equatable, Sendable {
     public var showMetadataWatermark: Bool = true
 
     public init() {}
-
-    public var cStyle: CRenderStyle {
-        CRenderStyle(
-            colormap: colormap.cColormap,
-            gamma: gamma,
-            show_wavefront_composite: showWavefrontComposite,
-            fringe_modulation: fringeModulation
-        )
-    }
 }
 
 /// The region of the (z, x) plane an image shows, in metres.
@@ -357,8 +319,8 @@ public struct BeamScene: Equatable, Sendable {
         }
 
         let peakWaist = max(
-            BeamBridge.waistAt(w0: beam.w0, z: minZ - beam.z0, zR: zR),
-            BeamBridge.waistAt(w0: beam.w0, z: maxZ - beam.z0, zR: zR)
+            LegacyBeamMath.waistAt(w0: beam.w0, z: minZ - beam.z0, zR: zR),
+            LegacyBeamMath.waistAt(w0: beam.w0, z: maxZ - beam.z0, zR: zR)
         )
 
         // Narrower than 16:9 the axial range would be cut off, so the whole window grows to keep the shape.

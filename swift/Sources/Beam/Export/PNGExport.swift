@@ -4,6 +4,9 @@ import UniformTypeIdentifiers
 
 /// A value snapshot of the scene at the output size, rendered to PNG only when it is asked for.
 public struct PNGExport: Transferable, Sendable {
+    /// The solved field and how to colour it; nil until the first solve finishes.
+    public var field: FieldHandle?
+    public var viewJSON: String
     public var beam: BeamParameters
     public var elements: [PlacedElementModel]
     public var style: RenderStyleModel

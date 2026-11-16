@@ -44,6 +44,11 @@ public final class AppState {
 
     public private(set) var rasterImage: CGImage?
 
+    /// The solved field the canvas shows. Until the v2 scene model lands this is the
+    /// core's default scene, solved once at preview quality.
+    @ObservationIgnored private var field: FieldHandle?
+    @ObservationIgnored private var fieldGeneration = 0
+
     @ObservationIgnored public var undoManager: UndoManager?
     @ObservationIgnored private var isRenderInFlight = false
     @ObservationIgnored private var isRenderPending = false
@@ -57,6 +62,37 @@ public final class AppState {
 
     public init() {
         scene.zoomToFit(aspect: imageAspect)
+        solveDefaultScene()
+    }
+
+    /// Solves the core's default scene at preview quality, polling the job every 50 ms.
+    private func solveDefaultScene() {
+        let job: JobHandle
+        do {
+            job = try JobHandle(sceneJSON: BeamBridge.defaultSceneJSON(), quality: .preview)
+        } catch {
+            Self.log.error("Could not start the solve: \(error.localizedDescription)")
+            return
+        }
+        Task {
+            while job.isRunning {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            do {
+                field = try job.takeResult()
+                fieldGeneration += 1
+                scheduleRender()
+            } catch {
+                Self.log.error("The solve failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// View JSON (spec §3.6) for the current display settings.
+    private var viewJSON: String {
+        let view: [String: Any] = ["colormap": style.colormap.coreName, "gamma": style.gamma]
+        guard let data = try? JSONSerialization.data(withJSONObject: view, options: .sortedKeys) else { return "{}" }
+        return String(decoding: data, as: UTF8.self)
     }
 
 
@@ -292,6 +328,8 @@ public final class AppState {
     public var pngExport: PNGExport {
         let size = outputPixelSize
         return PNGExport(
+            field: field,
+            viewJSON: viewJSON,
             beam: beam,
             elements: elements,
             style: style,
@@ -343,6 +381,7 @@ public final class AppState {
 
     private struct RenderKey: Equatable {
         var inputs: BeamScene.RasterInputs
+        var field: Int
         var width: Int
         var height: Int
     }
@@ -369,30 +408,23 @@ public final class AppState {
         }
 
         let size = viewportPixelSize
-        guard size.width > 0, size.height > 0 else { return }
-        let key = RenderKey(inputs: scene.rasterInputs(windowAspect: windowAspect), width: size.width, height: size.height)
+        guard size.width > 0, size.height > 0, let field else { return }
+        let key = RenderKey(
+            inputs: scene.rasterInputs(windowAspect: windowAspect),
+            field: fieldGeneration,
+            width: size.width,
+            height: size.height
+        )
         guard key != lastRenderKey else { return }
         lastRenderKey = key
         isRenderInFlight = true
 
-        let params = beam.cParams
-        let elements = scene.activeElements.map(\.cPlacedElement)
-        let style = style.cStyle
-        let window = window
+        let viewJSON = viewJSON
 
         Task {
             let start = ContinuousClock.now
             let image = await Task.detached(priority: .userInitiated) {
-                BeamBridge.renderRaster(
-                    params: params,
-                    elements: elements,
-                    style: style,
-                    zMin: window.zMin,
-                    zMax: window.zMax,
-                    xMax: window.xMax,
-                    width: size.width,
-                    height: size.height
-                )
+                try? field.render(viewJSON: viewJSON, width: size.width, height: size.height)
             }.value
 
             if let image {

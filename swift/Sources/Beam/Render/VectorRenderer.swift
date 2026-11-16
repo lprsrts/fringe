@@ -59,8 +59,8 @@ public enum VectorRenderer {
 
         guard let first = active.first else {
             let zRel = z - beam.z0
-            let w = BeamBridge.waistAt(w0: beam.w0, z: zRel, zR: zR0)
-            let kappa = BeamBridge.curvatureAt(z: zRel, zR: zR0)
+            let w = LegacyBeamMath.waistAt(w0: beam.w0, z: zRel, zR: zR0)
+            let kappa = LegacyBeamMath.curvatureAt(z: zRel, zR: zR0)
             let R = abs(kappa) > 1e-12 ? (1.0 / kappa) : (zRel >= 0 ? 1e12 : -1e12)
             return (w, R, kappa, beam.refractiveIndex)
         }

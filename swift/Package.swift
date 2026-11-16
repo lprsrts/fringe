@@ -20,7 +20,10 @@ let package = Package(
             dependencies: ["CBeamCore"],
             path: "Sources/Beam",
             linkerSettings: [
-                .unsafeFlags(["-L../target/release", "-lbeam_core"])
+                .unsafeFlags(["-L../target/release", "-lbeam_core"]),
+                // faer's thread pool (spindle, via atomic-wait) calls libc++'s atomic
+                // wait/notify; `cargo rustc -- --print native-static-libs` lists it.
+                .linkedLibrary("c++")
             ]
         )
     ]
