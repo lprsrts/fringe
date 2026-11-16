@@ -220,6 +220,13 @@ icon with `actool` into `icon/compiled` and renders `icon/preview.png`; it needs
 Xcode, or open the `.icon` in Icon Composer. The compiled files are checked in,
 so `scripts/bundle.sh` works with the command-line tools alone.
 
+The cover banner, `art/banner/banner.png` (1584 × 396, with a 2× copy), is a
+solved field: a Gaussian beam through five glass beads that pass a nanojet down
+the chain, next to the icon, the wordmark and the equation the solvers answer,
+`∇²Ez + k0² n(x, y)² Ez = 0`. `art/banner/build.sh` solves `art/banner/scene.json`
+with the release `fringe-cli` and composes the banner with
+`art/banner/compose.swift`.
+
 The app's minimum macOS is tied to the Rust toolchain: Homebrew's `rustc`
 ships its standard library built for macOS 26, and the Swift target must not
 claim anything older or `ld` warns about every std object.
@@ -254,5 +261,6 @@ include/            C header for the ABI
 swift/              SwiftUI app (Swift package "Fringe")
 scripts/            build, bundle and schema-check scripts
 icon/               app icon: the Icon Composer document, its layer generator and the compiled icon
+art/banner/         cover banner: its scene, compose script and the rendered banner
 tests/              integration tests; tests/fixtures holds example scenes and Bessel references
 ```
