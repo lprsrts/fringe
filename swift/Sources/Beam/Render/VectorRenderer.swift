@@ -228,6 +228,13 @@ private struct OverlayPainter {
         (string as NSString).draw(at: origin, withAttributes: attrs)
     }
 
+    /// A soft dark backing so labels stay legible over light colormaps.
+    private func plate(_ rect: CGRect) {
+        let r = rect.insetBy(dx: -6 * textScale, dy: -4 * textScale)
+        fill(CGPath(roundedRect: r, cornerWidth: 6 * textScale, cornerHeight: 6 * textScale, transform: nil),
+             color: CGColor(gray: 0, alpha: 0.38))
+    }
+
     // MARK: PML
 
     func drawPML() {
@@ -356,7 +363,7 @@ private struct OverlayPainter {
             // A k-arrow inside the upstream edge of the domain.
             let interior = model.interior
             let extent = 0.5 * interior.width * abs(dir.x) + 0.5 * interior.height * abs(dir.y)
-            let length = 0.07 * (interior.width + interior.height)
+            let length = 0.05 * (interior.width + interior.height)
             let back = extent - 0.03 * (interior.width + interior.height)
             let start = (x: interior.centerX - dir.x * back, y: interior.centerY - dir.y * back)
             let normal = (x: -dir.y, y: dir.x)
@@ -397,7 +404,10 @@ private struct OverlayPainter {
         let width = CGFloat(length) * map.scale
         guard width > 4 else { return }
         let right = bounds.maxX - margin
-        let y = (legendTop.map { $0 - 14 * textScale } ?? bounds.maxY - margin)
+        let y = (legendTop.map { $0 - 20 * textScale } ?? bounds.maxY - margin)
+        let label = length >= 1 ? "\(SceneFormat.fixed(length, 0)) µm" : "\(SceneFormat.fixed(length * 1000, 0)) nm"
+        let labelSize = textSize(label, size: 10, weight: .medium)
+        plate(CGRect(x: right - width, y: y - 6 * scale - labelSize.height, width: width, height: labelSize.height + 6 * scale + 4 * scale))
         let bar = CGMutablePath()
         bar.move(to: CGPoint(x: right - width, y: y))
         bar.addLine(to: CGPoint(x: right, y: y))
@@ -408,12 +418,13 @@ private struct OverlayPainter {
         bar.addLine(to: CGPoint(x: right, y: y + tick))
         stroke(bar, color: CGColor(gray: 0, alpha: 0.5), width: 4)
         stroke(bar, color: CGColor(gray: 1, alpha: 0.9), width: 1.5)
-        let label = length >= 1 ? "\(SceneFormat.fixed(length, 0)) µm" : "\(SceneFormat.fixed(length * 1000, 0)) nm"
         text(label, at: CGPoint(x: right - width / 2, y: y - 6 * scale), size: 10, weight: .medium, alignment: (0.5, 1))
     }
 
     func drawCaption() {
         guard let caption = model.caption else { return }
+        let size = textSize(caption, size: 10, weight: .medium)
+        plate(CGRect(x: bounds.minX + margin, y: bounds.maxY - margin - size.height, width: size.width, height: size.height))
         text(caption, at: CGPoint(x: bounds.minX + margin, y: bounds.maxY - margin), size: 10, weight: .medium,
              color: NSColor(calibratedWhite: 1, alpha: 0.85), alignment: (0, 1))
     }
@@ -433,6 +444,9 @@ private struct OverlayPainter {
         let right = bounds.maxX - margin
         let bottom = bounds.maxY - margin - labelHeight - 2 * textScale
         let rect = CGRect(x: right - width, y: bottom - height, width: width, height: height)
+        let titleHeight = textSize(legend.title, size: 9, weight: .semibold).height
+        plate(CGRect(x: rect.minX, y: rect.minY - 3 * textScale - titleHeight, width: width,
+                     height: titleHeight + 3 * textScale + height + 2 * textScale + labelHeight))
 
         context.saveGState()
         context.interpolationQuality = .high
