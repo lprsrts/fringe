@@ -10,7 +10,7 @@ use beam_core::job::Job;
 use beam_core::problem::compile;
 use beam_core::scene::{examples, Material, Shape};
 use beam_core::solver::context::STATE_CANCELLED;
-use beam_core::solver::{solve, solver_for, FdtdSolver, Method, Quality, SolveContext, Solver, Stage};
+use beam_core::solver::{fdtd, solve, solver_for, FdtdSolver, Method, Quality, SolveContext, Solver, Stage};
 
 use common::assert_case;
 
@@ -141,6 +141,33 @@ fn estimate_is_consistent() {
     let [nx, ny] = e.grid.unwrap();
     assert_eq!(e.unknowns, (nx * ny) as u64);
     assert!(e.seconds > 0.0 && e.memory_mb > 0.0);
+    // Scenes that may ring are estimated between the typical run and the cap.
+    for name in ["waveguide", "nanojet"] {
+        let mut s = examples::example(name).unwrap();
+        s.solver.method = Method::Fdtd;
+        let p = compile(&s, Quality::Final).unwrap();
+        let typical = fdtd::grid::min_periods(&p) as f64 + 6.0;
+        let cap = (fdtd::grid::max_periods(&p) + 2) as f64;
+        let est = FdtdSolver::estimated_periods(&p);
+        assert!(est > 1.5 * typical && est < cap, "{name}: {est} periods ({typical}..{cap})");
+    }
+    let p = compile(&examples::default(), Quality::Final).unwrap();
+    assert_eq!(FdtdSolver::estimated_periods(&p), fdtd::grid::min_periods(&p) as f64 + 6.0);
+}
+
+/// A run too short to compare two probe periods reports no residual and a
+/// warning without Δ.
+#[test]
+fn single_period_run_has_no_residual() {
+    let mut s = case_scene("mie_diel").unwrap();
+    s.solver.method = Method::Fdtd;
+    s.solver.fdtd.max_periods = Some(1);
+    let f = solve(&s, Quality::Preview, &SolveContext::new()).unwrap();
+    let m = &f.meta.solver;
+    assert!(!m.converged && m.residual.is_none(), "{m:?}");
+    assert_eq!(m.periods, Some(3.0));
+    let w = m.warnings.iter().find(|w| w.starts_with("not fully settled")).expect("settle warning");
+    assert!(w.starts_with("not fully settled after 3 periods"), "{w}");
 }
 
 /// The scattered field vanishes without bodies, and the Yee-matched incident
@@ -282,17 +309,17 @@ fn high_index_resonances() {
     }
 }
 
-/// Estimated against measured time and periods over the examples and cases
-/// (diagnostic; resonant scenes such as `nanojet` at final quality settle later
-/// than the period model assumes).
+/// Estimated against measured time and periods over every example and some
+/// cases, all forced to FDTD (diagnostic; resonant scenes such as `waveguide`
+/// and `mie_high_index` at final quality are the least accurate).
 #[test]
 #[ignore]
 fn estimate_calibration() {
-    let mut scenes: Vec<(String, beam_core::Scene)> = ["lens", "nanojet", "talbot", "slab", "mie_pec", "mie_dielectric", "double_slit", "mirror"]
+    let mut scenes: Vec<(String, beam_core::Scene)> = examples::EXAMPLES
         .iter()
-        .map(|n| (n.to_string(), examples::example(n).unwrap()))
+        .map(|e| (e.name.to_string(), examples::example(e.name).unwrap()))
         .collect();
-    for id in ["mie_diel", "slab_airy_0", "mirror_0"] {
+    for id in ["mie_diel", "slab_airy_0", "mirror_0", "mie_high_index"] {
         scenes.push((id.to_string(), case_scene(id).unwrap()));
     }
     let mut worst: f64 = 1.0;

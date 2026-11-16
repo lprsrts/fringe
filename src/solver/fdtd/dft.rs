@@ -25,7 +25,9 @@ pub struct RunResult {
     /// Periods run in total, including the final DFT.
     pub periods: usize,
     pub converged: bool,
-    pub last_change: f64,
+    /// The last probe change; `None` when the run stopped before two periods
+    /// could be compared.
+    pub last_change: Option<f64>,
 }
 
 /// Ramp-weighted source phase (a_m, b_m) at step m.
@@ -61,7 +63,7 @@ pub fn run(engine: &mut Engine, prm: &RunParams, mut tick: impl FnMut(f64) -> bo
     let mut n = 0usize;
     let mut prev: Option<(Vec<f64>, Vec<f64>)> = None;
     let mut settled = 0;
-    let mut last_change = f64::INFINITY;
+    let mut last_change = None;
     let mut converged = false;
     let mut period = 0usize;
     let scale = 2.0 / p as f64;
@@ -83,14 +85,14 @@ pub fn run(engine: &mut Engine, prm: &RunParams, mut tick: impl FnMut(f64) -> bo
                 norm += re * re + im * im;
             }
             let den = norm.sqrt().max(0.01 * prm.inc_probe_norm);
-            last_change = if diff == 0.0 { 0.0 } else { diff.sqrt() / den };
+            last_change = Some(if diff == 0.0 { 0.0 } else { diff.sqrt() / den });
         }
         prev = Some((
             engine.probe_re.iter().map(|v| v * scale).collect(),
             engine.probe_im.iter().map(|v| v * scale).collect(),
         ));
         if period >= prm.min_periods {
-            if last_change < prm.steady_tol {
+            if last_change.is_some_and(|c| c < prm.steady_tol) {
                 settled += 1;
             } else {
                 settled = 0;

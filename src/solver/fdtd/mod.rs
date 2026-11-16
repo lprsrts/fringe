@@ -46,6 +46,10 @@ const T_STEP: f64 = 5e-5;
 /// Periods beyond the minimum run that convergence typically takes, plus the
 /// 2-period DFT.
 const EXTRA_PERIODS: f64 = 6.0;
+/// Index contrast n_max/n_b from which dielectric bodies may hold ringing
+/// resonances (the `nanojet` cylinder at 1.6 settles after ~3× the typical run
+/// at final quality; `mie_high_index` at 3.5 runs to the cap).
+const RESONANT_CONTRAST: f64 = 1.6;
 /// Cell limits per quality.
 const MAX_CELLS_PREVIEW: usize = 4_000_000;
 const MAX_CELLS_FINAL: usize = 40_000_000;
@@ -54,10 +58,61 @@ const MAX_CELLS_FINAL: usize = 40_000_000;
 const DFT_PERIODS: usize = 2;
 
 impl FdtdSolver {
-    /// Estimated number of periods a solve runs.
+    /// Estimated number of periods a solve runs. A scene that may ring (a
+    /// waveguide, a PEC cavity or a high-contrast dielectric) settles anywhere
+    /// between the typical run and the cap, so it gets their geometric mean,
+    /// which bounds the ratio to the measured time by √(cap/typical) either way.
+    /// Gratings keep the typical run: they are warned about, but the `talbot`
+    /// example settles in it.
     pub fn estimated_periods(p: &Problem) -> f64 {
-        let est = min_periods(p) as f64 + EXTRA_PERIODS;
-        est.min((grid::max_periods(p) + DFT_PERIODS) as f64)
+        let cap = (grid::max_periods(p) + DFT_PERIODS) as f64;
+        let typical = (min_periods(p) as f64 + EXTRA_PERIODS).min(cap);
+        let resonant = p.n_max >= RESONANT_CONTRAST * p.eps_b.sqrt() - 1e-12;
+        if resonant || slow_convergence(p).is_some_and(|s| s.kind != "grating") {
+            (typical * cap).sqrt()
+        } else {
+            typical
+        }
+    }
+}
+
+/// Why a scene may converge slowly, for the `fdtd_slow_convergence` warning.
+struct SlowConvergence {
+    path: String,
+    /// "grating", "waveguide" or "cavity".
+    kind: &'static str,
+}
+
+impl SlowConvergence {
+    fn message(&self) -> String {
+        match self.kind {
+            "cavity" => "the FDTD may converge slowly in a PEC cavity; FEM or MoM may be faster".into(),
+            what => format!("the FDTD may converge slowly with a {what} (resonant fields); FEM or MoM may be faster"),
+        }
+    }
+}
+
+/// Scenes whose fields may ring for long: a grating, a waveguide, or two or
+/// more PEC elements.
+fn slow_convergence(p: &Problem) -> Option<SlowConvergence> {
+    let mut slow = None;
+    let mut pec_elements = 0;
+    for (i, e) in p.scene.elements.iter().enumerate().filter(|(_, e)| e.enabled) {
+        match e.shape {
+            Shape::Grating { .. } => slow = slow.or(Some((i, "grating"))),
+            Shape::Waveguide { .. } => slow = slow.or(Some((i, "waveguide"))),
+            _ => {}
+        }
+        if matches!(e.material, Material::Pec) || matches!(e.shape, Shape::Mirror { .. } | Shape::Slits { .. }) {
+            pec_elements += 1;
+        }
+    }
+    if let Some((i, kind)) = slow {
+        Some(SlowConvergence { path: format!("elements[{i}]"), kind })
+    } else if pec_elements >= 2 {
+        Some(SlowConvergence { path: "solver.fdtd".into(), kind: "cavity" })
+    } else {
+        None
     }
 }
 
@@ -178,30 +233,8 @@ impl Solver for FdtdSolver {
                 );
             }
         }
-        let mut slow = None;
-        let mut pec_elements = 0;
-        for (i, e) in p.scene.elements.iter().enumerate().filter(|(_, e)| e.enabled) {
-            match e.shape {
-                Shape::Grating { .. } => slow = slow.or(Some((i, "grating"))),
-                Shape::Waveguide { .. } => slow = slow.or(Some((i, "waveguide"))),
-                _ => {}
-            }
-            if matches!(e.material, Material::Pec) || matches!(e.shape, Shape::Mirror { .. } | Shape::Slits { .. }) {
-                pec_elements += 1;
-            }
-        }
-        if let Some((i, what)) = slow {
-            out.push(Issue::warning(
-                format!("elements[{i}]"),
-                "fdtd_slow_convergence",
-                format!("the FDTD may converge slowly with a {what} (resonant fields); FEM or MoM may be faster"),
-            ));
-        } else if pec_elements >= 2 {
-            out.push(Issue::warning(
-                "solver.fdtd",
-                "fdtd_slow_convergence",
-                "the FDTD may converge slowly in a PEC cavity; FEM or MoM may be faster",
-            ));
+        if let Some(slow) = slow_convergence(p) {
+            out.push(Issue::warning(slow.path.clone(), "fdtd_slow_convergence", slow.message()));
         }
         out
     }
@@ -336,9 +369,10 @@ impl Solver for FdtdSolver {
 
         let mut warnings = Vec::new();
         if !run.converged {
+            let delta = run.last_change.map(|c| format!(" (Δ = {c:.1e})")).unwrap_or_default();
             warnings.push(format!(
-                "not fully settled (Δ = {:.1e}) after {} periods; FEM or MoM may suit this scene better",
-                run.last_change, run.periods
+                "not fully settled{delta} after {} periods; FEM or MoM may suit this scene better",
+                run.periods
             ));
         }
         warnings.extend(p.incident.warnings.iter().cloned());
@@ -350,7 +384,7 @@ impl Solver for FdtdSolver {
                 unknowns: l.cells() as u64,
                 periods: Some(run.periods as f64),
                 converged: run.converged,
-                residual: Some(run.last_change),
+                residual: run.last_change,
                 cond_estimate: None,
                 timings,
                 warnings,
