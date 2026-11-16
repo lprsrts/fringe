@@ -1,10 +1,23 @@
 //! Method-of-moments (boundary integral) solver (spec §5.3).
 //!
-//! Pulse basis with midpoint collocation on exact curved panels
-//! ([`panels`]); the dielectric Müller system and the PEC EFIE/CFIE written for
-//! scattered traces ([`system`]); singular, near and far quadrature
-//! ([`quad`]); dense LU; and the field from the boundary representations
-//! ([`evaluate`]). There is no PML: the Green's function radiates exactly.
+//! Midpoint collocation on exact curved panels ([`panels`]) with densities
+//! interpolated between neighbouring panel values; the dielectric Müller system
+//! and the PEC EFIE/CFIE written for scattered traces ([`system`]); singular,
+//! near and far quadrature ([`quad`]); an interruptible dense LU ([`lu`]); and
+//! the field from the boundary representations ([`evaluate`]). There is no PML:
+//! the Green's function radiates exactly.
+//!
+//! Deviations from spec §5.3, all inside this module:
+//! - densities on source panels are the quadratic interpolants of the panel
+//!   values rather than pulses (third- to fourth-order instead of second-order
+//!   convergence; needed for `mom_self` and margin on `mie_diel`);
+//! - the dielectric unknowns are the scattered traces u_s, q_s rather than the
+//!   total ones, so the incident field enters only through difference kernels
+//!   (`transparent` is exactly zero);
+//! - self panels use a τ³-graded Gauss–Legendre rule on each half instead of
+//!   analytic log subtraction (it also covers the log-singular N_b − N_i);
+//! - the dense LU is a blocked right-looking LU here (trailing updates through
+//!   `linalg::gemm`) so that cancelling takes effect within a few ms.
 
 pub mod evaluate;
 pub mod lu;
@@ -169,7 +182,7 @@ impl Solver for MomSolver {
             let lu = lu::BlockLu::factor(n, mat.data, ctx, |f| ctx.report(0.9 * f))?;
             ctx.checkpoint()?;
             let x = lu.solve(&rhs);
-            let c = lu.cond1_estimate(norm1);
+            let c = lu.cond1_estimate(norm1, ctx)?;
             timings.push(("lu".to_string(), t.elapsed().as_secs_f64()));
             cond = Some(c);
             if !x.iter().all(|v| v.re.is_finite() && v.im.is_finite()) {

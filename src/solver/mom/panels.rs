@@ -195,9 +195,9 @@ pub fn panelize(p: &Problem) -> Panels {
         }
         seg_first.push(panels.len());
         let count = panels.len() - first;
-        for l in 0..count {
+        for (l, &cut) in cut_before.iter().enumerate() {
             let g = first + l;
-            if !cut_before[l] {
+            if !cut {
                 let prev = first + (l + count - 1) % count;
                 if prev != g {
                     panels[g].prev = Some(prev);

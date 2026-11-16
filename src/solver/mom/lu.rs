@@ -179,20 +179,21 @@ impl BlockLu {
 
     /// Estimate of `‖A‖₁ ‖A⁻¹‖₁` given `‖A‖₁`: Hager's method as refined by
     /// Higham (LAPACK's zlacon), the same algorithm as `linalg::DenseLu`.
-    pub fn cond1_estimate(&self, a_norm1: f64) -> f64 {
+    pub fn cond1_estimate(&self, a_norm1: f64, ctx: &SolveContext) -> Result<f64, SolveError> {
         let n = self.n;
         if n == 0 {
-            return 0.0;
+            return Ok(0.0);
         }
         let norm1 = |v: &[C64]| v.iter().map(|z| z.norm()).sum::<f64>();
         let mut x = vec![C64::new(1.0 / n as f64, 0.0); n];
         let mut est = 0.0f64;
         let mut last_j = usize::MAX;
         for iter in 0..5 {
+            ctx.checkpoint()?;
             let y = self.solve(&x);
             let y_norm = norm1(&y);
             if !y_norm.is_finite() {
-                return f64::INFINITY;
+                return Ok(f64::INFINITY);
             }
             if iter > 0 && y_norm <= est {
                 break;
@@ -210,6 +211,7 @@ impl BlockLu {
                 })
                 .collect();
             // z = A⁻ᴴ ξ = conj(A⁻ᵀ conj(ξ))
+            ctx.checkpoint()?;
             let z: Vec<C64> = self.solve_transpose(&conj_xi).into_iter().map(|v| v.conj()).collect();
             let (j, zmax) = z.iter().enumerate().map(|(i, v)| (i, v.norm())).fold((0, -1.0), |a, b| if b.1 > a.1 { b } else { a });
             let ztx: f64 = z.iter().zip(&x).map(|(a, b)| (a.conj() * b).re).sum();
@@ -226,8 +228,9 @@ impl BlockLu {
                 C64::new(s * (1.0 + i as f64 / (n.max(2) - 1) as f64), 0.0)
             })
             .collect();
+        ctx.checkpoint()?;
         let alt_est = 2.0 * norm1(&self.solve(&alt)) / (3.0 * n as f64);
-        est.max(alt_est) * a_norm1
+        Ok(est.max(alt_est) * a_norm1)
     }
 }
 
