@@ -7,7 +7,7 @@ public struct PNGExport: Transferable, Sendable {
     public var beam: BeamParameters
     public var elements: [PlacedElementModel]
     public var style: RenderStyleModel
-    public var framing: FramingModel
+    public var window: FrameWindow
     public var width: Int
     public var height: Int
     /// Told when rendering starts and ends, so the window can show progress.

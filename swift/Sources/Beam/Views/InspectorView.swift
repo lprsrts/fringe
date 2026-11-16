@@ -48,7 +48,7 @@ private struct BeamInspector: View {
 
     var body: some View {
         let beam = model.beam
-        let visible = model.framing.effectiveZMin * 100...model.framing.effectiveZMax * 100
+        let visible = model.window.zMin * 100...model.window.zMax * 100
 
         Section("Beam") {
             ValueRow(
@@ -120,7 +120,7 @@ private struct ElementInspector: View {
 
     var body: some View {
         if let element = model.scene[element: id] {
-            let visible = model.framing.effectiveZMin * 100...model.framing.effectiveZMax * 100
+            let visible = model.window.zMin * 100...model.window.zMax * 100
 
             Section {
                 TextField("Name", text: model.elementBinding(id, "Rename Element", \.name, fallback: ""))
@@ -282,8 +282,8 @@ private struct OutputInspector: View {
         }
 
         Section("Frame") {
-            LabeledContent("Axial Start") { metresField("Axial Start", edge: \.effectiveZMin) }
-            LabeledContent("Axial End") { metresField("Axial End", edge: \.effectiveZMax) }
+            LabeledContent("Axial Start") { metresField("Axial Start", edge: \.zMin) }
+            LabeledContent("Axial End") { metresField("Axial End", edge: \.zMax) }
             ValueRow(
                 title: "Transverse Half-Height",
                 value: halfHeight.scaled(by: 1000),
@@ -339,15 +339,15 @@ private struct OutputInspector: View {
         )
     }
 
-    private func metresField(_ title: String, edge: KeyPath<FramingModel, Double>) -> some View {
+    private func metresField(_ title: String, edge: KeyPath<FrameWindow, Double>) -> some View {
         let value = Binding<Double>(
-            get: { model.framing[keyPath: edge] },
+            get: { model.window[keyPath: edge] },
             set: { newValue in
-                let framing = model.framing
-                let isStart = edge == \FramingModel.effectiveZMin
-                let start = isStart ? newValue : framing.effectiveZMin
-                let end = isStart ? framing.effectiveZMax : newValue
-                model.edit("Change Axial Range") { $0.framing.setVisibleRange(start: start, end: end) }
+                let window = model.window
+                let isStart = edge == \FrameWindow.zMin
+                let start = isStart ? newValue : window.zMin
+                let end = isStart ? window.zMax : newValue
+                model.setAxialRange(start: start, end: end)
             }
         )
         return HStack(spacing: 4) {

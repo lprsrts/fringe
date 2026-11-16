@@ -110,6 +110,13 @@ public struct OutputFormat: Equatable, Sendable {
         return (Int(min(limit, max(1, width))), Int(min(limit, max(1, height))))
     }
 
+    /// Width over height of the image in pixels. Preview and export frame with this one value,
+    /// so they show the same window.
+    public func pixelAspect(windowAspect: Double) -> Double {
+        let size = pixelSize(windowAspect: windowAspect)
+        return Double(size.width) / Double(size.height)
+    }
+
     public func summary(windowAspect: Double) -> String {
         let size = pixelSize(windowAspect: windowAspect)
         return "\(aspect.title) · \(size.width) × \(size.height)"

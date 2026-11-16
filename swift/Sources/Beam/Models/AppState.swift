@@ -16,7 +16,7 @@ public final class AppState {
     /// Every edit goes through here. Only changes to what the raster depends on re-render it.
     public var scene = BeamScene() {
         didSet {
-            if scene.rasterInputs != oldValue.rasterInputs {
+            if scene.rasterInputs(windowAspect: windowAspect) != oldValue.rasterInputs(windowAspect: windowAspect) {
                 scheduleRender()
             }
         }
@@ -56,7 +56,7 @@ public final class AppState {
     private static let log = Logger(subsystem: "com.asympton.beam-bg", category: "render")
 
     public init() {
-        scene.zoomToFit()
+        scene.zoomToFit(aspect: imageAspect)
     }
 
 
@@ -76,14 +76,23 @@ public final class AppState {
     }
 
     public var geometry: CanvasGeometry {
-        CanvasGeometry(container: containerSize, aspect: output.aspect, framing: framing)
+        CanvasGeometry(container: containerSize, aspect: output.aspect, window: window)
     }
 
     /// Aspect of the canvas area, used when the output follows the window.
     public var windowAspect: Double {
-        let size = geometry.imageRect.size
-        guard size.width > 0, size.height > 0 else { return 16.0 / 9.0 }
-        return Double(size.width / size.height)
+        guard containerSize.width > 0, containerSize.height > 0 else { return 16.0 / 9.0 }
+        return Double(containerSize.width / containerSize.height)
+    }
+
+    /// Width over height of the output in pixels, which sets how much of the axis is shown.
+    public var imageAspect: Double {
+        output.pixelAspect(windowAspect: windowAspect)
+    }
+
+    /// What the preview and exports show.
+    public var window: FrameWindow {
+        scene.window(windowAspect: windowAspect)
     }
 
     public var outputSummary: String {
@@ -212,7 +221,7 @@ public final class AppState {
     public func duplicateSelectedElement() {
         guard let original = selectedElement else { return }
         let copy = PlacedElementModel(
-            z: original.z + 0.05 * framing.effectiveSpanZ,
+            z: original.z + 0.05 * window.spanZ,
             type: original.type,
             param1: original.param1,
             param2: original.param2,
@@ -238,11 +247,21 @@ public final class AppState {
 
 
     public func zoom(by factor: Double) {
-        edit(factor > 1 ? "Zoom In" : "Zoom Out", coalescingKey: \BeamScene.framing) { $0.framing.zoom(by: factor) }
+        let aspect = imageAspect
+        edit(factor > 1 ? "Zoom In" : "Zoom Out", coalescingKey: \BeamScene.framing) {
+            $0.framing.zoom(by: factor, aspect: aspect)
+        }
     }
 
     public func zoomToFit() {
-        edit("Zoom to Fit") { $0.zoomToFit() }
+        let aspect = imageAspect
+        edit("Zoom to Fit") { $0.zoomToFit(aspect: aspect) }
+    }
+
+    /// Makes the image show exactly `start...end` at the current aspect.
+    public func setAxialRange(start: Double, end: Double) {
+        let aspect = imageAspect
+        edit("Change Axial Range") { $0.framing.setVisibleRange(start: start, end: end, aspect: aspect) }
     }
 
     public func setAspect(_ aspect: OutputAspect) {
@@ -276,7 +295,7 @@ public final class AppState {
             beam: beam,
             elements: elements,
             style: style,
-            framing: framing,
+            window: window,
             width: size.width,
             height: size.height,
             onBusyChange: { @MainActor [weak self] busy in
@@ -351,7 +370,7 @@ public final class AppState {
 
         let size = viewportPixelSize
         guard size.width > 0, size.height > 0 else { return }
-        let key = RenderKey(inputs: scene.rasterInputs, width: size.width, height: size.height)
+        let key = RenderKey(inputs: scene.rasterInputs(windowAspect: windowAspect), width: size.width, height: size.height)
         guard key != lastRenderKey else { return }
         lastRenderKey = key
         isRenderInFlight = true
@@ -359,7 +378,7 @@ public final class AppState {
         let params = beam.cParams
         let elements = scene.activeElements.map(\.cPlacedElement)
         let style = style.cStyle
-        let framing = framing
+        let window = window
 
         Task {
             let start = ContinuousClock.now
@@ -368,9 +387,9 @@ public final class AppState {
                     params: params,
                     elements: elements,
                     style: style,
-                    zMin: framing.effectiveZMin,
-                    zMax: framing.effectiveZMax,
-                    xMax: framing.effectiveXMax,
+                    zMin: window.zMin,
+                    zMax: window.zMax,
+                    xMax: window.xMax,
                     width: size.width,
                     height: size.height
                 )

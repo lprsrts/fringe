@@ -21,6 +21,7 @@ struct CanvasView: View {
                 ImageLayer(
                     raster: model.rasterImage,
                     scene: model.scene,
+                    window: model.window,
                     selectedID: model.selectedElementID,
                     fillsWindow: isWindowAspect
                 )
@@ -131,7 +132,7 @@ struct CanvasView: View {
                 }
                 guard let pinch else { return }
                 var framing = pinch.framing
-                framing.zoom(by: Double(value.magnification), anchor: pinch.anchor)
+                framing.zoom(by: Double(value.magnification), anchor: pinch.anchor, aspect: model.imageAspect)
                 model.scene.framing = framing
             }
     }
@@ -154,6 +155,7 @@ private struct CanvasPinch: Equatable {
 private struct ImageLayer: View {
     let raster: CGImage?
     let scene: BeamScene
+    let window: FrameWindow
     let selectedID: UUID?
     let fillsWindow: Bool
 
@@ -177,7 +179,7 @@ private struct ImageLayer: View {
                         beam: scene.beam,
                         elements: scene.elements,
                         style: scene.style,
-                        framing: scene.framing,
+                        window: window,
                         selectedID: selectedID,
                         minimumTextScale: 1
                     )

@@ -9,7 +9,7 @@ public struct CanvasGeometry: Equatable {
 
     public var container: CGSize
     public var aspect: OutputAspect
-    public var framing: FramingModel
+    public var window: FrameWindow
 
     public var imageRect: CGRect {
         guard let ratio = aspect.ratio else {
@@ -34,20 +34,20 @@ public struct CanvasGeometry: Equatable {
     }
 
     public func viewX(forZ z: Double) -> CGFloat {
-        VectorRenderer.mapZToX(z: z, zMin: framing.effectiveZMin, zMax: framing.effectiveZMax, bounds: imageRect)
+        VectorRenderer.mapZToX(z: z, zMin: window.zMin, zMax: window.zMax, bounds: imageRect)
     }
 
     public func z(forViewX x: CGFloat) -> Double {
         let rect = imageRect
-        guard rect.width > 0 else { return framing.centerZ }
-        return framing.effectiveZMin + Double((x - rect.minX) / rect.width) * framing.effectiveSpanZ
+        guard rect.width > 0 else { return window.centerZ }
+        return window.zMin + Double((x - rect.minX) / rect.width) * window.spanZ
     }
 
     /// Change in z for a horizontal movement of `dx` points.
     public func deltaZ(forDeltaX dx: CGFloat) -> Double {
         let width = imageRect.width
         guard width > 0 else { return 0 }
-        return Double(dx / width) * framing.effectiveSpanZ
+        return Double(dx / width) * window.spanZ
     }
 
     /// The enabled element whose glyph is nearest to `point`, if any is within reach.

@@ -196,9 +196,24 @@ public struct RenderStyleModel: Equatable, Sendable {
     }
 }
 
-/// Visible region of the (z, x) plane, in metres, before zoom and pan.
+/// The region of the (z, x) plane an image shows, in metres.
+public struct FrameWindow: Equatable, Sendable {
+    public var zMin: Double
+    public var zMax: Double
+    /// Half-height; x = 0 is the vertical centre.
+    public var xMax: Double
+
+    public var spanZ: Double { zMax - zMin }
+    public var centerZ: Double { (zMin + zMax) / 2.0 }
+}
+
+/// Visible region of the (z, x) plane, in metres, before zoom and pan, as seen at 16:9.
 public struct FramingModel: Equatable, Sendable {
     public static let zoomRange: ClosedRange<Double> = 0.2...20.0
+
+    /// Stored ranges describe the window at 16:9. Other aspects widen or narrow the axial span
+    /// in proportion, so metres per pixel along z and x keep their ratio and the beam keeps its shape.
+    public static let referenceAspect = 16.0 / 9.0
 
     public var zMin: Double = -0.5
     public var zMax: Double = 0.5
@@ -210,31 +225,41 @@ public struct FramingModel: Equatable, Sendable {
 
     public var centerZ: Double { (zMin + zMax) / 2.0 + panZ }
 
-    public var effectiveSpanZ: Double { (zMax - zMin) / max(0.01, zoomScale) }
-
-    public var effectiveZMin: Double { centerZ - effectiveSpanZ / 2.0 }
-
-    public var effectiveZMax: Double { centerZ + effectiveSpanZ / 2.0 }
-
     /// Half-height of the visible window after zoom.
     public var effectiveXMax: Double {
         xMax / max(0.01, zoomScale)
     }
 
-    /// Zooms by `factor`, keeping the z at `anchor` (0 = left edge, 1 = right edge) in place.
-    public mutating func zoom(by factor: Double, anchor: Double = 0.5) {
-        let anchorZ = effectiveZMin + anchor * effectiveSpanZ
-        zoomScale = min(Self.zoomRange.upperBound, max(Self.zoomRange.lowerBound, zoomScale * factor))
-        let newMin = anchorZ - anchor * effectiveSpanZ
-        panZ = newMin + effectiveSpanZ / 2.0 - (zMin + zMax) / 2.0
+    /// How much wider the axial span is in an image `aspect` (width over height) wide than at 16:9.
+    public static func axialStretch(aspect: Double) -> Double {
+        guard aspect.isFinite, aspect > 0 else { return 1.0 }
+        return aspect / referenceAspect
     }
 
-    /// Shows exactly `start...end` without changing the transverse scale.
-    public mutating func setVisibleRange(start: Double, end: Double) {
+    /// What an image `aspect` (width over height) wide shows, after zoom and pan.
+    public func window(aspect: Double) -> FrameWindow {
+        let span = (zMax - zMin) * Self.axialStretch(aspect: aspect) / max(0.01, zoomScale)
+        return FrameWindow(zMin: centerZ - span / 2.0, zMax: centerZ + span / 2.0, xMax: effectiveXMax)
+    }
+
+    /// Zooms by `factor`, keeping the z at `anchor` (0 = left edge, 1 = right edge) of an
+    /// image `aspect` wide in place.
+    public mutating func zoom(by factor: Double, anchor: Double = 0.5, aspect: Double) {
+        let before = window(aspect: aspect)
+        let anchorZ = before.zMin + anchor * before.spanZ
+        zoomScale = min(Self.zoomRange.upperBound, max(Self.zoomRange.lowerBound, zoomScale * factor))
+        let span = window(aspect: aspect).spanZ
+        panZ = anchorZ + (0.5 - anchor) * span - (zMin + zMax) / 2.0
+    }
+
+    /// Makes an image `aspect` wide show exactly `start...end`, without changing the transverse scale.
+    public mutating func setVisibleRange(start: Double, end: Double, aspect: Double) {
         guard end > start else { return }
+        let center = (start + end) / 2.0
+        let span = (end - start) / Self.axialStretch(aspect: aspect)
         xMax = effectiveXMax
-        zMin = start
-        zMax = end
+        zMin = center - span / 2.0
+        zMax = center + span / 2.0
         zoomScale = 1.0
         panZ = 0.0
     }
@@ -272,17 +297,23 @@ public struct BeamScene: Equatable, Sendable {
         var aspect: OutputAspect
     }
 
-    public var rasterInputs: RasterInputs {
-        RasterInputs(
+    /// What the image shows when the output follows a canvas `windowAspect` wide.
+    public func window(windowAspect: Double) -> FrameWindow {
+        framing.window(aspect: output.pixelAspect(windowAspect: windowAspect))
+    }
+
+    public func rasterInputs(windowAspect: Double) -> RasterInputs {
+        let window = window(windowAspect: windowAspect)
+        return RasterInputs(
             beam: beam,
             elements: activeElements.map { .init(z: $0.z, type: $0.type, param1: $0.param1, param2: $0.param2) },
             colormap: style.colormap,
             gamma: style.gamma,
             showWavefrontComposite: style.showWavefrontComposite,
             fringeModulation: style.fringeModulation,
-            zMin: framing.effectiveZMin,
-            zMax: framing.effectiveZMax,
-            xMax: framing.effectiveXMax,
+            zMin: window.zMin,
+            zMax: window.zMax,
+            xMax: window.xMax,
             aspect: output.aspect
         )
     }
@@ -311,8 +342,8 @@ public struct BeamScene: Equatable, Sendable {
             .map(\.element)
     }
 
-    /// Fits the view to the waist and all elements, and resets zoom and pan.
-    public mutating func zoomToFit() {
+    /// Fits the view to the waist and all elements in an image `aspect` wide, and resets zoom and pan.
+    public mutating func zoomToFit(aspect: Double) {
         let zR = max(1e-4, beam.rayleighRange)
         let minZ: Double
         let maxZ: Double
@@ -330,9 +361,12 @@ public struct BeamScene: Equatable, Sendable {
             BeamBridge.waistAt(w0: beam.w0, z: maxZ - beam.z0, zR: zR)
         )
 
-        framing.zMin = minZ
-        framing.zMax = maxZ
-        framing.xMax = max(1e-4, peakWaist * 2.2)
+        // Narrower than 16:9 the axial range would be cut off, so the whole window grows to keep the shape.
+        let grow = max(1.0, 1.0 / FramingModel.axialStretch(aspect: aspect))
+        let center = (minZ + maxZ) / 2.0
+        framing.zMin = center - (center - minZ) * grow
+        framing.zMax = center + (maxZ - center) * grow
+        framing.xMax = max(1e-4, peakWaist * 2.2) * grow
         framing.panZ = 0.0
         framing.zoomScale = 1.0
     }

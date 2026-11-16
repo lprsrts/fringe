@@ -42,9 +42,9 @@ public enum ImageExportService {
             params: export.beam.cParams,
             elements: export.elements.filter(\.isEnabled).sorted { $0.z < $1.z }.map(\.cPlacedElement),
             style: export.style.cStyle,
-            zMin: export.framing.effectiveZMin,
-            zMax: export.framing.effectiveZMax,
-            xMax: export.framing.effectiveXMax,
+            zMin: export.window.zMin,
+            zMax: export.window.zMax,
+            xMax: export.window.xMax,
             width: width,
             height: height
         ) else {
@@ -72,7 +72,7 @@ public enum ImageExportService {
             beam: export.beam,
             elements: export.elements,
             style: export.style,
-            framing: export.framing
+            window: export.window
         )
 
         guard let image = context.makeImage() else {

@@ -207,7 +207,7 @@ public enum VectorRenderer {
         beam: BeamParameters,
         elements: [PlacedElementModel],
         style: RenderStyleModel,
-        framing: FramingModel,
+        window: FrameWindow,
         selectedID: UUID? = nil,
         minimumTextScale: CGFloat = 0
     ) {
@@ -221,7 +221,7 @@ public enum VectorRenderer {
             textScale: max(scale, minimumTextScale),
             beam: beam,
             elements: elements,
-            framing: framing
+            window: window
         )
 
         context.saveGState()
@@ -271,11 +271,11 @@ private struct OverlayPainter {
     let textScale: CGFloat
     let beam: BeamParameters
     let elements: [PlacedElementModel]
-    let framing: FramingModel
+    let window: FrameWindow
 
-    private var zMin: Double { framing.effectiveZMin }
-    private var zMax: Double { framing.effectiveZMax }
-    private var xMax: Double { framing.effectiveXMax }
+    private var zMin: Double { window.zMin }
+    private var zMax: Double { window.zMax }
+    private var xMax: Double { window.xMax }
 
     private func px(_ z: Double) -> CGFloat {
         VectorRenderer.mapZToX(z: z, zMin: zMin, zMax: zMax, bounds: bounds)
