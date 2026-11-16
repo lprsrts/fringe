@@ -81,7 +81,7 @@ pub struct MomResolved {
     pub max_unknowns: usize,
 }
 
-/// Solver settings after applying the per-quality defaults (spec §2.3) and the
+/// Solver settings after applying the per-quality defaults and the
 /// scene's overrides.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Resolved {

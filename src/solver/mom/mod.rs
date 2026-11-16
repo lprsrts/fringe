@@ -1,4 +1,4 @@
-//! Method-of-moments (boundary integral) solver (spec §5.3).
+//! Method-of-moments (boundary integral) solver.
 //!
 //! Midpoint collocation on exact curved panels ([`panels`]) with densities
 //! interpolated between neighbouring panel values; the dielectric Müller system
@@ -7,7 +7,7 @@
 //! the field from the boundary representations ([`evaluate`]). There is no PML:
 //! the Green's function radiates exactly.
 //!
-//! Deviations from spec §5.3, all inside this module:
+//! Choices that differ from the textbook pulse-basis collocation scheme:
 //! - densities on source panels are the quadratic interpolants of the panel
 //!   values rather than pulses (third- to fourth-order instead of second-order
 //!   convergence; needed for `mom_self` and margin on `mie_diel`);
@@ -16,13 +16,13 @@
 //!   (`transparent` is exactly zero);
 //! - self panels use a τ³-graded Gauss–Legendre rule on each half instead of
 //!   analytic log subtraction (it also covers the log-singular N_b − N_i);
-//! - the dense LU is a blocked right-looking LU here (trailing updates through
+//! - the dense LU is a blocked right-looking LU (trailing updates through
 //!   `linalg::gemm`) so that cancelling takes effect within a few ms;
 //! - the far-field sampling loop uses a private Hankel asymptotic for J0, Y0,
 //!   J1, Y1 at x ≥ 64 ([`evaluate`]; tested to 1e-11 against
 //!   `special::bessel::j_y_01_real`);
-//! - the memory estimate is `7 MB + 1.5 · 16 N² B + 70 B per output point`
-//!   instead of `16 N² B · 1.2`, fitted to peak RSS (within about 20 %).
+//! - the memory estimate is `7 MB + 1.5 · 16 N² B + 70 B per output point`,
+//!   fitted to peak RSS (within about 20 %).
 
 pub mod evaluate;
 pub mod lu;
@@ -100,7 +100,7 @@ fn seconds(w: &Work) -> (f64, f64, f64) {
 fn memory_mb(w: &Work) -> f64 {
     let n = w.unknowns as f64;
     // Calibrated against peak RSS: the process baseline, the dense matrix with
-    // its LU workspace (1.5 × 16 N² bytes; the spec's first guess was 1.2) and
+    // its LU workspace (1.5 × 16 N² bytes) and
     // about 70 bytes per output point for the field arrays.
     7.0 + 1.5 * 16.0 * n * n / 1e6 + 70.0 * w.grid_points as f64 / 1e6
 }

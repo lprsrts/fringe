@@ -240,7 +240,7 @@ impl FieldGrid {
         self.scene.domain.pml_wl * self.scene.wavelength_um / self.scene.background.n
     }
 
-    /// Grid, scene context, diagnostics and body outlines (spec §7).
+    /// Grid, scene context, diagnostics and body outlines.
     pub fn info_json(&self) -> Value {
         let g = &self.grid;
         let d = &self.scene.domain;

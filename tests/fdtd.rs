@@ -1,4 +1,4 @@
-//! FDTD validation (spec §5.1, §9.2): the FDTD column of the case table, the
+//! FDTD validation: the FDTD column of the case table, the
 //! solver's capability checks, cancel latency and performance.
 
 mod common;

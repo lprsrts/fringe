@@ -338,7 +338,7 @@ public final class AppState {
         }
     }
 
-    /// The shape lock: domain height = width / image aspect (spec §11.5).
+    /// The shape lock: domain height = width / image aspect.
     private func lockShape(_ doc: inout BeamDocument) {
         let aspect = doc.output.aspect.ratio ?? windowAspect
         if abs(doc.scene.domain.aspect - aspect) > 1e-9 * aspect {

@@ -1,4 +1,4 @@
-//! Finite-difference time-domain solver (spec §5.1).
+//! Finite-difference time-domain solver.
 //!
 //! A 2D Yee scheme for Ez (TM_z) in normalised units (c = ε0 = μ0 = 1, H̃ = η0 H,
 //! time in µm of light travel), solved for the scattered field. Sources are the

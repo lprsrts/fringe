@@ -1,4 +1,4 @@
-//! Scene validation (spec §3.3). Every issue carries the JSON path of the value
+//! Scene validation. Every issue carries the JSON path of the value
 //! it is about, so the app can show it under the right field.
 
 use serde::Serialize;

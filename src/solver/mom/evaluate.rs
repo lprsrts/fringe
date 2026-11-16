@@ -1,4 +1,4 @@
-//! The scattered field on the output grid (spec §5.3, "Field evaluation").
+//! The scattered field on the output grid.
 //!
 //! - Outside every body: `E_s = Σ_B (D_b u_sB − S_b q_sB)` (u_sB = 0 and q_sB = q_B
 //!   on PEC), the exterior representation of the scattered field.

@@ -1,6 +1,6 @@
 import Foundation
 
-// A Codable mirror of the core's scene JSON, schema version 2 (spec §3.1).
+// A Codable mirror of the core's scene JSON, schema version 2.
 //
 // Lengths are micrometres and angles degrees. Keys are spelled out in `CodingKeys`
 // so the JSON matches the core exactly. Optional settings are written as `null`
@@ -52,7 +52,7 @@ public enum SolverMethod: String, Codable, CaseIterable, Identifiable, Sendable 
         }
     }
 
-    /// Defaults from the core's table (spec §2.3), for showing what an empty override means.
+    /// Defaults from the core's table, for showing what an empty override means.
     public func defaultPPW(final: Bool) -> Double {
         switch self {
         case .fdtd: return final ? 24 : 10
@@ -358,7 +358,7 @@ public struct Element: Codable, Equatable, Identifiable, Sendable {
     public var name: String
     public var enabled: Bool = true
     public var material: Material
-    /// Anchor; where it sits on the shape depends on the shape (spec §3.2).
+    /// Anchor; where it sits on the shape depends on the shape.
     public var xUm: Double
     public var yUm: Double
     /// Counter-clockwise about the anchor; local +x is the element's optical axis.
@@ -483,7 +483,7 @@ public enum ShapeKind: String, Codable, CaseIterable, Identifiable, Sendable {
     public static let refractive: [ShapeKind] = [.lens, .slab, .wedge, .prism, .cylinder, .waveguide, .grating, .polygon]
     public static let opaque: [ShapeKind] = [.mirror, .slits]
 
-    /// A new element of this kind centred on `center` (spec §11.1 defaults).
+    /// A new element of this kind centred on `center`.
     public func makeElement(at center: (x: Double, y: Double)) -> Element {
         let glass = Material.glass(1.5)
         let shape: Shape

@@ -1,7 +1,7 @@
 import Foundation
 
-// Decodable mirrors of the JSON the core returns: the check report (spec §3.7), the field
-// info (§7) and the scene outlines. Keys the app does not use are ignored.
+// Decodable mirrors of the JSON the core returns: the check report, the field
+// info and the scene outlines. Keys the app does not use are ignored.
 
 public enum IssueSeverity: String, Decodable, Sendable {
     case error

@@ -50,8 +50,8 @@ fn grid_matches_pointwise() {
 
 #[test]
 fn grid_is_fast_enough() {
-    // 1M points with a few hundred components; the spec target is 60 ms on an
-    // M-series Mac, checked loosely here so slow CI machines do not fail.
+    // 1M points with a few hundred components; about 60 ms on an M-series
+    // Mac, checked loosely here so slow CI machines do not fail.
     let inc = beam(1.0, Vec2::new(0.0, 0.0), 0.0, Rect::new(-40.0, 40.0, -40.0, 40.0));
     let g = GridSpec { x0: -20.0, y0: -20.0, dx: 0.04, nx: 1000, ny: 1000 };
     let t = std::time::Instant::now();

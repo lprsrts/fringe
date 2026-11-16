@@ -1,7 +1,7 @@
 import Foundation
 
 /// `Beam --self-test-schema`: checks that the Swift scene model and the core agree on the
-/// JSON schema, without opening a window (spec §11.5).
+/// JSON schema, without opening a window.
 ///
 /// For the default scene and every example it decodes the core's JSON into `SimScene`,
 /// re-encodes it, compares the two JSON trees, runs the core's check on the re-encoded

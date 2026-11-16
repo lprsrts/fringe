@@ -1,5 +1,5 @@
 //! Incident fields: a plane wave, or a Gaussian beam built from propagating plane
-//! waves (spec §4). Both solve the background Helmholtz equation exactly, so the
+//! waves. Both solve the background Helmholtz equation exactly, so the
 //! scattered-field solvers can use them everywhere in the plane.
 
 pub mod gaussian;

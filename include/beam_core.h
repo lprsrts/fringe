@@ -60,7 +60,7 @@ void beam_string_free(char* s);          // NULL is fine
 char* beam_scene_default(void);
 // Example scene JSON by name; "" returns a JSON array of {"name","title","method"}; NULL if unknown.
 char* beam_scene_example(const char* name);
-// Validation, per-quality cost estimates and derived quantities (see spec §3.7).
+// Validation, per-quality cost estimates and derived quantities.
 // Never NULL for non-NULL input; parse failures are reported inside the JSON.
 char* beam_scene_check(const char* scene_json);
 // Geometry for overlays without solving:
@@ -90,7 +90,7 @@ char* beam_field_info(const BeamField* field);
 // Bicubic sample of a part at a point; false outside the grid.
 bool beam_field_sample(const BeamField* field, double x_um, double y_um, uint32_t part,
                        double* out_re, double* out_im);
-// Renders view_json (spec §3.6) as sRGB RGBA8, row 0 = top (max y), into a
+// Renders view_json as sRGB RGBA8, row 0 = top (max y), into a
 // caller buffer of at least width*height*4 bytes.
 bool beam_field_render_rgba(const BeamField* field, const char* view_json,
                             uint32_t width, uint32_t height,

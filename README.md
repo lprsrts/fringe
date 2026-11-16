@@ -112,8 +112,9 @@ and is 4.1 times more accurate at 24 cells/λ than without it. The MoM EFIE at
 the PEC resonance is ill-conditioned (condition number 7.9e5) where the CFIE
 stays at 4.7.
 
-Each case passes if its error is at most twice the value above (and within the
-upper bound of the spec), so a change that makes a solver less accurate fails
+Each case passes if its error is within the bound in `src/analytic/cases.rs`:
+twice the value above, or the accuracy target the case was written with if
+that is smaller. A change that makes a solver less accurate therefore fails
 `validate` and `cargo test`.
 
 The three solvers are also compared with each other

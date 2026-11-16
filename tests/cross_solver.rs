@@ -1,4 +1,4 @@
-//! Cross-solver agreement (spec §9.3): the default lens scene against a
+//! Cross-solver agreement: the default lens scene against a
 //! self-converged MoM reference, the double slit, and the energy balance of
 //! the lossless lens. All slow; run with
 //! `cargo test --release --test cross_solver -- --ignored --nocapture`.

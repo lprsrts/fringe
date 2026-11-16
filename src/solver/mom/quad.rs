@@ -1,4 +1,4 @@
-//! Panel quadrature (spec §5.3, "Integration rules").
+//! Panel quadrature.
 //!
 //! Every rule integrates on the exact curve parameter of the panel, with the
 //! arclength Jacobian folded into the node weights:

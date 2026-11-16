@@ -1,4 +1,4 @@
-//! Gaussian beam as an angular spectrum of propagating plane waves (spec §4.2).
+//! Gaussian beam as an angular spectrum of propagating plane waves.
 //!
 //! In the beam frame (ξ along the axis, η across it, origin at the waist):
 //! `E(ξ, η) = C ∫ cos α · exp(−(k w0 sin α)²/4) · exp(−j k (ξ cos α + η sin α)) dα`
@@ -109,7 +109,7 @@ fn eval(comps: &[PlaneComponent], origin: Vec2, p: Vec2) -> C64 {
 /// 32 probes in the disk of radius `r_max` about the waist, which covers the
 /// accurate-in rectangle: the waist, 8 directions at 3 radii, and 7 fixed
 /// pseudo-random points. They are laid out in the beam frame, so a rotated beam
-/// gets the same quadrature (the spec's rectangle-based probes did not).
+/// gets the same quadrature (probes placed on the rectangle would not).
 fn probe_points(waist: Vec2, theta: f64, r_max: f64) -> Vec<Vec2> {
     let mut ps = vec![waist];
     for k in 0..8 {

@@ -1,4 +1,4 @@
-//! Quantities derived from the scene for the inspector (spec §3.7). These are
+//! Quantities derived from the scene for the inspector. These are
 //! paraxial or textbook estimates for orientation, not solver output.
 
 use std::f64::consts::PI;

@@ -256,7 +256,7 @@ public final class FieldHandle: @unchecked Sendable {
         return (re, im)
     }
 
-    /// Renders a view (spec §3.6 JSON) into an sRGB image, row 0 at the top.
+    /// Renders a view into an sRGB image, row 0 at the top.
     public func render(viewJSON: String, width: Int, height: Int) throws -> CGImage {
         guard width > 0, height > 0,
               let uWidth = UInt32(exactly: width), let uHeight = UInt32(exactly: height) else {

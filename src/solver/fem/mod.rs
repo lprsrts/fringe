@@ -1,4 +1,4 @@
-//! Finite-element solver (spec §5.2): Lagrange P_p triangles (p = 2 or 3),
+//! Finite-element solver: Lagrange P_p triangles (p = 2 or 3),
 //! isoparametric along arcs, complex-stretch PML, sparse LU.
 //!
 //! The unknown is the scattered field E_s on the outer rectangle (interior + PML)
@@ -30,7 +30,7 @@ use super::{Estimate, Issue, Method, Quality, SolveContext, SolveError, Solver, 
 
 pub struct FemSolver;
 
-/// DOF limits per quality (spec §5.2).
+/// DOF limits per quality.
 const MAX_DOFS_PREVIEW: f64 = 600e3;
 const MAX_DOFS_FINAL: f64 = 2.5e6;
 

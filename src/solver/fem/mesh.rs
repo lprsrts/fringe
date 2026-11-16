@@ -1,5 +1,5 @@
 //! Triangle mesh of the outer rectangle (interior + PML) by spade's constrained
-//! Delaunay triangulation (spec §5.2 "Mesh generation").
+//! Delaunay triangulation.
 //!
 //! 1. Constraints: the outer rectangle and the PML inner rectangle sampled at h_b,
 //!    and every body contour with each segment split into ⌈len/h_bnd⌉ equal-parameter

@@ -1,7 +1,7 @@
 //! The 2D Helmholtz Green's function and its derivatives. This module is the
 //! single source of truth for the conventions every solver uses.
 //!
-//! # Conventions (spec §1)
+//! # Conventions
 //!
 //! - The plane is (x, y) in µm, x to the right, y up; angles are counter-clockwise
 //!   from +x. The only field is E = E_z(x, y), a complex phasor; μ_r = 1.
@@ -53,7 +53,7 @@ pub fn radial(k: C64, r: f64) -> Radial {
 
 /// `G_b − G_i` and its radial derivatives. For small `max(|k_b|, |k_i|)·R` the
 /// logarithmic singularities cancel analytically and the difference is summed as
-/// a series (spec §5.3); otherwise it is the direct difference.
+/// a series; otherwise it is the direct difference.
 pub fn radial_diff(k_b: C64, k_i: C64, r: f64) -> Radial {
     if k_b.norm().max(k_i.norm()) * r < 1.0 {
         radial_diff_series(k_b, k_i, r)
@@ -122,7 +122,7 @@ pub struct Kernels {
     pub dn_xy: C64,
 }
 
-/// Combines radial values at `R = |x − y|` with the geometry (spec §1.3).
+/// Combines radial values at `R = |x − y|` with the geometry.
 pub fn kernels(rad: &Radial, x: Vec2, y: Vec2, n_x: Vec2, n_y: Vec2) -> Kernels {
     let d = x - y;
     let r = d.norm();

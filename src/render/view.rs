@@ -1,4 +1,4 @@
-//! Display parameters (spec §3.6) and rendering a field to RGBA.
+//! Display parameters and rendering a field to RGBA.
 
 use std::f64::consts::PI;
 
@@ -165,7 +165,7 @@ pub fn phase_factor(phase_deg: f64) -> C64 {
     }
 }
 
-/// The scale S that maps the displayed quantity to [0, 1] (spec §6). It does not
+/// The scale S that maps the displayed quantity to [0, 1]. It does not
 /// depend on φ, so an animated phase never flickers.
 pub fn scale(field: &FieldGrid, view: &View) -> f64 {
     let part: Part = view.part.into();

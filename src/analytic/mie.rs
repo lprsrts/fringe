@@ -1,5 +1,5 @@
 //! TM (Ez) scattering of a plane wave by a circular cylinder: PEC or a
-//! homogeneous dielectric with complex index (spec §5b).
+//! homogeneous dielectric with complex index.
 //!
 //! With the plane wave `A e^{jφ0} e^{−jk_b(x cos θ + y sin θ)}` and local polar
 //! coordinates (ρ, φ) about the centre c, ψ = φ − θ and the phase factor

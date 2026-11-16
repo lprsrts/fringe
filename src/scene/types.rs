@@ -1,4 +1,4 @@
-//! Scene JSON, schema version 2 (spec §3.1).
+//! Scene JSON, schema version 2.
 //!
 //! Lengths are micrometres and angles degrees. Every type rejects unknown keys,
 //! and optional settings have defaults so a minimal scene parses.
@@ -115,7 +115,7 @@ pub struct Element {
     #[serde(default = "yes")]
     pub enabled: bool,
     pub material: Material,
-    /// Anchor; where it sits on the shape is defined per shape (spec §3.2).
+    /// Anchor; where it sits on the shape is defined per shape.
     pub x_um: f64,
     pub y_um: f64,
     /// Counter-clockwise about the anchor. Local +x is the element's optical axis.

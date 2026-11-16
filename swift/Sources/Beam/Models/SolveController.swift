@@ -55,7 +55,7 @@ public enum SolveStatus: Equatable {
     }
 }
 
-/// Runs previews and finals for the current scene (spec §11.4).
+/// Runs previews and finals for the current scene.
 ///
 /// Every physics edit is checked off the main thread. 250 ms after the last edit a preview
 /// starts if the check passed, replacing any preview still running. While a slider or a

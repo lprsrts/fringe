@@ -1,5 +1,5 @@
 //! Numerical dispersion of the 2D Yee scheme, for the FDTD's matched incident
-//! field (spec §4.3). Normalised units: c = 1, so ω = k0 and time is in µm.
+//! field. Normalised units: c = 1, so ω = k0 and time is in µm.
 
 use crate::types::C64;
 

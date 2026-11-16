@@ -1,4 +1,4 @@
-//! FEM solver validation (spec §5.2, §9.2 FEM column) and mesh quality.
+//! FEM solver validation and mesh quality.
 //!
 //! Fast cases run in `cargo test`; slow ones with `cargo test --release -- --ignored`.
 //! The performance test asserts only with `BEAM_PERF=1` (release build).
@@ -172,7 +172,7 @@ fn cancel_latency_in(quality: Quality, stage: Stage) -> f64 {
     done.duration_since(cancelled_at).as_secs_f64()
 }
 
-/// §9.4: outside the LU a cancel takes effect within 200 ms (mesh and assembly
+/// Outside the LU a cancel takes effect within 200 ms (mesh and assembly
 /// of the final default scene; sampling of the preview).
 #[test]
 fn fem_cancel_latency() {
@@ -217,7 +217,7 @@ fn cli_peak_memory_mb(q: Quality) -> f64 {
     peak / (1024.0 * 1024.0)
 }
 
-/// Default scene (§9.4): preview ≤ 1.5 s, final ≤ 12 s, the time estimate within
+/// Default scene: preview ≤ 1.5 s, final ≤ 12 s, the time estimate within
 /// 2×, and (macOS) peak memory ≤ 2 GB with the memory estimate within 2×.
 /// Asserted with BEAM_PERF=1 in a release build. Each quality runs three times
 /// and the fastest run is compared, so that a busy machine measures the solver

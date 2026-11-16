@@ -1,4 +1,4 @@
-//! Degrees of freedom, isoparametric geometry and the sparse system (spec §5.2).
+//! Degrees of freedom, isoparametric geometry and the sparse system.
 //!
 //! Weak form (complex symmetric, no conjugation): find u = E_s with
 //! `∫ (Λ∇u·∇v − k0² ε_r s u v) = ∫_bodies k0² (ε_r − ε_b) E_inc v`, u = 0 on the outer

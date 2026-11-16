@@ -1,4 +1,4 @@
-//! Panels: every body contour cut into exact sub-curves (spec §5.3).
+//! Panels: every body contour cut into exact sub-curves.
 //!
 //! A segment of length ℓ becomes ⌈ℓ/h⌉ equal panels with `h = λ_loc/ppw`
 //! (`λ_loc = λ0/max(n_b, Re n_i)` for a dielectric, `λ_b` for PEC). With corner
@@ -115,8 +115,8 @@ pub fn panel_length(p: &Problem, body: &Body) -> f64 {
     lambda_loc / p.settings.ppw
 }
 
-/// EFIE or CFIE for one PEC body (spec §5.3: `auto` uses the EFIE below a
-/// nominal thickness of 0.45 λ_b, where no interior resonance exists at k_b).
+/// EFIE or CFIE for one PEC body: `auto` uses the EFIE below a nominal
+/// thickness of 0.45 λ_b, where no interior resonance exists at k_b.
 pub fn pec_rows(p: &Problem, body: &Body) -> PecRows {
     let s = &p.settings.mom;
     let cfie = PecRows::Cfie { beta: J * p.k_b * s.cfie_beta_scale };

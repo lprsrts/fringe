@@ -1,10 +1,9 @@
-//! The boundary-integral system (spec §5.3, "Equations"), written for the
-//! scattered traces.
+//! The boundary-integral system, written for the scattered traces.
 //!
 //! The unknowns of a dielectric body are the scattered traces
 //! `u_s = E_s|_C` and `q_s = ∂_n E_s|_C` (the total traces minus the incident
 //! ones); a PEC body keeps the total `q = ∂_n E|_C`. Substituting
-//! `u = u_inc + u_s`, `q = q_inc + q_s` into the Müller equations of the spec and
+//! `u = u_inc + u_s`, `q = q_inc + q_s` into the Müller equations and
 //! using Green's identity for the incident field (`D_b u_inc − S_b q_inc = 0`
 //! outside a body) gives, for a dielectric body A:
 //!
@@ -13,11 +12,11 @@
 //! q_s + (K′_b − K′_i) q_s − (N_b − N_i) u_s − Σ_{B≠A} (N_b u_sB − K′_b q_sB) = −[(K′_b − K′_i) q_inc − (N_b − N_i) u_inc]
 //! ```
 //!
-//! with `u_sB = 0` and `q_sB = q_B` for a PEC body B. The operator matrix is the
-//! spec's; only the right-hand side moves. The incident traces enter through
-//! the same quadrature as the matrix, sampled exactly at the nodes, so a body
-//! with `ε = ε_b` has an exactly zero right-hand side and exactly zero scattered
-//! field. PEC rows are unchanged: EFIE `S_b q + … = u_inc`, MFIE
+//! with `u_sB = 0` and `q_sB = q_B` for a PEC body B. The operator matrix is
+//! the usual Müller one; only the right-hand side moves. The incident traces
+//! enter through the same quadrature as the matrix, sampled exactly at the
+//! nodes, so a body with `ε = ε_b` has an exactly zero right-hand side and
+//! exactly zero scattered field. PEC rows are unchanged: EFIE `S_b q + … = u_inc`, MFIE
 //! `q/2 + K′_b q + … = q_inc`, CFIE = MFIE + β·EFIE.
 //!
 //! **Discretisation.** The unknowns are the densities at the panel collocation
@@ -26,7 +25,7 @@
 //! interpolant through its own and its two neighbours' midpoint values on the
 //! same smooth piece of the contour (linear beside a corner); see
 //! [`Panels::recon`]. The operators, quadrature and unknown count are those of
-//! the spec's pulse scheme, but the error falls like h³–h⁴ instead of h²: on
+//! a pulse scheme, but the error falls like h³–h⁴ instead of h²: on
 //! `mie_diel` at 16 panels per λ the field error drops from 4.7e-3 (pulses) to
 //! 1.1e-4.
 //!

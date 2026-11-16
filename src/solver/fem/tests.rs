@@ -1,4 +1,4 @@
-//! Mesh-quality tests (spec §5.2 step 6). They live inside the crate so the mesh
+//! Mesh-quality tests. They live inside the crate so the mesh
 //! internals stay private; the solver validation cases are in `tests/fem.rs`.
 
 use std::collections::HashSet;

@@ -311,7 +311,7 @@ public struct DisplaySettings: Codable, Equatable, Sendable {
         logDb != nil && (quantity == .intensity || quantity == .magnitude)
     }
 
-    /// View JSON for the core's renderer (spec §3.6). `viewRect` nil shows the whole grid.
+    /// View JSON for the core's renderer. `viewRect` nil shows the whole grid.
     /// `incidentAmplitude` turns the fixed normalisation, given in units of the incident
     /// amplitude, into the field scale the core expects.
     public func viewJSON(viewRect: RectUm?, incidentAmplitude: Double = 1, phaseDeg: Double? = nil) -> String {

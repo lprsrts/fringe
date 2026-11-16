@@ -1,4 +1,4 @@
-//! The check report (spec §3.7): validation issues, solver capability issues,
+//! The check report: validation issues, solver capability issues,
 //! cost estimates for both qualities and derived quantities.
 
 use serde::Serialize;

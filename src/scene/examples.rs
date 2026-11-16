@@ -1,4 +1,4 @@
-//! The default scene and the named examples (spec §3.4, §3.5).
+//! The default scene and the named examples.
 
 use crate::solver::Method;
 
@@ -153,8 +153,8 @@ pub fn example(name: &str) -> Option<Scene> {
             [-12.0, 12.0, -6.75, 6.75],
             Method::Fem,
         ),
-        // The spec's [−10, 10] × [−5.625, 5.625] domain cuts the 12 µm aperture; this
-        // keeps the mirror and the 16:9 shape with a larger domain.
+        // A [−10, 10] × [−5.625, 5.625] domain would cut the 12 µm aperture; this
+        // keeps the 16:9 shape with a larger domain.
         "mirror" => scene(
             gaussian(2.5, -6.0, 0.0, 0.0),
             vec![element(

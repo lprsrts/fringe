@@ -1,5 +1,5 @@
 //! Ez (s-polarised) transmission through a slab with faces normal to x, for any
-//! incident field made of plane waves (spec §5b). Each component with k_x > 0 is
+//! incident field made of plane waves. Each component with k_x > 0 is
 //! propagated with the Airy (Fabry–Perot) coefficients.
 
 use crate::source::Incident;

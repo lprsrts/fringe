@@ -1,4 +1,4 @@
-//! The solver validation cases (spec §9.2): scenes, references, evaluation
+//! The solver validation cases: scenes, references, evaluation
 //! regions and the single tolerance table, plus a runner shared by the solver
 //! tests and `beam-cli validate`.
 //!
@@ -22,13 +22,15 @@ use super::{pec_plane_image, AirySlab, MieCylinder};
 /// One row of the tolerance table. A bound of `None` means the case does not
 /// apply to that method.
 ///
-/// Error bounds follow the spec's policy (§9): min(spec bound, 2 × measured),
-/// rounded up to two significant digits, measured at final quality on the
-/// release build. They are regression guards, so a change that makes a solver
-/// less accurate fails here even while it is still inside the spec's upper
-/// bound. Zero stays zero; MoM `transparent` keeps the spec's 1e−6 (it measures
-/// exactly 0). Order rows (`fdtd_subpixel_order`, `fem_order`) are lower bounds
-/// and keep the spec's values.
+/// Each error bound is min(target, 2 × measured), rounded up to two
+/// significant digits, with the error measured at final quality on the release
+/// build. The targets are the accuracies the cases were written to check:
+/// 3e−3 to 1e−2 for MoM, 5e−3 to 3e−2 for FEM and 1e−2 to 8e−2 for FDTD. Twice
+/// the measured error is the smaller on almost every row, so the bounds are
+/// regression guards: a change that makes a solver less accurate fails here
+/// even while it still meets the target. A row that measures exactly zero
+/// keeps its target (MoM `transparent`, 1e−6). The order rows
+/// (`fdtd_subpixel_order`, `fem_order`) are lower bounds.
 #[derive(Clone, Copy, Debug, Serialize)]
 pub struct CaseSpec {
     pub id: &'static str,

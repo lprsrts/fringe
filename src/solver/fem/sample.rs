@@ -1,4 +1,4 @@
-//! Evaluation of the FEM solution on the output grid (spec §5.2 "Sampling").
+//! Evaluation of the FEM solution on the output grid.
 //!
 //! A bucket grid over triangle bounding boxes finds candidates; straight triangles
 //! are tested with affine barycentrics (tolerance 1e-9), curved ones by Newton on

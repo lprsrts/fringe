@@ -1,4 +1,4 @@
-//! Element shapes (spec §3.2) as bodies in scene coordinates.
+//! Element shapes as bodies in scene coordinates.
 //!
 //! Each shape is built in its local frame (anchor at the origin, optical axis
 //! along +x) as counter-clockwise contours, then rotated about the anchor and

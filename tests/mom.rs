@@ -1,7 +1,7 @@
-//! MoM solver validation (spec §9.2, MoM column) and solver-specific checks.
+//! MoM solver validation (the MoM column of the case table) and solver-specific checks.
 //!
 //! Fast cases run in `cargo test`; slow ones with `cargo test --release -- --ignored`.
-//! Performance assertions (spec §9.4) run only with `BEAM_PERF=1`.
+//! Performance assertions run only with `BEAM_PERF=1`.
 
 mod common;
 
@@ -30,7 +30,7 @@ fn perf() -> bool {
     std::env::var("BEAM_PERF").is_ok_and(|v| v == "1")
 }
 
-// §9.2 cases, fast.
+// Validation cases, fast.
 
 #[test]
 fn mie_pec() {
@@ -106,7 +106,7 @@ fn balance() {
     assert!(exact <= 1e-3, "flux_balance of the exact Mie field {exact}");
 }
 
-// §9.2 cases, slow.
+// Validation cases, slow.
 
 #[test]
 #[ignore]
@@ -249,8 +249,8 @@ fn body_order_does_not_matter() {
     assert!(d < 1e-9, "fields differ by {d}");
 }
 
-/// Cancelling during each stage of a mid-sized solve returns within 200 ms.
-/// (Spec §9.4; the delays land in the fill, the LU and the sampling.)
+/// Cancelling during each stage of a mid-sized solve returns within 200 ms
+/// (the delays land in the fill, the LU and the sampling).
 #[test]
 fn cancel_latency() {
     let scene = mom_scene("slab_airy_0", None);
@@ -355,7 +355,7 @@ fn timed_solve(s: &Scene, q: Quality) -> (FieldGrid, f64) {
     (out.unwrap(), best)
 }
 
-/// Spec §9.4: default scene preview ≤ 1.5 s and final ≤ 12 s, with the
+/// Default scene: preview ≤ 1.5 s and final ≤ 12 s, with the
 /// estimate within 2× of the measured time (best of three; asserted with
 /// BEAM_PERF=1).
 #[test]
@@ -447,7 +447,7 @@ fn shapes_converge() {
     }
 }
 
-/// Spec §9.4: `estimate()` within 2× of the measured time on every example at
+/// `estimate()` within 2× of the measured time on every example at
 /// both qualities (best of three; asserted with BEAM_PERF=1).
 #[test]
 #[ignore]
