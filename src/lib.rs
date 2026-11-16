@@ -4,6 +4,7 @@
 //! The C ABI used by the macOS app lives in [`ffi`].
 
 pub mod ffi;
+pub mod linalg;
 pub mod physics;
 pub mod render;
 
