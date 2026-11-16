@@ -210,6 +210,8 @@ cargo test --release -- --ignored          # slow tests (validation, cross-solve
 FRINGE_PERF=1 cargo test --release -- --ignored --test-threads=1   # with timing asserts
 scripts/build.sh                           # static library, then the Swift app
 scripts/bundle.sh                          # the above, then target/Fringe.app, signed ad hoc
+                                           # (or with FRINGE_SIGN_IDENTITY="Developer ID Application: …")
+scripts/release.sh                         # signed, notarized DMG + CLI tarball + SHA256SUMS in dist/
 scripts/check-schema.sh                    # build, then check that the app and the core agree on the scene JSON
 ```
 
@@ -226,6 +228,16 @@ the chain, next to the icon, the wordmark and the equation the solvers answer,
 `∇²Ez + k0² n(x, y)² Ez = 0`. `art/banner/build.sh` solves `art/banner/scene.json`
 with the release `fringe-cli` and composes the banner with
 `art/banner/compose.swift`.
+
+`scripts/release.sh` builds with the build machine's paths remapped
+(`FRINGE_RELEASE=1`), signs the app and `fringe-cli` with the Developer ID
+identity in the keychain (hardened runtime, secure timestamp), packs the DMG,
+notarizes and staples it, and writes `SHA256SUMS`; tagging and `gh release` are
+left to you. Notarization needs a stored `notarytool` profile, once:
+`xcrun notarytool store-credentials fringe-notary --apple-id … --team-id …`.
+`FRINGE_NOTARIZE=0` does a dry run without it, `FRINGE_SIGN_IDENTITY` and
+`FRINGE_NOTARY_PROFILE` override the defaults, and `FRINGE_ALLOW_DIRTY=1` allows
+uncommitted changes.
 
 The app's minimum macOS is tied to the Rust toolchain: Homebrew's `rustc`
 ships its standard library built for macOS 26, and the Swift target must not
@@ -259,7 +271,7 @@ src/lib.rs          crate root and re-exports
 src/bin/fringe_cli.rs fringe-cli
 include/            C header for the ABI
 swift/              SwiftUI app (Swift package "Fringe")
-scripts/            build, bundle and schema-check scripts
+scripts/            build, bundle, release and schema-check scripts
 icon/               app icon: the Icon Composer document, its layer generator and the compiled icon
 art/banner/         cover banner: its scene, compose script and the rendered banner
 tests/              integration tests; tests/fixtures holds example scenes and Bessel references
