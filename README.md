@@ -76,7 +76,9 @@ Limits worth knowing:
 
 `beam-cli check` and the app show the estimated unknowns, time and memory
 before solving; a scene whose estimate is over the memory limit is refused
-(`too_large`) rather than started.
+(`too_large`) rather than started. A preview over the limits first drops its
+resolution, to no less than 60 % of the default, and the check says so
+(`preview_coarsened`); a preview resolution set in the scene is never lowered.
 
 ## Validation
 

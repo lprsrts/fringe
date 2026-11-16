@@ -93,6 +93,9 @@ pub struct Resolved {
     pub output_ppw: f64,
     pub pml_um: f64,
     pub memory_limit_mb: f64,
+    /// The default preview resolution, when `ppw` was lowered below it so the
+    /// preview fits the size limits.
+    pub ppw_lowered_from: Option<f64>,
     pub fdtd: FdtdResolved,
     pub fem: FemResolved,
     pub mom: MomResolved,
@@ -185,6 +188,7 @@ impl Resolved {
             output_ppw: pick(s.output.preview_ppw, s.output.final_ppw).unwrap_or_else(|| defaults::output_ppw(quality)),
             pml_um: scene.domain.pml_wl * lambda_b,
             memory_limit_mb: s.memory_limit_mb.unwrap_or_else(|| defaults::memory_limit_mb(quality)),
+            ppw_lowered_from: None,
             fdtd: FdtdResolved {
                 courant: s.fdtd.courant,
                 max_periods: s.fdtd.max_periods,
@@ -236,7 +240,7 @@ pub fn compile_unchecked(scene: &Scene, quality: Quality) -> Problem {
     let interior = scene.domain.rect();
     let pml_um = settings.pml_um;
     let incident = Incident::from_scene(scene, interior.expand(pml_um));
-    Problem {
+    let mut p = Problem {
         scene: scene.clone(),
         quality,
         lambda0,
@@ -250,5 +254,44 @@ pub fn compile_unchecked(scene: &Scene, quality: Quality) -> Problem {
         interior,
         pml_um,
         settings,
+    };
+    let has_override = match p.settings.method {
+        Method::Fdtd => scene.solver.fdtd.preview_ppw,
+        Method::Fem => scene.solver.fem.preview_ppw,
+        Method::Mom => scene.solver.mom.preview_ppw,
     }
+    .is_some();
+    if quality == Quality::Preview && !has_override {
+        fit_preview(&mut p);
+    }
+    p
+}
+
+/// Lowest fraction of the default resolution a preview may drop to.
+const PREVIEW_FLOOR: f64 = 0.6;
+
+/// Lowers the preview resolution in small steps until the solver's size limits
+/// and the memory limit hold, down to [`PREVIEW_FLOOR`] of the default. A
+/// preview that still does not fit is left for the check to report.
+fn fit_preview(p: &mut Problem) {
+    let fits = |p: &Problem| {
+        let solver = crate::solver::solver_for(p.settings.method);
+        !solver.check(p).iter().any(|i| i.is_error() && i.code == "too_large")
+            && crate::solver::estimate(p).memory_mb <= p.settings.memory_limit_mb
+    };
+    if fits(p) {
+        return;
+    }
+    let default = p.settings.ppw;
+    let floor = default * PREVIEW_FLOOR;
+    let mut ppw = default;
+    while ppw > floor {
+        // Tenths, so the resolution reads cleanly wherever it is shown.
+        ppw = ((ppw * 0.95 * 10.0).floor() / 10.0).max(floor);
+        p.settings.ppw = ppw;
+        if fits(p) {
+            break;
+        }
+    }
+    p.settings.ppw_lowered_from = Some(default);
 }

@@ -129,7 +129,7 @@ private struct SimulationRow: View {
                     Text(status.title)
                 }
                 .font(.subheadline)
-                .foregroundStyle(status == .error ? AnyShapeStyle(.red) : (status.isWarning ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary)))
+                .foregroundStyle(status.isError ? AnyShapeStyle(.red) : (status.isWarning ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary)))
             }
             .monospacedDigit()
         } icon: {

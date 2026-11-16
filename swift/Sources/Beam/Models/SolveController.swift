@@ -31,7 +31,7 @@ public enum SolveStatus: Equatable {
     case final(seconds: Double)
     case updating
     case outOfDate
-    case error
+    case error(QualityName)
     case notConverged
 
     public var title: String {
@@ -41,9 +41,14 @@ public enum SolveStatus: Equatable {
         case .final(let s): return "Final · \(SceneFormat.seconds(s))"
         case .updating: return "Updating…"
         case .outOfDate: return "Out of date"
-        case .error: return "Error"
+        case .error(let quality): return "\(quality.title) failed"
         case .notConverged: return "Not converged"
         }
+    }
+
+    public var isError: Bool {
+        if case .error = self { return true }
+        return false
     }
 
     /// Amber states: the image does not show the current scene as it should.
@@ -201,8 +206,8 @@ public final class SolveController {
     }
 
     public var status: SolveStatus {
-        if let report = currentReport, !report.ok { return .error }
-        if currentFailure != nil { return .error }
+        if let report = currentReport, !report.ok { return .error(.preview) }
+        if let failure = currentFailure { return .error(failure.quality) }
         guard let shown else { return isRunning || previewDue ? .updating : .none }
         if shown.revision != revision {
             return isRunning || previewDue ? .updating : .outOfDate

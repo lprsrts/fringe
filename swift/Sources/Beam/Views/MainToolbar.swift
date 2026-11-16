@@ -24,10 +24,18 @@ struct MainToolbar: CustomizableToolbarContent {
         ToolbarSpacer(.flexible)
 
         ToolbarItem(id: "quantity") {
-            Picker("Quantity", selection: Binding(get: { model.display.quantity }, set: { model.setQuantity($0) })) {
-                ForEach(Quantity.allCases) { Label($0.title, systemImage: $0.systemImage).tag($0) }
+            // A menu with an explicit label: a menu-style picker in the toolbar shows only the
+            // icon and leaves the title blank.
+            Menu {
+                Picker("Quantity", selection: Binding(get: { model.display.quantity }, set: { model.setQuantity($0) })) {
+                    ForEach(Quantity.allCases) { Label($0.title, systemImage: $0.systemImage).tag($0) }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            } label: {
+                Label(model.display.quantity.title, systemImage: model.display.quantity.systemImage)
+                    .labelStyle(.titleAndIcon)
             }
-            .pickerStyle(.menu)
             .help("Quantity (⌃1–⌃4)")
         }
 

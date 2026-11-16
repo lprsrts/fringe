@@ -62,6 +62,16 @@ pub fn check(scene: &Scene) -> CheckReport {
                 ),
             ));
         }
+        if let Some(default) = p.settings.ppw_lowered_from {
+            extra.push(Issue::warning(
+                "solver",
+                "preview_coarsened",
+                format!(
+                    "the preview runs at {:.1} points per wavelength instead of {:.0} to fit the size limits",
+                    p.settings.ppw, default
+                ),
+            ));
+        }
         for w in &p.incident.warnings {
             extra.push(Issue::warning("source", "incident_accuracy", w.clone()));
         }

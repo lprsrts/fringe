@@ -516,7 +516,7 @@ public final class AppState {
         var parts = [
             info.method.title,
             "λ \(SceneFormat.fixed(info.wavelengthUm, 2)) µm",
-            "\(SceneFormat.fixed(info.meta.ppw, 0))/λ",
+            "\(Format.number(info.meta.ppw, digits: 0...1))/λ",
             info.quality.rawValue,
         ]
         if info.quality == .final { parts.append(SceneFormat.seconds(info.meta.wallS)) }

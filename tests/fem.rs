@@ -196,6 +196,30 @@ fn fem_check_too_large() {
     assert!(solver_for(FEM).check(&p).is_empty());
 }
 
+/// A preview just over the memory limit runs at a lower resolution instead of
+/// failing, and the check says so; an explicit preview resolution is kept.
+#[test]
+fn fem_preview_fits_memory_limit() {
+    let mut s = examples::default();
+    s.solver.method = FEM;
+    s.domain.x_min_um = -30.0;
+    s.domain.x_max_um = 40.0;
+    s.domain.y_min_um = -9.0;
+    s.domain.y_max_um = 8.5;
+    let p = compile(&s, Quality::Preview).unwrap();
+    let default = p.settings.ppw_lowered_from.expect("preview should be lowered");
+    assert!(p.settings.ppw < default && p.settings.ppw >= 0.6 * default, "{}", p.settings.ppw);
+    assert!(beam_core::solver::estimate(&p).memory_mb <= p.settings.memory_limit_mb);
+    let report = beam_core::check::check(&s);
+    assert!(report.ok, "{:?}", report.issues);
+    assert!(report.issues.iter().any(|i| i.code == "preview_coarsened" && i.quality == Some(Quality::Preview)));
+
+    s.solver.fem.preview_ppw = Some(default);
+    let p = compile(&s, Quality::Preview).unwrap();
+    assert_eq!((p.settings.ppw, p.settings.ppw_lowered_from), (default, None));
+    assert!(!beam_core::check::check(&s).ok);
+}
+
 /// Peak memory in MB of `beam-cli solve` on the default scene with FEM at quality
 /// `q`: the larger of the maximum resident set size and the peak memory footprint
 /// that macOS `/usr/bin/time -l` reports (under memory pressure the resident size

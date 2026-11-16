@@ -16,9 +16,9 @@ struct OutputForm: View {
             if case .custom(let width, let height) = output.aspect {
                 LabeledContent("Ratio") {
                     HStack(spacing: 4) {
-                        ratioField("Ratio Width", value: width) { .custom(width: $0, height: height) }
+                        ratioField("Ratio Width", value: width, alignment: .trailing) { .custom(width: $0, height: height) }
                         Text(":").foregroundStyle(.secondary)
-                        ratioField("Ratio Height", value: height) { .custom(width: width, height: $0) }
+                        ratioField("Ratio Height", value: height, alignment: .leading) { .custom(width: width, height: $0) }
                     }
                 }
             }
@@ -65,7 +65,7 @@ struct OutputForm: View {
         }
     }
 
-    private func ratioField(_ title: String, value: Int, aspect: @escaping (Int) -> OutputAspect) -> some View {
+    private func ratioField(_ title: String, value: Int, alignment: TextAlignment, aspect: @escaping (Int) -> OutputAspect) -> some View {
         TextField(title, value: Binding(
             get: { value },
             set: { term in
@@ -75,7 +75,9 @@ struct OutputForm: View {
         ), format: .number.grouping(.never))
         .labelsHidden()
         .monospacedDigit()
-        .multilineTextAlignment(.trailing)
+        // The width sits against the colon from the left and the height from the right,
+        // so the pair reads "4 : 1".
+        .multilineTextAlignment(alignment)
         .frame(width: 44)
     }
 
