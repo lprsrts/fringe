@@ -5,6 +5,7 @@ pub mod geometry;
 pub mod linalg;
 pub mod scene;
 pub mod solver;
+pub mod special;
 pub mod types;
 
 pub use scene::{parse_scene, Scene};
