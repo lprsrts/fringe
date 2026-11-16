@@ -287,3 +287,21 @@ fn spade_cdt_refine_spike() {
         cdt.num_vertices()
     );
 }
+
+#[test]
+fn ray_hits_lines_and_arcs() {
+    let c = Contour::polygon(&[Vec2::new(0.0, 0.0), Vec2::new(2.0, 0.0), Vec2::new(2.0, 1.0), Vec2::new(0.0, 1.0)]);
+    let t = c.ray_hit(Vec2::new(-1.0, 0.5), Vec2::new(1.0, 0.0), 10.0).unwrap();
+    assert!((t - 1.0).abs() < 1e-12);
+    assert!(c.ray_hit(Vec2::new(-1.0, 0.5), Vec2::new(1.0, 0.0), 0.5).is_none());
+    assert!(c.ray_hit(Vec2::new(-1.0, 2.0), Vec2::new(1.0, 0.0), 10.0).is_none());
+    let circle = Contour::new(vec![
+        Segment::Arc { center: Vec2::ZERO, radius: 1.0, start: 0.0, sweep: std::f64::consts::PI },
+        Segment::Arc { center: Vec2::ZERO, radius: 1.0, start: std::f64::consts::PI, sweep: std::f64::consts::PI },
+    ]);
+    let t = circle.ray_hit(Vec2::new(0.6, -3.0), Vec2::new(0.0, 1.0), 10.0).unwrap();
+    assert!((t - (3.0 - 0.8)).abs() < 1e-12, "{t}");
+    // From inside, the first crossing is the exit.
+    let t = circle.ray_hit(Vec2::ZERO, Vec2::new(1.0, 0.0), 10.0).unwrap();
+    assert!((t - 1.0).abs() < 1e-12);
+}

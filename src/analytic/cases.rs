@@ -53,9 +53,9 @@ const fn case(
     CaseSpec { id, slow, mom, fem, fdtd, fdtd_ppw, description }
 }
 
-pub const CASES: [CaseSpec; 18] = [
-    case("mie_pec", false, Some(6.4e-5), Some(8.6e-4), Some(8e-2), Some(30.0), "PEC cylinder r = 1, plane wave 0°"),
-    case("mie_pec_37", false, Some(6.3e-5), Some(8.7e-4), Some(8e-2), Some(30.0), "PEC cylinder r = 1, plane wave 37°"),
+pub const CASES: [CaseSpec; 19] = [
+    case("mie_pec", false, Some(6.4e-5), Some(8.6e-4), Some(1.4e-2), Some(30.0), "PEC cylinder r = 1, plane wave 0°"),
+    case("mie_pec_37", false, Some(6.3e-5), Some(8.7e-4), Some(8.2e-3), Some(30.0), "PEC cylinder r = 1, plane wave 37°"),
     case(
         "mie_pec_resonance",
         false,
@@ -81,6 +81,15 @@ pub const CASES: [CaseSpec; 18] = [
     case("slab_lossy", true, Some(1.8e-6), Some(1.9e-3), Some(5.1e-3), None, "Gaussian beam through a lossy slab"),
     case("mirror_0", false, Some(3.7e-6), Some(1.1e-3), Some(5.5e-3), None, "Gaussian beam on a flat PEC mirror"),
     case("mirror_25", true, Some(2.3e-5), Some(9.4e-4), Some(2.3e-2), None, "Gaussian beam on a flat PEC mirror at 25°"),
+    case(
+        "mirror_off_grid",
+        false,
+        Some(3.7e-6),
+        Some(1.1e-3),
+        Some(8.2e-3),
+        None,
+        "mirror_0 with the face a quarter FDTD cell off the grid lines",
+    ),
     case(
         "fdtd_subpixel_order",
         true,
@@ -209,6 +218,13 @@ pub fn case_scene(id: &str) -> Option<Scene> {
         "slab_lossy" => slab_scene(0.0, 0.05),
         "mirror_0" => mirror_scene(0.0),
         "mirror_25" => mirror_scene(25.0),
+        "mirror_off_grid" => {
+            // At the final 24 cells/λ the mirror_0 face lies on a node line;
+            // this moves it by Δ/4.
+            let mut s = mirror_scene(0.0);
+            s.elements[0].x_um += 1.0 / 96.0;
+            s
+        }
         "free_beam" => base(gaussian(-2.0, 0.0), Vec::new(), [-4.0, 4.0, -4.0, 4.0]),
         "transparent" => cylinder_scene(diel(1.0, 0.0), 1.0, 0.0, 4.0),
         _ => return None,

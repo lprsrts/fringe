@@ -48,6 +48,8 @@ fn phase(n: usize, p: usize, probe: bool, full: bool) -> StepPhase {
         sa: (a1 + a0) as f32,
         db: (b1 - b0) as f32,
         sb: (b1 + b0) as f32,
+        a0: a0 as f32,
+        b0: b0 as f32,
         a1: a1 as f32,
         b1: b1 as f32,
         probe: probe.then_some(e),

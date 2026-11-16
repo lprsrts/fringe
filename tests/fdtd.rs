@@ -50,6 +50,13 @@ fn mirror_0() {
     fdtd("mirror_0");
 }
 
+/// The mirror face between node lines: the PEC surface must not snap to the
+/// node line inside the conductor.
+#[test]
+fn mirror_off_grid() {
+    fdtd("mirror_off_grid");
+}
+
 #[test]
 fn balance() {
     fdtd("balance");
@@ -374,4 +381,33 @@ fn preview_against_final() {
     let mask: Vec<bool> = resample(&pre, Part::Total, &fin.grid).iter().map(|v| v.is_some()).collect();
     eprintln!("preview vs final rel L2: {:.3e}", rel_l2(&on_fin, &fin.total, Some(&mask)));
     eprintln!("focus preview {:?}, final {:?}", focal_peak(&pre, 0.0, 0.0, 19.0), focal_peak(&fin, 0.0, 0.0, 19.0));
+}
+
+/// A PEC face 0.3 Δ past a node line: the node 0.3 Δ in front of it is PEC
+/// (nearest node line, not the next one inside), the node 1.3 Δ in front is
+/// free, and its H edge to the PEC node is shortened to the true surface.
+#[test]
+fn pec_surface_snaps_to_the_nearest_node_line() {
+    use beam_core::solver::fdtd::grid::Layout;
+    use beam_core::solver::fdtd::materials::{body_eps, pec_edges, rasterize, NodeMat};
+    use beam_core::types::C64;
+    use std::sync::atomic::AtomicBool;
+    let mut s = case_scene("mirror_0").unwrap();
+    s.solver.method = Method::Fdtd;
+    let p0 = compile(&s, Quality::Final).unwrap();
+    let dx = Layout::new(&p0).dx;
+    s.elements[0].x_um += 0.3 * dx;
+    let p = compile(&s, Quality::Final).unwrap();
+    let l = Layout::new(&p);
+    let raster = rasterize(&p, &l, C64::new(1.0, 0.0), &body_eps(&p, |e| e), &AtomicBool::new(false)).unwrap();
+    let face = s.elements[0].x_um;
+    let j = ((0.0 - l.y0) / l.dx).round() as usize;
+    let node = |x: f64| j * l.nx + ((x - l.x0) / l.dx).round() as usize;
+    let mat = |idx: usize| raster.nodes.iter().find(|n| n.0 == idx).map(|n| n.1);
+    let (snapped, free) = (node(face - 0.3 * dx), node(face - 1.3 * dx));
+    assert_eq!(mat(snapped), Some(NodeMat::Pec));
+    assert_eq!(mat(free), None);
+    let edges = pec_edges(&p, &l, &raster);
+    let e = edges.iter().find(|e| e.free == free && !e.hx).expect("an Hy edge from the free node");
+    assert!((e.len - 1.3 * dx).abs() < 1e-9 * dx, "edge length {} Δ", e.len / dx);
 }

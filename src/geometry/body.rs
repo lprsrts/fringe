@@ -65,6 +65,12 @@ impl Contour {
         best
     }
 
+    /// Distance along the ray `p + t·dir` (`dir` a unit vector) to the first
+    /// boundary crossing in `(0, t_max]`, if any.
+    pub fn ray_hit(&self, p: Vec2, dir: Vec2, t_max: f64) -> Option<f64> {
+        self.segments.iter().flat_map(|s| s.ray_hits(p, dir, t_max)).min_by(f64::total_cmp)
+    }
+
     pub fn bbox(&self) -> Rect {
         self.segments.iter().fold(Rect::EMPTY, |r, s| r.union(&s.bbox()))
     }

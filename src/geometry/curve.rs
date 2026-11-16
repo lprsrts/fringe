@@ -109,6 +109,43 @@ impl Segment {
         }
     }
 
+    /// Distances `t` in `(0, t_max]` at which the ray `p + t·dir` (`dir` a unit
+    /// vector) meets the segment, smallest first.
+    pub fn ray_hits(&self, p: Vec2, dir: Vec2, t_max: f64) -> Vec<f64> {
+        let mut out = Vec::new();
+        match *self {
+            Segment::Line { a, b } => {
+                let e = b - a;
+                let den = dir.cross(e);
+                if den != 0.0 {
+                    let w = a - p;
+                    let t = w.cross(e) / den;
+                    let s = w.cross(dir) / den;
+                    if t > 0.0 && t <= t_max && (0.0..=1.0).contains(&s) {
+                        out.push(t);
+                    }
+                }
+            }
+            Segment::Arc { center, radius, .. } => {
+                let w = p - center;
+                let b = dir.dot(w);
+                let disc = b * b - (w.norm_sqr() - radius * radius);
+                if disc >= 0.0 {
+                    let r = disc.sqrt();
+                    for t in [-b - r, -b + r] {
+                        if t > 0.0 && t <= t_max {
+                            let q = p + dir * t - center;
+                            if self.arc_param(q.y.atan2(q.x)).is_some() {
+                                out.push(t);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
     /// The piece of the segment between parameters `t0` and `t1`.
     pub fn sub(&self, t0: f64, t1: f64) -> Segment {
         match *self {

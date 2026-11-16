@@ -34,8 +34,8 @@ use crate::types::C64;
 use super::field::GridSpec;
 use super::{Estimate, Issue, Method, Quality, SolveContext, SolveError, Solver, SolverMeta, SolverOutput, Stage};
 use grid::{min_periods, Layout};
-use materials::{body_eps, rasterize, NodeMat};
-use update::{Engine, EngineInit, PecNode, SrcNode};
+use materials::{body_eps, pec_edges, rasterize, NodeMat};
+use update::{EdgeNode, Engine, EngineInit, PecNode, SrcNode};
 
 pub struct FdtdSolver;
 
@@ -318,9 +318,26 @@ impl Solver for FdtdSolver {
                 }
             }
         }
+        let edges = if p.settings.fdtd.subpixel { pec_edges(p, &l, &raster) } else { Vec::new() };
+        let dtdx = dt / l.dx;
+        let edges: Vec<EdgeNode> = edges
+            .iter()
+            .map(|e| {
+                let v = matched.eval(l.point(e.free % nx, e.free / nx));
+                EdgeNode {
+                    h: e.h as u32,
+                    hx: e.hx,
+                    free: e.free as u32,
+                    coef: (e.sign * dtdx * (l.dx / e.len - 1.0)) as f32,
+                    re: v.re as f32,
+                    im: v.im as f32,
+                }
+            })
+            .collect();
+        ctx.checkpoint()?;
         let px = cpml::profiles(&l, nx, eps_bg, p.k_b);
         let py = cpml::profiles(&l, ny, eps_bg, p.k_b);
-        let mut engine = Engine::new(l, EngineInit { ca, cbd, cb_bg: cb_bg as f32, src, pec, px, py });
+        let mut engine = Engine::new(l, EngineInit { ca, cbd, cb_bg: cb_bg as f32, src, pec, edges, px, py });
         // Matched incident at the probes, the scale for the convergence measure.
         let interior = l.interior_grid();
         let probes = GridSpec {

@@ -30,6 +30,21 @@ pub struct PecNode {
     pub im: f32,
 }
 
+/// An H edge between a free node and a PEC node whose surface is `len` from
+/// the free node: after the H sweep, `H += coef · E_total(free)` with
+/// `E_total = Ez + (a_n Re Ê − b_n Im Ê)`, which turns the edge's difference
+/// `(0 − E_total)/Δ` into `(0 − E_total)/len`, so Ez = 0 sits on the true surface.
+#[derive(Clone, Copy, Debug)]
+pub struct EdgeNode {
+    pub h: u32,
+    pub hx: bool,
+    pub free: u32,
+    pub coef: f32,
+    /// Matched incident phasor at the free node.
+    pub re: f32,
+    pub im: f32,
+}
+
 /// Source and DFT phases of one step (producing E^{n+1}).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct StepPhase {
@@ -38,6 +53,9 @@ pub struct StepPhase {
     pub sa: f32,
     pub db: f32,
     pub sb: f32,
+    /// a_n, b_n for the PEC edges.
+    pub a0: f32,
+    pub b0: f32,
     /// a_{n+1}, b_{n+1} for PEC nodes.
     pub a1: f32,
     pub b1: f32,
@@ -76,6 +94,7 @@ pub struct Engine {
     src_row: Vec<usize>,
     pec: Vec<PecNode>,
     pec_row: Vec<usize>,
+    edges: Vec<EdgeNode>,
     /// Probe accumulators, `probe_rows × probe_cols`.
     pub probe_re: Vec<f64>,
     pub probe_im: Vec<f64>,
@@ -136,6 +155,7 @@ pub struct EngineInit {
     pub cb_bg: f32,
     pub src: Vec<SrcNode>,
     pub pec: Vec<PecNode>,
+    pub edges: Vec<EdgeNode>,
     pub px: (Profile, Profile),
     pub py: (Profile, Profile),
 }
@@ -176,6 +196,7 @@ impl Engine {
             src_row,
             pec: init.pec,
             pec_row,
+            edges: init.edges,
             probe_re: vec![0.0; probe_rows * probe_cols],
             probe_im: vec![0.0; probe_rows * probe_cols],
             probe_cols,
@@ -199,6 +220,11 @@ impl Engine {
     /// One leapfrog step: H^{n+½} from E^n, then E^{n+1}.
     pub fn step(&mut self, ph: &StepPhase) {
         self.sweep_h();
+        for e in &self.edges {
+            let v = self.ez[e.free as usize] + ph.a0 * e.re - ph.b0 * e.im;
+            let h = if e.hx { &mut self.hx } else { &mut self.hy };
+            h[e.h as usize] += e.coef * v;
+        }
         self.sweep_e(ph);
     }
 

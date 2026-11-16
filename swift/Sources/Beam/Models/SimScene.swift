@@ -28,7 +28,7 @@ public enum SolverMethod: String, Codable, CaseIterable, Identifiable, Sendable 
 
     public var explainer: String {
         switch self {
-        case .fdtd: return "Time domain on a grid; staircases PEC, slow to settle on sharp resonances."
+        case .fdtd: return "Time domain on a grid; staircased corners, slow to settle on sharp resonances."
         case .fem: return "Frequency domain on a mesh; accurate curved interfaces."
         case .mom: return "Boundary integrals; exact radiation, needs separate bodies."
         }

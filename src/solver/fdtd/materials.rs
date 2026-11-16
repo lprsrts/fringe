@@ -1,11 +1,19 @@
-//! Rasterisation of the bodies onto the Ez nodes (spec §5.1 "Materials").
+//! Rasterisation of the bodies onto the Ez nodes.
 //!
 //! Each Ez node gets ε averaged over its dual cell `[x ± Δ/2] × [y ± Δ/2]`.
 //! Nodes farther than 0.75 Δ from every boundary are pure (one material);
 //! the rest are supersampled ss × ss with `Body::inside`. The average is the
 //! arithmetic mean of the (dispersion-corrected) complex ε over the non-PEC
-//! samples. A node is PEC when its PEC fill is ≥ ½. Because Ez is tangential to
-//! every interface, this arithmetic average is the second-order smoothing.
+//! samples. Because Ez is tangential to every interface, this arithmetic
+//! average is the second-order smoothing.
+//!
+//! With sub-pixel smoothing on, a node is PEC when it lies inside a PEC body or
+//! within Δ/2 of one, so the staircase surface is the node line nearest to the
+//! true surface. [`pec_edges`] then lists the H edges between a PEC node and a
+//! free one with the distance from the free node to the true surface along the
+//! edge, which the solver uses to place Ez = 0 on the true surface (a conformal
+//! update). That distance is always more than Δ/2, which keeps the time step
+//! stable without reducing it.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -119,11 +127,13 @@ fn classify_subpixel(
     for &b in near {
         let body = &bodies[b];
         let d = body.contour.closest(pt).3;
+        // The PEC surface snaps to the nearest node line.
+        if body.is_pec() && (d <= 0.5 * dx || body.contour.inside(pt)) {
+            return Some(NodeMat::Pec);
+        }
         if d <= pure_limit {
             mixed = true;
-            break;
-        }
-        if body.contour.inside(pt) {
+        } else if body.contour.inside(pt) {
             inside_of = Some(b);
         }
     }
@@ -155,8 +165,75 @@ fn classify_subpixel(
         return None;
     }
     let total = ss * ss;
-    if pec as f64 >= (0.5 - 1e-9) * total as f64 {
-        return Some(NodeMat::Pec);
+    if pec == total {
+        // Outside every PEC body and more than Δ/2 from it, so this cannot
+        // happen for a sensible ss; treat the node as background.
+        return Some(NodeMat::Medium(eps_bg));
     }
     Some(NodeMat::Medium(sum / (total - pec) as f64))
+}
+
+/// An H edge between a free Ez node and a PEC one.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PecEdge {
+    /// Full-grid index of the H component (`Hy` for an x edge, `Hx` for a y edge).
+    pub h: usize,
+    /// True for an `Hx` edge (along y).
+    pub hx: bool,
+    /// Full-grid index of the free Ez node.
+    pub free: usize,
+    /// The H correction is `sign · (Δt/Δ)(Δ/len − 1) · Ez_total(free)`.
+    pub sign: f64,
+    /// Distance from the free node to the PEC surface along the edge, in
+    /// [Δ/2, 3Δ/2].
+    pub len: f64,
+}
+
+/// The edges between PEC and free nodes, with the free node's distance to the
+/// true PEC surface along each. Empty when there is no PEC body.
+pub fn pec_edges(p: &Problem, l: &Layout, raster: &Raster) -> Vec<PecEdge> {
+    let pec_bodies: Vec<&Body> = p.bodies.iter().filter(|b| b.is_pec()).collect();
+    if pec_bodies.is_empty() {
+        return Vec::new();
+    }
+    let (nx, ny, dx) = (l.nx, l.ny, l.dx);
+    let is_pec = |idx: usize| {
+        raster.nodes.binary_search_by_key(&idx, |n| n.0).is_ok_and(|k| raster.nodes[k].1 == NodeMat::Pec)
+    };
+    let reach = 1.5 * dx;
+    let mut out = Vec::new();
+    for &(idx, m) in &raster.nodes {
+        if m != NodeMat::Pec {
+            continue;
+        }
+        let (i, j) = (idx % nx, idx / nx);
+        // (di, dj): from the PEC node to its free neighbour.
+        for (di, dj) in [(-1i64, 0i64), (1, 0), (0, -1), (0, 1)] {
+            let (fi, fj) = (i as i64 + di, j as i64 + dj);
+            if fi < 1 || fj < 1 || fi > nx as i64 - 2 || fj > ny as i64 - 2 {
+                continue;
+            }
+            let (fi, fj) = (fi as usize, fj as usize);
+            let free = fj * nx + fi;
+            if is_pec(free) {
+                continue;
+            }
+            let a = l.point(fi, fj);
+            let dir = Vec2::new(-di as f64, -dj as f64);
+            let hit = pec_bodies
+                .iter()
+                .filter(|b| b.bbox.expand(reach).contains(a))
+                .filter_map(|b| b.contour.ray_hit(a, dir, reach))
+                .fold(reach, f64::min);
+            let len = hit.clamp(0.5 * dx, reach);
+            let (h, hx, sign) = match (di, dj) {
+                (-1, 0) => (free, false, -1.0),
+                (1, 0) => (idx, false, 1.0),
+                (0, -1) => (free, true, 1.0),
+                _ => (idx, true, -1.0),
+            };
+            out.push(PecEdge { h, hx, free, sign, len });
+        }
+    }
+    out
 }

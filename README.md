@@ -48,7 +48,7 @@ app and the CLI read and write the same files.
 | | FDTD | FEM | MoM |
 |---|---|---|---|
 | Method | Yee grid in time, run to steady state, then a DFT | P3 Lagrange triangles (P2 optional), curved boundaries, sparse LU | boundary integrals on curved panels, dense LU |
-| Boundaries | staircased, with sub-pixel ε averaging | exact to the mesh | exact |
+| Boundaries | staircased, with sub-pixel ε averaging and conductor surfaces placed between grid nodes | exact to the mesh | exact |
 | Open space | CPML | complex-stretch PML | exact (Green's function) |
 | Default resolution, preview / final | 10 / 24 cells per λ | 9 / 15 per λ | 8 / 16 panels per λ |
 
@@ -60,7 +60,11 @@ Limits worth knowing:
   and the result then carries a "not fully settled" warning. The validation
   case `mie_high_index` (n = 3.5, r = 0.5 µm, with a Q ≈ 240 resonance near
   the drive) is one: the field is still within 2 % of Mie, but it does not
-  settle. Conductors thinner than a cell are rejected.
+  settle. A conductor's surface is placed between grid nodes along each grid
+  line, so a flat face is accurate wherever it falls on the grid (the
+  `mirror_off_grid` case checks this), but corners are still staircased, and
+  on PEC scenes FDTD is the least accurate of the three solvers. Conductors
+  thinner than a cell are rejected.
 - **FEM** factorises one sparse matrix. That factorisation cannot be
   interrupted: Cancel takes effect before or after it, not during, so a large
   final solve can take a few seconds to stop.
@@ -85,8 +89,8 @@ two cells of an interface. Measured on the release build:
 
 | Case | MoM | FEM | FDTD |
 |---|---|---|---|
-| `mie_pec` (PEC cylinder r = 1, FDTD at 30 cells/λ) | 3.2e-5 | 4.3e-4 | 4.0e-2 |
-| `mie_pec_37` (same, incidence 37°) | 3.1e-5 | 4.3e-4 | 4.4e-2 |
+| `mie_pec` (PEC cylinder r = 1, FDTD at 30 cells/λ) | 3.2e-5 | 4.3e-4 | 6.8e-3 |
+| `mie_pec_37` (same, incidence 37°) | 3.1e-5 | 4.3e-4 | 4.1e-3 |
 | `mie_pec_resonance` (PEC at an interior resonance, CFIE, 9 radii) | 3.8e-5 | – | – |
 | `mie_diel` (n = 1.5, r = 1) | 1.1e-4 | 4.0e-4 | 8.9e-3 |
 | `mie_lossy` (n = 1.5 + 0.05i) | 4.7e-5 | 3.0e-4 | 4.0e-3 |
@@ -96,6 +100,7 @@ two cells of an interface. Measured on the release build:
 | `slab_lossy` (k = 0.05) | 8.6e-7 | 9.2e-4 | 2.6e-3 |
 | `mirror_0` (flat PEC mirror, Gaussian beam) | 1.8e-6 | 5.0e-4 | 2.7e-3 |
 | `mirror_25` (25°) | 1.1e-5 | 4.7e-4 | 1.1e-2 |
+| `mirror_off_grid` (`mirror_0` with the face Δ/4 off the FDTD grid) | 1.8e-6 | 5.4e-4 | 4.1e-3 |
 | `mom_self` (12 against 16 panels/λ) | 2.5e-4 | – | – |
 | `pml_hygiene` (domain 8 µm against 16 µm) | – | 4.9e-4 | 9.4e-7 |
 | `balance` (energy balance, lossy cylinder) | 1.1e-4 | 8.0e-5 | 1.0e-3 |

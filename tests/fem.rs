@@ -51,6 +51,11 @@ fn fem_mirror_0() {
 }
 
 #[test]
+fn fem_mirror_off_grid() {
+    fem_case("mirror_off_grid");
+}
+
+#[test]
 fn fem_free_beam() {
     fem_case("free_beam");
 }

@@ -68,6 +68,11 @@ fn mirror_0() {
 }
 
 #[test]
+fn mirror_off_grid() {
+    assert_case("mirror_off_grid", Method::Mom, Quality::Final);
+}
+
+#[test]
 fn mom_self() {
     assert_case("mom_self", Method::Mom, Quality::Final);
 }
