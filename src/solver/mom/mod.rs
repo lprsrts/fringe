@@ -7,6 +7,7 @@
 //! ([`evaluate`]). There is no PML: the Green's function radiates exactly.
 
 pub mod evaluate;
+pub mod lu;
 pub mod panels;
 pub mod quad;
 pub mod system;
@@ -14,7 +15,6 @@ pub mod system;
 use std::time::Instant;
 
 use crate::geometry::min_gap;
-use crate::linalg::DenseLu;
 use crate::problem::Problem;
 
 use super::{Estimate, Issue, Method, SolveContext, SolveError, Solver, SolverMeta, SolverOutput, Stage};
@@ -29,13 +29,13 @@ pub struct MomSolver;
 /// Calibrated cost model (seconds per unit of work, wall clock on the pool).
 mod cost {
     /// Per background kernel node of the matrix fill.
-    pub const FILL_NODE: f64 = 6e-9;
+    pub const FILL_NODE: f64 = 1.5e-8;
     /// Per n³ of the dense LU.
-    pub const LU: f64 = 2.5e-10;
+    pub const LU: f64 = 5e-11;
     /// Per field point × far node.
-    pub const EVAL_NODE: f64 = 6e-9;
+    pub const EVAL_NODE: f64 = 4.5e-9;
     /// Fixed overhead.
-    pub const BASE: f64 = 0.01;
+    pub const BASE: f64 = 0.003;
 }
 
 /// Work counts of a solve, from the panelisation.
@@ -60,9 +60,10 @@ fn work(p: &Problem, panels: &Panels) -> Work {
     }
     let g = p.output_grid();
     let n = panels.n_unknowns as f64;
-    // Points inside dielectric bodies cost two kernels per node.
+    // Points inside dielectric bodies cost about three exterior nodes per node
+    // (two kernels, interpolated incident traces).
     let interior_area: f64 = p.bodies.iter().filter(|b| !b.is_pec()).map(|b| b.contour.area().abs()).sum();
-    let pts = g.len() as f64 + interior_area / (g.dx * g.dx);
+    let pts = g.len() as f64 + 2.0 * interior_area / (g.dx * g.dx);
     Work { unknowns: panels.n_unknowns, fill_nodes: fill, lu: n * n * n, eval_nodes: pts * np * far_q, grid_points: g.len() }
 }
 
@@ -72,8 +73,10 @@ fn seconds(w: &Work) -> (f64, f64, f64) {
 
 fn memory_mb(w: &Work) -> f64 {
     let n = w.unknowns as f64;
-    // The matrix (×1.2 for the LU workspace, spec §5.3) plus the grid arrays.
-    16.0 * n * n / 1e6 * 1.2 + w.grid_points as f64 * 64.0 / 1e6
+    // Calibrated against peak RSS: the process baseline, the dense matrix with
+    // its LU workspace (1.5 × 16 N² bytes; the spec's first guess was 1.2) and
+    // about 70 bytes per output point for the field arrays.
+    7.0 + 1.5 * 16.0 * n * n / 1e6 + 70.0 * w.grid_points as f64 / 1e6
 }
 
 impl Solver for MomSolver {
@@ -162,8 +165,8 @@ impl Solver for MomSolver {
 
             let t = Instant::now();
             ctx.stage(Stage::Solve, (f_fill, f_lu));
-            let norm1 = mat.norm1();
-            let lu = DenseLu::factor(mat);
+            let norm1 = lu::norm1(n, &mat.data);
+            let lu = lu::BlockLu::factor(n, mat.data, ctx, |f| ctx.report(0.9 * f))?;
             ctx.checkpoint()?;
             let x = lu.solve(&rhs);
             let c = lu.cond1_estimate(norm1);

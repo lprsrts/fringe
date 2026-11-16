@@ -21,6 +21,7 @@ use rayon::prelude::*;
 use crate::problem::Problem;
 use crate::solver::field::GridSpec;
 use crate::solver::{SolveContext, SolveError};
+use crate::special::bessel::j_y_01_real;
 use crate::special::greens::{radial, radial_diff_series, Radial};
 use crate::types::{Vec2, C64};
 
@@ -35,6 +36,18 @@ pub struct Densities {
     pub q: Vec<C64>,
     pub far_u: Vec<C64>,
     pub far_q: Vec<C64>,
+    /// Far nodes packed for the exterior loop.
+    packed: Vec<Packed>,
+}
+
+/// One far node with its weighted densities, for the exterior hot loop.
+#[derive(Clone, Copy)]
+struct Packed {
+    y: Vec2,
+    n: Vec2,
+    /// w·u_s and w·q.
+    wu: C64,
+    wq: C64,
 }
 
 impl Densities {
@@ -50,8 +63,14 @@ impl Densities {
                 q[bp.first + l] = x[bp.q_off + l];
             }
         }
-        let mut d = Densities { u, q, far_u: Vec::new(), far_q: Vec::new() };
+        let mut d = Densities { u, q, far_u: Vec::new(), far_q: Vec::new(), packed: Vec::new() };
         let (fu, fq): (Vec<C64>, Vec<C64>) = far.nodes.iter().map(|nd| d.at(panels, nd.far / far.per, nd.t)).unzip();
+        d.packed = far
+            .nodes
+            .iter()
+            .zip(fu.iter().zip(&fq))
+            .map(|(nd, (&u, &q))| Packed { y: nd.y, n: nd.n, wu: u * nd.w, wq: q * nd.w })
+            .collect();
         d.far_u = fu;
         d.far_q = fq;
         d
@@ -88,6 +107,53 @@ fn g_dny(rad: &Radial, x: Vec2, y: Vec2, n_y: Vec2, r: f64) -> (C64, C64) {
     (rad.g, -rad.dg * nyr)
 }
 
+/// J0, J1, Y0, Y1 at real x > 0: the shared [`j_y_01_real`] below x = 64, and
+/// above it Hankel's expansion with a fixed five terms and one `sin_cos`
+/// (the omitted terms are below 3e−12 relative there).
+#[inline]
+pub fn j_y_01_fast(x: f64) -> (f64, f64, f64, f64) {
+    if x < 64.0 {
+        return j_y_01_real(x);
+    }
+    let u = 0.125 / x;
+    // Terms Π_{i≤k} (μ − (2i−1)²) u^k / k! for μ = 0 and μ = 4.
+    let a1 = -u;
+    let a2 = a1 * (-9.0) * u * 0.5;
+    let a3 = a2 * (-25.0) * u / 3.0;
+    let a4 = a3 * (-49.0) * u * 0.25;
+    let a5 = a4 * (-81.0) * u * 0.2;
+    let b1 = 3.0 * u;
+    let b2 = b1 * (-5.0) * u * 0.5;
+    let b3 = b2 * (-21.0) * u / 3.0;
+    let b4 = b3 * (-45.0) * u * 0.25;
+    let b5 = b4 * (-77.0) * u * 0.2;
+    let (p0, q0) = (1.0 - a2 + a4, a1 - a3 + a5);
+    let (p1, q1) = (1.0 - b2 + b4, b1 - b3 + b5);
+    let pre = (std::f64::consts::FRAC_2_PI / x).sqrt();
+    let (s0, c0) = (x - std::f64::consts::FRAC_PI_4).sin_cos();
+    // χ1 = χ0 − π/2.
+    let (s1, c1) = (-c0, s0);
+    (pre * (p0 * c0 - q0 * s0), pre * (p1 * c1 - q1 * s1), pre * (p0 * s0 + q0 * c0), pre * (p1 * s1 + q1 * c1))
+}
+
+/// `Σ w (∂_{n_y}G_b u − G_b q)` over far nodes, with the real Bessel fast path:
+/// `G = −(j/4)(J0 − jY0)` and `g′ = (jk/4)(J1 − jY1)`.
+#[inline]
+fn far_exterior(k: f64, x: Vec2, nodes: &[Packed]) -> C64 {
+    let mut e = C64::new(0.0, 0.0);
+    for nd in nodes {
+        let dx = x.x - nd.y.x;
+        let dy = x.y - nd.y.y;
+        let r = (dx * dx + dy * dy).sqrt();
+        let (j0, j1, y0, y1) = j_y_01_fast(k * r);
+        let g = C64::new(-0.25 * y0, -0.25 * j0);
+        let dg = C64::new(0.25 * k * y1, 0.25 * k * j1);
+        let nyr = (nd.n.x * dx + nd.n.y * dy) / r;
+        e += -(dg * nyr) * nd.wu - g * nd.wq;
+    }
+    e
+}
+
 pub struct Evaluator<'a> {
     pub p: &'a Problem,
     pub panels: &'a Panels,
@@ -107,6 +173,9 @@ impl Evaluator<'_> {
                 return Err(SolveError::Cancelled);
             }
             for (i, v) in row.iter_mut().enumerate() {
+                if i % 32 == 31 && ctx.is_cancelled() {
+                    return Err(SolveError::Cancelled);
+                }
                 *v = self.point(g.point(i, j));
             }
             let d = done.fetch_add(1, Ordering::Relaxed) + 1;
@@ -173,11 +242,8 @@ impl Evaluator<'_> {
                         e += nd.w * (dny * u - g * q);
                     });
                 } else {
-                    for nd in self.far.of(j) {
-                        let r = x.dist(nd.y);
-                        let (g, dny) = g_dny(&radial(k_b, r), x, nd.y, nd.n, r);
-                        e += nd.w * (dny * self.dens.far_u[nd.far] - g * self.dens.far_q[nd.far]);
-                    }
+                    let per = self.far.per;
+                    e += far_exterior(self.p.k_b, x, &self.dens.packed[j * per..(j + 1) * per]);
                 }
             }
         }
