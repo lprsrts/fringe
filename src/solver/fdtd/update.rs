@@ -47,6 +47,8 @@ pub struct StepPhase {
     pub full: Option<(f64, f64)>,
 }
 
+const CHUNKS_PER_THREAD: usize = 8;
+
 /// Probe spacing in interior nodes.
 pub const PROBE_STRIDE: usize = 8;
 
@@ -147,7 +149,9 @@ impl Engine {
         let probe_cols = (l.nxi - 1) / PROBE_STRIDE + 1;
         let probe_rows = (l.nyi - 1) / PROBE_STRIDE + 1;
         let threads = rayon::current_num_threads().max(1);
-        let target = (threads * 2).min(ny);
+        // Several chunks per thread, so work stealing evens out slower (efficiency)
+        // cores and preempted threads.
+        let target = (threads * CHUNKS_PER_THREAD).min(ny);
         let per = ny.div_ceil(target.max(1));
         let chunks = (0..ny).step_by(per.max(1)).map(|s| (s, (s + per).min(ny))).collect();
         Engine {
@@ -221,11 +225,10 @@ impl Engine {
                 }
                 if np > 0 {
                     let ps = unsafe { psi_hyx.slice(j * 2 * np, 2 * np) };
-                    for k in 0..2 * np {
+                    for (k, (p, (&b, &a))) in ps.iter_mut().zip(px.b.iter().zip(&px.a)).enumerate() {
                         let i = strip_node(k, np, nx);
-                        let diff = ez0[i + 1] - ez0[i];
-                        ps[k] = px.b[k] * ps[k] + px.a[k] * diff;
-                        hy_r[i] += dt * ps[k];
+                        *p = b * *p + a * (ez0[i + 1] - ez0[i]);
+                        hy_r[i] += dt * *p;
                     }
                 }
                 if j + 1 < ny {
@@ -287,11 +290,11 @@ impl Engine {
                 }
                 if np > 0 {
                     let ps = unsafe { psi_ex.slice(j * 2 * np, 2 * np) };
-                    for k in 1..2 * np {
+                    // Strip index 0 is the PEC ring (never updated).
+                    for (k, (p, (&b, &a))) in ps.iter_mut().zip(px.b.iter().zip(&px.a)).enumerate().skip(1) {
                         let i = strip_node(k, np, nx);
-                        let diff = hy_r[i] - hy_r[i - 1];
-                        ps[k] = px.b[k] * ps[k] + px.a[k] * diff;
-                        ez_r[i] += cb_bg * ps[k];
+                        *p = b * *p + a * (hy_r[i] - hy_r[i - 1]);
+                        ez_r[i] += cb_bg * *p;
                     }
                     if let Some(k) = strip_index(j, np, ny) {
                         let ps = unsafe { psi_ey.slice(k * nx, nx) };

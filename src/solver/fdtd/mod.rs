@@ -38,8 +38,10 @@ use update::{Engine, EngineInit, PecNode, SrcNode};
 
 pub struct FdtdSolver;
 
-/// Seconds per cell-step (calibrated on an 8-core M-series Mac, release build).
-const C_FDTD: f64 = 1.5e-10;
+/// Seconds per cell-step and fixed seconds per step (thread synchronisation of
+/// the two parallel sweeps), calibrated on an 8-core M-series Mac, release build.
+const C_FDTD: f64 = 4.5e-10;
+const T_STEP: f64 = 5e-5;
 /// Periods beyond the minimum run that convergence typically takes, plus the
 /// 2-period DFT.
 const EXTRA_PERIODS: f64 = 6.0;
@@ -79,11 +81,11 @@ pub fn matched_incident(p: &Problem, l: &Layout, eps_bg: f64) -> Incident {
 }
 
 fn memory_mb(l: &Layout) -> f64 {
-    // ez, hx, hy, Ca, Cb/Δ (f32) per cell; ψ strips; the f64 DFT accumulators,
-    // the scattered and incident outputs and the pipeline's total field (16 B
-    // each) per interior node.
+    // ez, hx, hy, Ca, Cb/Δ (f32) per cell; ψ strips; per interior node the f64
+    // DFT accumulators, the scattered and incident outputs, the pipeline's total
+    // field and region map; plus a fixed process baseline.
     let psi = 8.0 * 2.0 * l.np as f64 * (l.nx + l.ny) as f64;
-    (20.0 * l.cells() as f64 + psi + 64.0 * l.interior_cells() as f64) / 1e6
+    (20.0 * l.cells() as f64 + psi + 70.0 * l.interior_cells() as f64) / 1e6 + 5.0
 }
 
 impl Solver for FdtdSolver {
@@ -169,7 +171,7 @@ impl Solver for FdtdSolver {
         Estimate {
             unknowns: cells,
             memory_mb: memory_mb(&l),
-            seconds: cells as f64 * steps * periods * C_FDTD,
+            seconds: steps * periods * (T_STEP + cells as f64 * C_FDTD),
             grid: Some([l.nx, l.ny]),
             detail: format!("{}k cells · {} steps/period · ~{:.0} periods", cells / 1000, l.steps_per_period, periods),
         }

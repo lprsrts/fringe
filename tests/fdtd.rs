@@ -281,3 +281,48 @@ fn high_index_resonances() {
         }
     }
 }
+
+/// Estimated against measured time and periods over the examples and cases
+/// (release build; asserted within 2× with BEAM_PERF=1).
+#[test]
+#[ignore]
+fn estimate_calibration() {
+    let mut scenes: Vec<(String, beam_core::Scene)> = ["lens", "nanojet", "talbot", "slab", "mie_pec", "mie_dielectric", "double_slit", "mirror"]
+        .iter()
+        .map(|n| (n.to_string(), examples::example(n).unwrap()))
+        .collect();
+    for id in ["mie_diel", "slab_airy_0", "mirror_0"] {
+        scenes.push((id.to_string(), case_scene(id).unwrap()));
+    }
+    let mut worst: f64 = 1.0;
+    for (name, mut s) in scenes {
+        s.solver.method = Method::Fdtd;
+        for q in [Quality::Preview, Quality::Final] {
+            let p = compile(&s, q).unwrap();
+            if !FdtdSolver.check(&p).iter().all(|i| !i.is_error()) {
+                eprintln!("{name:16} {:7}: rejected by check()", q.name());
+                continue;
+            }
+            let est = solver_for(Method::Fdtd).estimate(&p);
+            let t = Instant::now();
+            let f = solve(&s, q, &SolveContext::new()).unwrap();
+            let secs = t.elapsed().as_secs_f64();
+            let ratio = est.seconds / secs;
+            worst = if (ratio.ln()).abs() > worst.ln().abs() { ratio } else { worst };
+            eprintln!(
+                "{name:16} {:7}: {:8.3} s, estimate {:8.3} s (×{ratio:.2}), periods {:?} est {:.0}, {}, converged {}",
+                q.name(),
+                secs,
+                est.seconds,
+                f.meta.solver.periods,
+                FdtdSolver::estimated_periods(&p),
+                est.detail,
+                f.meta.solver.converged
+            );
+        }
+    }
+    eprintln!("worst estimate/measured ratio {worst:.2}");
+    if perf() {
+        assert!((0.5..=2.0).contains(&worst), "worst ratio {worst:.2}");
+    }
+}
