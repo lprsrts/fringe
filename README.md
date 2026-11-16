@@ -1,5 +1,7 @@
 # Fringe
 
+![Fringe: a Gaussian beam focused down a chain of glass beads, solved with FDTD](art/banner/banner.png)
+
 Fringe solves 2D optics scenes with full-wave electromagnetics and draws the
 field. You place lenses, slabs, prisms, mirrors, slits, gratings, cylinders
 and waveguides in a Gaussian beam or a plane wave, pick one of three solvers
@@ -12,6 +14,23 @@ solves scene files and writes PNG and NumPy output, and a native macOS app
 for editing scenes and exporting images. I use it to make cover images, so
 some colormaps (`laser_glow`, `asympton`, `spectral_glow`) are there to look
 good as much as to read well.
+
+## Install
+
+Fringe needs macOS 26 or later on Apple silicon.
+
+With [Homebrew](https://brew.sh):
+
+```sh
+brew install --cask lprsrts/tap/fringe      # the app
+brew install lprsrts/tap/fringe-cli         # the command-line tool, built from source
+```
+
+Or download `Fringe-<version>-macos-arm64.dmg` from
+[Releases](https://github.com/lprsrts/fringe/releases) and drag Fringe to
+Applications. The app is signed with a Developer ID and notarized by Apple, and
+it works offline. Each release also has a prebuilt `fringe-cli` tarball and
+`SHA256SUMS`.
 
 ## Physics and conventions
 
