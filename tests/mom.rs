@@ -414,3 +414,118 @@ fn all_cases_report() {
         }
     }
 }
+
+/// Wave-3 reference readiness (spec §9.3): the default scene at 16 against 20
+/// panels per wavelength, and the energy balance of the lossless lens.
+#[test]
+#[ignore]
+fn lens_reference() {
+    use beam_core::analytic::metrics::{rel_l2, resample};
+    let mut s = example("lens").unwrap();
+    s.solver.method = Method::Mom;
+    let run = |ppw: f64| {
+        let mut s = s.clone();
+        s.solver.mom.final_ppw = Some(ppw);
+        solve(&s, Quality::Final, &SolveContext::new()).unwrap()
+    };
+    let (a, b) = (run(16.0), run(20.0));
+    let a_on_b: Vec<C64> =
+        resample(&a, Part::Total, &b.grid).into_iter().map(|v| v.unwrap_or(C64::new(f64::NAN, 0.0))).collect();
+    let mask: Vec<bool> = (0..b.grid.len()).map(|i| !b.is_pec(i)).collect();
+    let e = rel_l2(&a_on_b, &b.total, Some(&mask));
+    let fb = flux_balance(&b, b.scene.domain.rect().expand(-0.5));
+    eprintln!(
+        "lens: 16 vs 20 ppw {e:.3e}; balance |inflow| / scattered flux = {:.3e} (inflow {:.3e}, scattered {:.3e})",
+        fb.residual(),
+        fb.inflow,
+        fb.scattered_flux
+    );
+    assert!(e <= 2e-3, "16 vs 20 ppw: {e}");
+    assert!(fb.residual() <= 2e-3, "energy balance {}", fb.residual());
+}
+
+/// Corners, sharp apexes, combs and thin bodies: 12 against 24 panels per λ and
+/// the lossless energy balance.
+#[test]
+#[ignore]
+fn shapes_converge() {
+    use beam_core::analytic::metrics::{rel_l2, resample};
+    let base = example("prism").unwrap();
+    let mk = |shape: Shape, material: Material, rot: f64| {
+        let mut s = base.clone();
+        s.solver.method = Method::Mom;
+        s.elements[0].shape = shape;
+        s.elements[0].material = material;
+        s.elements[0].rotation_deg = rot;
+        s
+    };
+    let glass = Material::Dielectric { n: 1.5, k: 0.0 };
+    let scenes = vec![
+        ("prism", mk(Shape::Prism { base_um: 8.0, apex_deg: 60.0 }, glass, 0.0)),
+        ("sharp prism", mk(Shape::Prism { base_um: 2.0, apex_deg: 20.0 }, Material::Dielectric { n: 3.0, k: 0.0 }, 20.0)),
+        ("wedge", mk(Shape::Wedge { thick_um: 2.0, thin_um: 0.5, height_um: 6.0 }, glass, 0.0)),
+        ("comb grating", mk(Shape::Grating { period_um: 1.0, fill_factor: 0.3, depth_um: 0.5, count: 6, substrate_um: 0.5 }, glass, 0.0)),
+        ("pec comb", mk(Shape::Grating { period_um: 1.0, fill_factor: 0.3, depth_um: 0.5, count: 6, substrate_um: 0.5 }, Material::Pec, 0.0)),
+        ("thin pec", mk(Shape::Slab { thickness_um: 0.05, height_um: 6.0 }, Material::Pec, 30.0)),
+        ("thin glass", mk(Shape::Slab { thickness_um: 0.05, height_um: 6.0 }, Material::Dielectric { n: 2.0, k: 0.0 }, 30.0)),
+        ("polygon", mk(Shape::Polygon { vertices_um: vec![[-2.0, -2.0], [2.0, -1.0], [0.0, 0.0], [1.5, 2.0], [-1.5, 1.0]] }, glass, 0.0)),
+        ("pec lens", mk(Shape::Lens { r1_um: Some(6.0), r2_um: Some(-6.0), center_thickness_um: 2.0, aperture_um: 6.0 }, Material::Pec, 0.0)),
+    ];
+    for (name, s) in scenes {
+        let issues: Vec<_> = beam_core::scene::validate(&s).into_iter().filter(|i| i.is_error()).collect();
+        assert!(issues.is_empty(), "{name}: {issues:?}");
+        let run = |ppw: f64| {
+            let mut s = s.clone();
+            s.solver.mom.final_ppw = Some(ppw);
+            solve(&s, Quality::Final, &SolveContext::new()).unwrap()
+        };
+        let (a, b) = (run(12.0), run(24.0));
+        let a_on_b: Vec<C64> =
+            resample(&a, Part::Total, &b.grid).into_iter().map(|v| v.unwrap_or(C64::new(f64::NAN, 0.0))).collect();
+        let mask: Vec<bool> = (0..b.grid.len()).map(|i| !b.is_pec(i)).collect();
+        let e = rel_l2(&a_on_b, &b.total, Some(&mask));
+        let fb = flux_balance(&b, b.scene.domain.rect().expand(-0.5));
+        eprintln!(
+            "{name:12}: 12 vs 24 ppw {e:.2e}; balance {:.2e}; cond {:.1e}; N {}",
+            fb.residual(),
+            b.meta.solver.cond_estimate.unwrap(),
+            b.meta.solver.unknowns
+        );
+        assert!(e <= 2e-3 && fb.residual() <= 2e-3, "{name}");
+    }
+}
+
+/// Spec §9.4: `estimate()` within 2× of the measured time on every example at
+/// both qualities (asserted with BEAM_PERF=1 on a quiet machine).
+#[test]
+#[ignore]
+fn estimate_calibration() {
+    let mut worst = 1.0f64;
+    for info in EXAMPLES.iter() {
+        let mut s = example(info.name).unwrap();
+        s.solver.method = Method::Mom;
+        for q in [Quality::Preview, Quality::Final] {
+            let p = compile(&s, q).unwrap();
+            let est = solver_for(Method::Mom).estimate(&p);
+            let t = Instant::now();
+            let f = solve(&s, q, &SolveContext::new()).unwrap();
+            let secs = t.elapsed().as_secs_f64();
+            let ratio = est.seconds / secs;
+            eprintln!(
+                "{:14} {:7} N {:5} estimate {:6.3} s measured {:6.3} s ratio {ratio:.2}",
+                info.name,
+                q.name(),
+                f.meta.solver.unknowns,
+                est.seconds,
+                secs
+            );
+            if secs > 0.02 {
+                worst = worst.max(ratio.max(1.0 / ratio));
+            }
+        }
+    }
+    eprintln!("worst ratio {worst:.2}");
+    if perf() {
+        assert!(worst <= 2.0);
+    }
+}
