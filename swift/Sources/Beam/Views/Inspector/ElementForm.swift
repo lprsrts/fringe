@@ -399,8 +399,13 @@ private struct PolygonVerticesField: View {
         }
     }
 
+    /// JSON text, so always with a decimal point whatever the locale.
     static func format(_ polygon: Polygon) -> String {
-        "[" + polygon.verticesUm.map { "[\(LengthField.format($0.first ?? 0)), \(LengthField.format($0.last ?? 0))]" }.joined(separator: ", ") + "]"
+        let posix = Locale(identifier: "en_US_POSIX")
+        let number = { (v: Double) in
+            Format.number(v, digits: 0...4, locale: posix).replacingOccurrences(of: "−", with: "-")
+        }
+        return "[" + polygon.verticesUm.map { "[\(number($0.first ?? 0)), \(number($0.last ?? 0))]" }.joined(separator: ", ") + "]"
     }
 }
 
