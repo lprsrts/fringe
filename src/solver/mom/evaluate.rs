@@ -130,7 +130,10 @@ pub fn j_y_01_fast(x: f64) -> (f64, f64, f64, f64) {
     let (p0, q0) = (1.0 - a2 + a4, a1 - a3 + a5);
     let (p1, q1) = (1.0 - b2 + b4, b1 - b3 + b5);
     let pre = (std::f64::consts::FRAC_2_PI / x).sqrt();
-    let (s0, c0) = (x - std::f64::consts::FRAC_PI_4).sin_cos();
+    // sin and cos of χ0 = x − π/4, rotated exactly from those of x.
+    let (sx, cx) = x.sin_cos();
+    let h = std::f64::consts::FRAC_1_SQRT_2;
+    let (s0, c0) = (h * (sx - cx), h * (cx + sx));
     // χ1 = χ0 − π/2.
     let (s1, c1) = (-c0, s0);
     (pre * (p0 * c0 - q0 * s0), pre * (p1 * c1 - q1 * s1), pre * (p0 * s0 + q0 * c0), pre * (p1 * s1 + q1 * c1))
