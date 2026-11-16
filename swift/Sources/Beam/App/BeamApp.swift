@@ -1,7 +1,6 @@
 import AppKit
 import SwiftUI
 
-@main
 struct BeamApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @UIState private var model = AppState()
@@ -11,7 +10,7 @@ struct BeamApp: App {
             BeamWindow()
                 .environment(model)
         }
-        .defaultSize(width: 1320, height: 820)
+        .defaultSize(width: 1440, height: 860)
         .windowResizability(.contentMinSize)
         .windowToolbarStyle(.unified)
         .commands {

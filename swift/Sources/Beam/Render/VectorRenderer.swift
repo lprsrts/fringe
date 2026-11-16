@@ -2,196 +2,81 @@ import AppKit
 import CoreGraphics
 import Foundation
 
-/// Just enough complex arithmetic for the q-parameter.
-public struct OpticsComplex: Equatable {
-    public var r: Double
-    public var i: Double
+/// The colour legend: the colormap and what its ends mean.
+public struct Legend: Sendable {
+    public var lut: [UInt8]
+    public var title: String
+    public var low: String
+    public var middle: String?
+    public var high: String
 
-    public init(_ r: Double, _ i: Double) {
-        self.r = r
-        self.i = i
-    }
-
-    public static func + (lhs: OpticsComplex, rhs: Double) -> OpticsComplex {
-        OpticsComplex(lhs.r + rhs, lhs.i)
-    }
-
-    public var normSq: Double {
-        r * r + i * i
-    }
-
-    public var inv: OpticsComplex? {
-        let n = normSq
-        guard n > 1e-30 else { return nil }
-        return OpticsComplex(r / n, -i / n)
+    public init(lut: [UInt8], display: DisplaySettings) {
+        self.lut = lut
+        let q = display.quantity
+        let incident = display.normalization == .incident
+        let fixed = display.normalization == .fixed
+        let s = SceneFormat.fixed(display.normalizationValue, 2)
+        switch q {
+        case .intensity, .magnitude:
+            if let db = display.logDb, display.usesLogScale {
+                title = "\(q.symbol), dB"
+                low = "−\(SceneFormat.fixed(db, 0))"
+                high = "0"
+            } else {
+                title = q.symbol + (incident ? (q == .intensity ? " / A²" : " / A") : "")
+                low = "0"
+                if incident {
+                    high = "1"
+                } else if fixed {
+                    high = q == .intensity ? "\(s)² A²" : "\(s) A"
+                } else {
+                    high = "max"
+                }
+            }
+            middle = nil
+        case .real:
+            title = "Re E" + (incident ? " / A" : "")
+            let edge = incident ? "1" : (fixed ? "\(s) A" : "max")
+            low = "−" + edge
+            middle = "0"
+            high = "+" + edge
+        case .phase:
+            title = "∠E"
+            low = "−180°"
+            middle = "0°"
+            high = "180°"
+        }
     }
 }
 
-/// Draws the vector overlays (envelope, wavefronts, element glyphs, labels) on top of the
-/// raster. The preview and the exported PNG both draw through `drawOverlays`.
+/// Everything the vector overlays need, as a value that can go to another thread.
+public struct OverlayModel: Sendable {
+    /// The plane rectangle the image covers.
+    public var viewRect: RectUm
+    /// The domain interior; the PML lies around it.
+    public var interior: RectUm
+    public var pmlUm: Double
+    public var outlines: SceneOutlines?
+    public var source: Source
+    /// Paraxial focus points, [x, y] in µm.
+    public var focusPoints: [[Double]]
+    public var display: DisplaySettings
+    public var caption: String?
+    public var legend: Legend?
+    public var selectedID: String?
+    /// Preview only: the move handle on the selection and the beam's handles.
+    public var showsHandles: Bool
+    /// Element anchors, [x, y] in µm, for the move handle.
+    public var anchors: [String: [Double]]
+    /// Bodies of the scene the field was solved for, whose conductors are filled; nil
+    /// fills the conductors of `outlines`.
+    public var conductors: SceneOutlines? = nil
+}
+
+/// Draws the vector overlays (outlines, source glyph, focus marks, PML hatch, scale bar,
+/// caption and legend) over the rendered field. The canvas and the exported PNG both draw
+/// through `drawOverlays`.
 public enum VectorRenderer {
-    /// Beam radius w, radius of curvature R and curvature κ = 1/R at z, after every enabled
-    /// element upstream of z.
-    public static func evaluateBeam(
-        at z: Double,
-        beam: BeamParameters,
-        elements: [PlacedElementModel]
-    ) -> (w: Double, R: Double, kappa: Double) {
-        let res = evaluateBeamWithIndex(at: z, beam: beam, elements: elements)
-        return (res.w, res.R, res.kappa)
-    }
-
-    /// Same as `evaluateBeam`, plus the refractive index of the medium at z.
-    ///
-    /// Propagates the complex beam parameter q through each element with its ABCD matrix,
-    /// following `OpticalTrain::beam_at` in the core. Mirrors are unfolded, so a curved mirror
-    /// acts as a lens with f = R/2.
-    public static func evaluateBeamWithIndex(
-        at z: Double,
-        beam: BeamParameters,
-        elements: [PlacedElementModel]
-    ) -> (w: Double, R: Double, kappa: Double, n: Double) {
-        let zR0 = beam.rayleighRange
-
-        let active = elements
-            .filter { $0.isEnabled && $0.z <= z }
-            .sorted { $0.z < $1.z }
-
-        guard let first = active.first else {
-            let zRel = z - beam.z0
-            let w = LegacyBeamMath.waistAt(w0: beam.w0, z: zRel, zR: zR0)
-            let kappa = LegacyBeamMath.curvatureAt(z: zRel, zR: zR0)
-            let R = abs(kappa) > 1e-12 ? (1.0 / kappa) : (zRel >= 0 ? 1e12 : -1e12)
-            return (w, R, kappa, beam.refractiveIndex)
-        }
-
-        // Seed q at the first element rather than at the waist. Starting at the waist and only
-        // drifting forwards would skip the drift to an element upstream of the waist.
-        var currentN = beam.refractiveIndex
-        var currentZ = first.z
-        var currentQ = OpticsComplex(first.z - beam.z0, zR0)
-
-        for elem in active {
-            let dz = elem.z - currentZ
-            if dz > 0 {
-                currentQ = currentQ + dz
-                currentZ = elem.z
-            }
-
-            switch elem.type {
-            case .thinLens:
-                let f = elem.param1
-                if abs(f) > 1e-12, let invQ = currentQ.inv {
-                    let invQAfter = OpticsComplex(invQ.r - 1.0 / f, invQ.i)
-                    if let qAfter = invQAfter.inv {
-                        currentQ = qAfter
-                    }
-                }
-            case .curvedMirror:
-                let radius = elem.param1
-                if abs(radius) > 1e-12, let invQ = currentQ.inv {
-                    let invQAfter = OpticsComplex(invQ.r - 2.0 / radius, invQ.i)
-                    if let qAfter = invQAfter.inv {
-                        currentQ = qAfter
-                    }
-                }
-            case .flatMirror:
-                break
-            case .dielectricInterface:
-                let n1 = max(1.0, elem.param1)
-                let n2 = max(1.0, elem.param2)
-                currentQ = OpticsComplex(currentQ.r * (n2 / n1), currentQ.i * (n2 / n1))
-                currentN = n2
-            case .gaussianAperture:
-                let wa = max(1e-6, elem.param1)
-                if let invQ = currentQ.inv {
-                    // A Gaussian amplitude mask exp(-x²/wa²) adds -i·2/(k wa²) to 1/q.
-                    let k = 2.0 * Double.pi * currentN / beam.wavelength
-                    let invQAfter = OpticsComplex(invQ.r, invQ.i - 2.0 / (k * wa * wa))
-                    if let qAfter = invQAfter.inv {
-                        currentQ = qAfter
-                    }
-                }
-            }
-        }
-
-        let finalDz = z - currentZ
-        if finalDz != 0 {
-            currentQ = currentQ + finalDz
-        }
-
-        // 1/q = 1/R - i λ / (π n w²)
-        let qNorm = currentQ.normSq
-        guard currentQ.i > 1e-25, qNorm > 1e-25 else {
-            return (beam.w0, 1e12, 0.0, currentN)
-        }
-
-        let invQi = -currentQ.i / qNorm
-        let w = sqrt(max(1e-12, beam.wavelength / (Double.pi * currentN * (-invQi))))
-
-        let kappa = currentQ.r / qNorm
-        let R = abs(kappa) > 1e-12 ? (1.0 / kappa) : (currentQ.r >= 0 ? 1e12 : -1e12)
-
-        return (w, R, kappa, currentN)
-    }
-
-    // These three must match VISUAL_REF_WAVELENGTH, VISUAL_FRINGES_PER_ZR and
-    // VISUAL_CURVATURE_GAIN in src/render/grid.rs, or the drawn wavefronts will not line up
-    // with the fringes in the raster.
-    public static let visualRefWavelength: Double = 632.8e-9
-    public static let visualFringesPerZR: Double = 10.0
-    public static let visualCurvatureGain: Double = 2.0
-
-    /// Axial wavenumber of the drawn fringes, in rad/m. Mirrors `visual_wavefront_wavenumber` in
-    /// the core: real optical fringes are far too fine to see, so the fringe spacing is tied to
-    /// the Rayleigh range instead and does not change with zoom.
-    public static func visualWavenumber(beam: BeamParameters, localN: Double) -> Double {
-        let zrRef = Double.pi * max(1.0, beam.refractiveIndex) * beam.w0 * beam.w0 / visualRefWavelength
-        let wlScale = min(4.0, max(0.25, visualRefWavelength / max(1e-18, beam.wavelength)))
-        let nScale = localN / max(1.0, beam.refractiveIndex)
-        return (visualFringesPerZR * Double.pi / max(1e-18, zrRef)) * wlScale * nScale
-    }
-
-    /// Beam radius w, axial sagitta of the drawn wavefront at x = ±w (metres), and curvature κ at z.
-    ///
-    /// The wavefront through (z_c, 0) is the parabola z(x) = z_c - sagitta · (x / w)².
-    public static func wavefrontSagitta(
-        at z: Double,
-        beam: BeamParameters,
-        elements: [PlacedElementModel]
-    ) -> (w: Double, sagitta: Double, kappa: Double) {
-        let (w, _, kappa, localN) = evaluateBeamWithIndex(at: z, beam: beam, elements: elements)
-        let kLocal = 2.0 * Double.pi * localN / max(1e-18, beam.wavelength)
-        let kVis = visualWavenumber(beam: beam, localN: localN)
-        guard kVis > 1e-18 else { return (w, 0.0, kappa) }
-        let transversePhaseAtWaist = visualCurvatureGain * 0.5 * kLocal * w * w * kappa
-        let sagitta = transversePhaseAtWaist / kVis
-        return (w, sagitta, kappa)
-    }
-
-    /// Axial position z to horizontal view coordinate.
-    public static func mapZToX(
-        z: Double,
-        zMin: Double,
-        zMax: Double,
-        bounds: CGRect
-    ) -> CGFloat {
-        let span = max(1e-6, zMax - zMin)
-        let normalized = (z - zMin) / span
-        return bounds.minX + CGFloat(normalized) * bounds.width
-    }
-
-    /// Transverse position x to vertical view coordinate; x = 0 is the vertical centre.
-    public static func mapXToY(
-        x: Double,
-        xMax: Double,
-        bounds: CGRect
-    ) -> CGFloat {
-        let safeXMax = max(1e-9, xMax)
-        let normalized = x / safeXMax
-        return bounds.midY - CGFloat(normalized) * (bounds.height / 2.0)
-    }
-
     /// Draws every enabled overlay into `context`, using a top-left origin.
     ///
     /// Pass `flipped: true` for a bitmap context, whose origin is at the bottom left. A SwiftUI
@@ -204,14 +89,11 @@ public enum VectorRenderer {
         in context: CGContext,
         size: CGSize,
         flipped: Bool,
-        beam: BeamParameters,
-        elements: [PlacedElementModel],
-        style: RenderStyleModel,
-        window: FrameWindow,
-        selectedID: UUID? = nil,
+        model: OverlayModel,
         minimumTextScale: CGFloat = 0
     ) {
-        guard style.showOverlays, size.width > 0, size.height > 0 else { return }
+        let display = model.display
+        guard size.width > 0, size.height > 0 else { return }
 
         let scale = size.height / 720.0
         let painter = OverlayPainter(
@@ -219,9 +101,8 @@ public enum VectorRenderer {
             bounds: CGRect(origin: .zero, size: size),
             scale: scale,
             textScale: max(scale, minimumTextScale),
-            beam: beam,
-            elements: elements,
-            window: window
+            map: PlaneMapping(viewRect: model.viewRect, bounds: CGRect(origin: .zero, size: size)),
+            model: model
         )
 
         context.saveGState()
@@ -236,29 +117,47 @@ public enum VectorRenderer {
             NSGraphicsContext.current = previousNSContext
             context.restoreGState()
         }
+        context.clip(to: CGRect(origin: .zero, size: size))
 
-        if style.showCenterline { painter.drawAxis() }
-        if style.showWavefrontArcs { painter.drawWavefronts() }
-        if style.showEnvelope { painter.drawEnvelope() }
-        if style.showRayleighMarkers { painter.drawRayleighMarkers() }
-        if style.showElementGlyphs { painter.drawElements(selectedID: selectedID) }
-        if style.showMetadataWatermark { painter.drawCaption(colormap: style.colormap) }
+        // Conductors are solid whatever the overlays: the field inside them is zero, and a
+        // vector fill gives them the exact outline the raster cannot.
+        painter.fillConductors()
+        guard display.showOverlays else { return }
+
+        if display.showPML { painter.drawPML() }
+        if display.showOutlines { painter.drawOutlines() }
+        if display.showParaxialFocus { painter.drawFocusPoints() }
+        if display.showSourceGlyph { painter.drawSource() }
+        if display.showCaption { painter.drawCaption() }
+        let legendTop = display.showLegend ? painter.drawLegend() : nil
+        if display.showScaleBar { painter.drawScaleBar(above: legendTop) }
     }
 
-    static func glyphLabel(_ elem: PlacedElementModel) -> String {
-        switch elem.type {
-        case .thinLens:
-            return String(format: "f = %+.0f mm", elem.param1 * 1000)
-        case .curvedMirror:
-            return String(format: "R = %+.0f mm", elem.param1 * 1000)
-        case .flatMirror:
-            return "Flat mirror"
-        case .dielectricInterface:
-            return String(format: "n = %.2f → %.2f", elem.param1, elem.param2)
-        case .gaussianAperture:
-            return String(format: "wₐ = %.2f mm", elem.param1 * 1000)
-        }
+    /// A 1-2-5 × 10ⁿ length close to `target`.
+    public static func niceLength(_ target: Double) -> Double {
+        guard target > 0, target.isFinite else { return 1 }
+        let exponent = floor(log10(target))
+        let base = pow(10, exponent)
+        let mantissa = target / base
+        let nice: Double = mantissa < 1.5 ? 1 : (mantissa < 3.5 ? 2 : (mantissa < 7.5 ? 5 : 10))
+        return nice * base
     }
+
+    /// Where the beam glyph's angle handle sits, in µm, for a Gaussian beam.
+    public static func angleHandle(source: Source, viewRect: RectUm) -> (x: Double, y: Double) {
+        let length = beamArrowLength(source: source, viewRect: viewRect)
+        let a = source.angleDeg * .pi / 180
+        return (source.waistXUm + length * cos(a), source.waistYUm + length * sin(a))
+    }
+
+    static func beamArrowLength(source: Source, viewRect: RectUm) -> Double {
+        max(2.5 * source.waistUm, 0.12 * viewRect.width)
+    }
+
+    /// The same grey the core uses for conductors.
+    static let conductorColor = CGColor(srgbRed: 128.0 / 255, green: 128.0 / 255, blue: 128.0 / 255, alpha: 1)
+
+    static let beamColor = CGColor(red: 0.35, green: 0.9, blue: 1.0, alpha: 0.95)
 }
 
 /// One pass of overlay drawing into a y-down context.
@@ -269,47 +168,28 @@ private struct OverlayPainter {
     let scale: CGFloat
     /// Multiplier for font sizes and the spacing between lines of text.
     let textScale: CGFloat
-    let beam: BeamParameters
-    let elements: [PlacedElementModel]
-    let window: FrameWindow
+    let map: PlaneMapping
+    let model: OverlayModel
 
-    private var zMin: Double { window.zMin }
-    private var zMax: Double { window.zMax }
-    private var xMax: Double { window.xMax }
+    private var margin: CGFloat { 20 * scale }
 
-    private func px(_ z: Double) -> CGFloat {
-        VectorRenderer.mapZToX(z: z, zMin: zMin, zMax: zMax, bounds: bounds)
-    }
-
-    private func py(_ x: Double) -> CGFloat {
-        VectorRenderer.mapXToY(x: x, xMax: xMax, bounds: bounds)
-    }
-
-    private func stroke(
-        _ path: CGPath,
-        color: CGColor,
-        width: CGFloat,
-        dash: [CGFloat] = [],
-        round: Bool = false
-    ) {
+    private func stroke(_ path: CGPath, color: CGColor, width: CGFloat, dash: [CGFloat] = [], fixedWidth: Bool = false) {
         context.saveGState()
         context.addPath(path)
         context.setStrokeColor(color)
-        context.setLineWidth(width * scale)
+        context.setLineWidth(fixedWidth ? width : width * scale)
         context.setLineDash(phase: 0, lengths: dash.map { $0 * scale })
-        if round {
-            context.setLineCap(.round)
-            context.setLineJoin(.round)
-        }
+        context.setLineCap(.round)
+        context.setLineJoin(.round)
         context.strokePath()
         context.restoreGState()
     }
 
-    private func fill(_ path: CGPath, color: CGColor) {
+    private func fill(_ path: CGPath, color: CGColor, evenOdd: Bool = false) {
         context.saveGState()
         context.addPath(path)
         context.setFillColor(color)
-        context.fillPath()
+        context.fillPath(using: evenOdd ? .evenOdd : .winding)
         context.restoreGState()
     }
 
@@ -320,218 +200,270 @@ private struct OverlayPainter {
         return path
     }
 
+    private func attributes(size: CGFloat, weight: NSFont.Weight, color: NSColor) -> [NSAttributedString.Key: Any] {
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor(calibratedWhite: 0, alpha: 0.7)
+        shadow.shadowBlurRadius = 3 * textScale
+        shadow.shadowOffset = .zero
+        return [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: size * textScale, weight: weight),
+            .foregroundColor: color,
+            .shadow: shadow,
+        ]
+    }
+
+    private func textSize(_ string: String, size: CGFloat, weight: NSFont.Weight = .regular) -> CGSize {
+        (string as NSString).size(withAttributes: attributes(size: size, weight: weight, color: .white))
+    }
+
+    /// Draws `string` with its top-left corner at `point`, or anchored by `alignment`.
     private func text(
         _ string: String,
         at point: CGPoint,
         size: CGFloat,
-        weight: NSFont.Weight,
-        color: NSColor,
-        alignBottom: Bool = false
+        weight: NSFont.Weight = .regular,
+        color: NSColor = NSColor(calibratedWhite: 1, alpha: 0.9),
+        alignment: (x: CGFloat, y: CGFloat) = (0, 0)
     ) {
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: size * textScale, weight: weight),
-            .foregroundColor: color,
-        ]
-        let string = string as NSString
-        let height = string.size(withAttributes: attributes).height
-        string.draw(at: CGPoint(x: point.x, y: alignBottom ? point.y - height : point.y), withAttributes: attributes)
+        let attrs = attributes(size: size, weight: weight, color: color)
+        let measured = (string as NSString).size(withAttributes: attrs)
+        let origin = CGPoint(x: point.x - alignment.x * measured.width, y: point.y - alignment.y * measured.height)
+        (string as NSString).draw(at: origin, withAttributes: attrs)
     }
 
-    func drawAxis() {
-        stroke(
-            line(from: CGPoint(x: bounds.minX, y: bounds.midY), to: CGPoint(x: bounds.maxX, y: bounds.midY)),
-            color: CGColor(red: 1, green: 1, blue: 1, alpha: 0.22),
-            width: 1.0,
-            dash: [4, 4]
-        )
+    /// A soft dark backing so labels stay legible over light colormaps.
+    private func plate(_ rect: CGRect) {
+        let r = rect.insetBy(dx: -6 * textScale, dy: -4 * textScale)
+        fill(CGPath(roundedRect: r, cornerWidth: 6 * textScale, cornerHeight: 6 * textScale, transform: nil),
+             color: CGColor(gray: 0, alpha: 0.38))
     }
 
-    func drawWavefronts(count: Int = 14) {
-        let path = CGMutablePath()
-        let step = (zMax - zMin) / Double(count + 1)
-        for i in 1...count {
-            let z = zMin + Double(i) * step
-            let (w, sagitta, kappa) = VectorRenderer.wavefrontSagitta(at: z, beam: beam, elements: elements)
-            let top = py(w)
-            let bottom = py(-w)
-            if abs(kappa) < 1e-9 || abs(sagitta) < 1e-12 {
-                path.move(to: CGPoint(x: px(z), y: top))
-                path.addLine(to: CGPoint(x: px(z), y: bottom))
-            } else {
-                // A quadratic Bézier with end points at z - sagitta and control point at z + sagitta
-                // has its apex at (z, 0) and is exactly the parabola z - sagitta · (x / w)².
-                path.move(to: CGPoint(x: px(z - sagitta), y: top))
-                path.addQuadCurve(
-                    to: CGPoint(x: px(z - sagitta), y: bottom),
-                    control: CGPoint(x: px(z + sagitta), y: bounds.midY)
-                )
-            }
-        }
-        stroke(path, color: CGColor(red: 0.95, green: 0.85, blue: 0.3, alpha: 0.38), width: 1.0, dash: [3, 3])
-    }
+    // MARK: PML
 
-    func drawEnvelope(samples: Int = 240) {
-        let dz = (zMax - zMin) / Double(samples - 1)
-        var upper: [CGPoint] = []
-        var lower: [CGPoint] = []
-        upper.reserveCapacity(samples)
-        lower.reserveCapacity(samples)
-        for i in 0..<samples {
-            let z = zMin + Double(i) * dz
-            let w = VectorRenderer.evaluateBeam(at: z, beam: beam, elements: elements).w
-            upper.append(CGPoint(x: px(z), y: py(w)))
-            lower.append(CGPoint(x: px(z), y: py(-w)))
-        }
+    func drawPML() {
+        let interior = map.rect(model.interior)
+        let outer = map.rect(model.interior.insetBy(-model.pmlUm))
+        let band = CGMutablePath()
+        band.addRect(outer)
+        band.addRect(interior)
+        fill(band, color: CGColor(gray: 0.08, alpha: 0.55), evenOdd: true)
 
-        let region = CGMutablePath()
-        region.addLines(between: upper + lower.reversed())
-        region.closeSubpath()
-        fill(region, color: CGColor(red: 0.0, green: 0.85, blue: 1.0, alpha: 0.04))
-
-        let edges = CGMutablePath()
-        edges.addLines(between: upper)
-        edges.addLines(between: lower)
-        stroke(edges, color: CGColor(red: 0.0, green: 0.85, blue: 1.0, alpha: 0.78), width: 1.5, round: true)
-    }
-
-    func drawRayleighMarkers() {
-        let zR = beam.rayleighRange
-        let markers = [
-            (z: beam.z0 - zR, label: "z₀ − z_R", isWaist: false),
-            (z: beam.z0, label: "w₀", isWaist: true),
-            (z: beam.z0 + zR, label: "z₀ + z_R", isWaist: false),
-        ]
-        for marker in markers where marker.z >= zMin && marker.z <= zMax {
-            let x = px(marker.z)
-            stroke(
-                line(from: CGPoint(x: x, y: bounds.minY + 20 * scale), to: CGPoint(x: x, y: bounds.maxY - 20 * scale)),
-                color: marker.isWaist
-                    ? CGColor(red: 1, green: 1, blue: 1, alpha: 0.6)
-                    : CGColor(red: 1, green: 0.9, blue: 0.2, alpha: 0.45),
-                width: marker.isWaist ? 1.5 : 1.0,
-                dash: marker.isWaist ? [6, 3] : [2, 4]
-            )
-            text(
-                marker.label,
-                at: CGPoint(x: x + 4 * scale, y: bounds.minY + 28 * scale),
-                size: 9,
-                weight: marker.isWaist ? .semibold : .regular,
-                color: marker.isWaist
-                    ? NSColor(calibratedWhite: 1, alpha: 0.95)
-                    : NSColor(calibratedRed: 1, green: 0.9, blue: 0.2, alpha: 0.75)
-            )
-        }
-    }
-
-    func drawElements(selectedID: UUID?) {
-        for elem in elements where elem.isEnabled && elem.z >= zMin && elem.z <= zMax {
-            let x = px(elem.z)
-            if elem.id == selectedID {
-                drawSelection(at: x)
-            }
-            drawGlyph(elem, at: x)
-        }
-    }
-
-    private var glyphTop: CGFloat { bounds.midY - bounds.height * 0.38 }
-    private var glyphBottom: CGFloat { bounds.midY + bounds.height * 0.38 }
-
-    /// Preview only: a fixed 2 pt outline, so it does not depend on the image scale.
-    private func drawSelection(at x: CGFloat) {
-        let pad = 14 * scale
-        let rect = CGRect(x: x - pad, y: glyphTop - pad, width: 2 * pad, height: glyphBottom - glyphTop + 2 * pad)
         context.saveGState()
-        context.addPath(CGPath(roundedRect: rect, cornerWidth: 6, cornerHeight: 6, transform: nil))
-        context.setStrokeColor(NSColor.controlAccentColor.cgColor)
-        context.setLineWidth(2)
-        context.strokePath()
+        context.addPath(band)
+        context.clip(using: .evenOdd)
+        let hatch = CGMutablePath()
+        let step = 8 * scale
+        var x = outer.minX - outer.height
+        while x < outer.maxX {
+            hatch.move(to: CGPoint(x: x, y: outer.maxY))
+            hatch.addLine(to: CGPoint(x: x + outer.height, y: outer.minY))
+            x += step
+        }
+        stroke(hatch, color: CGColor(gray: 1, alpha: 0.18), width: 1)
         context.restoreGState()
+
+        stroke(CGPath(rect: interior, transform: nil), color: CGColor(gray: 1, alpha: 0.45), width: 1, dash: [4, 4])
+        text("PML", at: CGPoint(x: outer.minX + 4 * scale, y: outer.minY + 2 * scale), size: 9, color: NSColor(calibratedWhite: 1, alpha: 0.6))
     }
 
-    private func drawGlyph(_ elem: PlacedElementModel, at x: CGFloat) {
-        let top = glyphTop
-        let bottom = glyphBottom
-        let label = VectorRenderer.glyphLabel(elem)
-        let labelPoint = CGPoint(x: x + 6 * scale, y: top - 8 * scale)
+    // MARK: Bodies
 
-        switch elem.type {
-        case .thinLens:
-            let bulge = (elem.param1 >= 0 ? 8.0 : -8.0) * scale
-            let lens = CGMutablePath()
-            lens.move(to: CGPoint(x: x, y: top))
-            lens.addQuadCurve(to: CGPoint(x: x, y: bottom), control: CGPoint(x: x + bulge, y: bounds.midY))
-            lens.addQuadCurve(to: CGPoint(x: x, y: top), control: CGPoint(x: x - bulge, y: bounds.midY))
-            lens.closeSubpath()
-            fill(lens, color: CGColor(red: 0.3, green: 0.7, blue: 1.0, alpha: 0.2))
-            stroke(lens, color: CGColor(red: 0.0, green: 0.85, blue: 1.0, alpha: 1.0), width: 1.5)
-            stroke(
-                line(from: CGPoint(x: x, y: top - 10 * scale), to: CGPoint(x: x, y: bottom + 10 * scale)),
-                color: CGColor(red: 0.0, green: 0.85, blue: 1.0, alpha: 0.4),
-                width: 1.0,
-                dash: [2, 2]
-            )
-            text(label, at: labelPoint, size: 9, weight: .semibold, color: .cyan, alignBottom: true)
+    private func path(_ outline: [[Double]]) -> CGPath {
+        let path = CGMutablePath()
+        let points = outline.map { map.point($0) }
+        guard let first = points.first else { return path }
+        path.move(to: first)
+        for p in points.dropFirst() { path.addLine(to: p) }
+        path.closeSubpath()
+        return path
+    }
 
-        case .curvedMirror:
-            let bulge = (elem.param1 >= 0 ? 12.0 : -12.0) * scale
-            let mirror = CGMutablePath()
-            mirror.move(to: CGPoint(x: x, y: top))
-            mirror.addQuadCurve(to: CGPoint(x: x, y: bottom), control: CGPoint(x: x + bulge, y: bounds.midY))
-            stroke(mirror, color: CGColor(red: 1.0, green: 0.6, blue: 0.1, alpha: 1.0), width: 2.0)
-
-            let hatches = CGMutablePath()
-            let hatchCount = 10
-            for h in 0...hatchCount {
-                let y = top + CGFloat(h) * (bottom - top) / CGFloat(hatchCount)
-                hatches.move(to: CGPoint(x: x + 2 * scale, y: y))
-                hatches.addLine(to: CGPoint(x: x + 10 * scale, y: y + 6 * scale))
-            }
-            stroke(hatches, color: CGColor(red: 1.0, green: 0.6, blue: 0.1, alpha: 0.5), width: 1.0)
-            text(label, at: labelPoint, size: 9, weight: .semibold, color: .orange, alignBottom: true)
-
-        case .flatMirror:
-            stroke(
-                line(from: CGPoint(x: x, y: top), to: CGPoint(x: x, y: bottom)),
-                color: CGColor(red: 1.0, green: 0.6, blue: 0.1, alpha: 1.0),
-                width: 2.5
-            )
-            text(label, at: labelPoint, size: 9, weight: .semibold, color: .orange, alignBottom: true)
-
-        case .dielectricInterface:
-            stroke(
-                line(from: CGPoint(x: x, y: bounds.minY), to: CGPoint(x: x, y: bounds.maxY)),
-                color: CGColor(red: 0.4, green: 0.95, blue: 0.8, alpha: 1.0),
-                width: 1.5,
-                dash: [4, 2]
-            )
-            text(label, at: labelPoint, size: 9, weight: .semibold, color: .systemMint, alignBottom: true)
-
-        case .gaussianAperture:
-            let clearHalfHeight = 25 * scale
-            let blades = CGMutablePath()
-            blades.move(to: CGPoint(x: x, y: bounds.minY))
-            blades.addLine(to: CGPoint(x: x, y: bounds.midY - clearHalfHeight))
-            blades.move(to: CGPoint(x: x, y: bounds.midY + clearHalfHeight))
-            blades.addLine(to: CGPoint(x: x, y: bounds.maxY))
-            stroke(blades, color: CGColor(red: 1.0, green: 0.25, blue: 0.25, alpha: 1.0), width: 3.0)
-            text(label, at: labelPoint, size: 9, weight: .semibold, color: .systemRed, alignBottom: true)
+    func fillConductors() {
+        guard let outlines = model.conductors ?? model.outlines else { return }
+        for body in outlines.bodies where body.pec {
+            fill(path(body.outline), color: VectorRenderer.conductorColor)
         }
     }
 
-    func drawCaption(colormap: ColormapOption) {
-        let margin = 20 * scale
-        let origin = CGPoint(x: bounds.minX + margin, y: bounds.maxY - margin - 36 * textScale)
-        let title = String(format: "λ = %.0f nm, w₀ = %.3f mm", beam.wavelength * 1e9, beam.w0 * 1000)
-        // The other labels use a decimal point whatever the locale, so this one does too.
-        let zR = Format.length(beam.rayleighRange, locale: Locale(identifier: "en_US_POSIX"))
-        let subtitle = "z_R = \(zR) · \(colormap.displayName)"
-        text(title, at: origin, size: 11, weight: .semibold, color: NSColor(calibratedWhite: 1, alpha: 0.85))
-        text(
-            subtitle,
-            at: CGPoint(x: origin.x, y: origin.y + 16 * textScale),
-            size: 9,
-            weight: .regular,
-            color: NSColor(calibratedWhite: 1, alpha: 0.55)
-        )
+    func drawOutlines() {
+        guard let outlines = model.outlines else { return }
+        for body in outlines.bodies where body.elementId != model.selectedID {
+            stroke(path(body.outline), color: CGColor(gray: 1, alpha: 0.6), width: 1.5)
+        }
+        guard let selected = model.selectedID else { return }
+        let accent = NSColor.controlAccentColor.cgColor
+        for body in outlines.bodies(of: selected) {
+            // Fixed width on screen, so the selection reads the same at any size.
+            stroke(path(body.outline), color: accent, width: 2.5, fixedWidth: true)
+        }
+        if model.showsHandles, let anchor = model.anchors[selected] {
+            let p = map.point(anchor)
+            let r: CGFloat = 5
+            let handle = CGPath(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r), transform: nil)
+            fill(handle, color: accent)
+            stroke(handle, color: CGColor(gray: 1, alpha: 0.9), width: 1.5, fixedWidth: true)
+        }
+    }
+
+    func drawFocusPoints() {
+        let color = CGColor(gray: 1, alpha: 0.75)
+        for f in model.focusPoints {
+            let p = map.point(f)
+            let r = 7 * scale
+            let cross = CGMutablePath()
+            cross.move(to: CGPoint(x: p.x - r, y: p.y))
+            cross.addLine(to: CGPoint(x: p.x + r, y: p.y))
+            cross.move(to: CGPoint(x: p.x, y: p.y - r))
+            cross.addLine(to: CGPoint(x: p.x, y: p.y + r))
+            stroke(cross, color: color, width: 1.2, dash: [2, 2])
+            text("f", at: CGPoint(x: p.x + r + 2 * scale, y: p.y - r - 2 * scale), size: 9, weight: .semibold,
+                 color: NSColor(calibratedWhite: 1, alpha: 0.75), alignment: (0, 0.5))
+        }
+    }
+
+    // MARK: Source
+
+    func drawSource() {
+        let source = model.source
+        let a = source.angleDeg * .pi / 180
+        let dir = (x: cos(a), y: sin(a))
+        let color = VectorRenderer.beamColor
+
+        switch source.kind {
+        case .gaussianBeam:
+            let waist = map.point(x: source.waistXUm, y: source.waistYUm)
+            let w0 = source.waistUm
+            let normal = (x: -dir.y, y: dir.x)
+            // The waist: a bar ±w0 across the axis with end ticks.
+            let top = map.point(x: source.waistXUm + w0 * normal.x, y: source.waistYUm + w0 * normal.y)
+            let bottom = map.point(x: source.waistXUm - w0 * normal.x, y: source.waistYUm - w0 * normal.y)
+            let bar = CGMutablePath()
+            bar.move(to: top)
+            bar.addLine(to: bottom)
+            let tick = 5 * scale
+            let along = CGVector(dx: CGFloat(dir.x) * tick, dy: -CGFloat(dir.y) * tick)
+            for end in [top, bottom] {
+                bar.move(to: CGPoint(x: end.x - along.dx, y: end.y - along.dy))
+                bar.addLine(to: CGPoint(x: end.x + along.dx, y: end.y + along.dy))
+            }
+            stroke(bar, color: color, width: 1.5)
+
+            // The axis arrow from the waist.
+            let handle = VectorRenderer.angleHandle(source: source, viewRect: model.viewRect)
+            let tip = map.point(x: handle.x, y: handle.y)
+            drawArrow(from: waist, to: tip, color: color)
+            let r: CGFloat = 4 * max(1, scale)
+            fill(CGPath(ellipseIn: CGRect(x: waist.x - r, y: waist.y - r, width: 2 * r, height: 2 * r), transform: nil), color: color)
+            if model.showsHandles {
+                let h = CGPath(ellipseIn: CGRect(x: tip.x - 4.5, y: tip.y - 4.5, width: 9, height: 9), transform: nil)
+                fill(h, color: CGColor(gray: 0.1, alpha: 0.8))
+                stroke(h, color: color, width: 1.5, fixedWidth: true)
+            }
+            text("w₀", at: CGPoint(x: top.x + 6 * scale, y: top.y), size: 9, weight: .semibold,
+                 color: NSColor(cgColor: color) ?? .cyan, alignment: (0, 1))
+
+        case .planeWave:
+            // A k-arrow inside the upstream edge of the domain.
+            let interior = model.interior
+            let extent = 0.5 * interior.width * abs(dir.x) + 0.5 * interior.height * abs(dir.y)
+            let length = 0.05 * (interior.width + interior.height)
+            let back = extent - 0.03 * (interior.width + interior.height)
+            let start = (x: interior.centerX - dir.x * back, y: interior.centerY - dir.y * back)
+            let normal = (x: -dir.y, y: dir.x)
+            let spread = 0.18 * min(interior.width, interior.height)
+            for offset in [-spread, 0, spread] {
+                let s = map.point(x: start.x + normal.x * offset, y: start.y + normal.y * offset)
+                let e = map.point(x: start.x + normal.x * offset + dir.x * length, y: start.y + normal.y * offset + dir.y * length)
+                drawArrow(from: s, to: e, color: offset == 0 ? color : color.copy(alpha: 0.5) ?? color)
+                if offset == 0 {
+                    text("k", at: CGPoint(x: e.x + 4 * scale, y: e.y), size: 10, weight: .semibold,
+                         color: NSColor(cgColor: color) ?? .cyan, alignment: (0, 1))
+                }
+            }
+        }
+    }
+
+    private func drawArrow(from a: CGPoint, to b: CGPoint, color: CGColor) {
+        stroke(line(from: a, to: b), color: color, width: 1.5)
+        let dx = b.x - a.x
+        let dy = b.y - a.y
+        let len = max(1e-6, (dx * dx + dy * dy).squareRoot())
+        let ux = dx / len
+        let uy = dy / len
+        let head = 7 * scale
+        let wing = 3.5 * scale
+        let path = CGMutablePath()
+        path.move(to: b)
+        path.addLine(to: CGPoint(x: b.x - ux * head - uy * wing, y: b.y - uy * head + ux * wing))
+        path.addLine(to: CGPoint(x: b.x - ux * head + uy * wing, y: b.y - uy * head - ux * wing))
+        path.closeSubpath()
+        fill(path, color: color)
+    }
+
+    // MARK: Scale bar, caption, legend
+
+    func drawScaleBar(above legendTop: CGFloat?) {
+        let length = VectorRenderer.niceLength(0.15 * model.viewRect.width)
+        let width = CGFloat(length) * map.scale
+        guard width > 4 else { return }
+        let right = bounds.maxX - margin
+        let y = (legendTop.map { $0 - 20 * textScale } ?? bounds.maxY - margin)
+        let label = length >= 1 ? "\(SceneFormat.fixed(length, 0)) µm" : "\(SceneFormat.fixed(length * 1000, 0)) nm"
+        let labelSize = textSize(label, size: 10, weight: .medium)
+        plate(CGRect(x: right - width, y: y - 6 * scale - labelSize.height, width: width, height: labelSize.height + 6 * scale + 4 * scale))
+        let bar = CGMutablePath()
+        bar.move(to: CGPoint(x: right - width, y: y))
+        bar.addLine(to: CGPoint(x: right, y: y))
+        let tick = 4 * scale
+        bar.move(to: CGPoint(x: right - width, y: y - tick))
+        bar.addLine(to: CGPoint(x: right - width, y: y + tick))
+        bar.move(to: CGPoint(x: right, y: y - tick))
+        bar.addLine(to: CGPoint(x: right, y: y + tick))
+        stroke(bar, color: CGColor(gray: 0, alpha: 0.5), width: 4)
+        stroke(bar, color: CGColor(gray: 1, alpha: 0.9), width: 1.5)
+        text(label, at: CGPoint(x: right - width / 2, y: y - 6 * scale), size: 10, weight: .medium, alignment: (0.5, 1))
+    }
+
+    func drawCaption() {
+        guard let caption = model.caption else { return }
+        let size = textSize(caption, size: 10, weight: .medium)
+        plate(CGRect(x: bounds.minX + margin, y: bounds.maxY - margin - size.height, width: size.width, height: size.height))
+        text(caption, at: CGPoint(x: bounds.minX + margin, y: bounds.maxY - margin), size: 10, weight: .medium,
+             color: NSColor(calibratedWhite: 1, alpha: 0.85), alignment: (0, 1))
+    }
+
+    /// Draws the colour bar at the bottom right and returns the top of what it drew.
+    func drawLegend() -> CGFloat? {
+        guard let legend = model.legend, legend.lut.count >= 1024,
+              let provider = CGDataProvider(data: Data(legend.lut) as CFData),
+              let strip = CGImage(
+                width: 256, height: 1, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 1024,
+                space: BeamBridge.colorSpace, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
+                provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent
+              ) else { return nil }
+        let labelHeight = textSize("0", size: 9).height
+        let width = 150 * textScale
+        let height = 8 * textScale
+        let right = bounds.maxX - margin
+        let bottom = bounds.maxY - margin - labelHeight - 2 * textScale
+        let rect = CGRect(x: right - width, y: bottom - height, width: width, height: height)
+        let titleHeight = textSize(legend.title, size: 9, weight: .semibold).height
+        plate(CGRect(x: rect.minX, y: rect.minY - 3 * textScale - titleHeight, width: width,
+                     height: titleHeight + 3 * textScale + height + 2 * textScale + labelHeight))
+
+        context.saveGState()
+        context.interpolationQuality = .high
+        context.draw(strip, in: rect)
+        context.restoreGState()
+        stroke(CGPath(rect: rect, transform: nil), color: CGColor(gray: 1, alpha: 0.5), width: 0.75)
+
+        let labelY = rect.maxY + 2 * textScale
+        text(legend.low, at: CGPoint(x: rect.minX, y: labelY), size: 9)
+        if let middle = legend.middle {
+            text(middle, at: CGPoint(x: rect.midX, y: labelY), size: 9, alignment: (0.5, 0))
+        }
+        text(legend.high, at: CGPoint(x: rect.maxX, y: labelY), size: 9, alignment: (1, 0))
+        text(legend.title, at: CGPoint(x: rect.minX, y: rect.minY - 3 * textScale), size: 9, weight: .semibold, alignment: (0, 1))
+        return rect.minY - 3 * textScale - labelHeight
     }
 }

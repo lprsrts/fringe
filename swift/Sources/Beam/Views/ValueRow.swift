@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// A labelled number with its unit, edited with a slider or typed in.
-/// `value` is in display units; the caller converts from the model's SI units.
+/// `value` is in display units; the caller converts from the model's units.
 struct ValueRow: View {
     let title: String
     let value: Binding<Double>
@@ -100,7 +100,7 @@ struct ValueRow: View {
 }
 
 extension Binding where Value == Double {
-    /// The same value multiplied by `factor`, for showing metres as millimetres and so on.
+    /// The same value multiplied by `factor`, for showing micrometres as nanometres and so on.
     func scaled(by factor: Double) -> Binding<Double> {
         Binding(
             get: { wrappedValue * factor },

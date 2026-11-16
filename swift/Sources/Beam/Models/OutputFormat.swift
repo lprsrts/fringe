@@ -122,3 +122,84 @@ public struct OutputFormat: Equatable, Sendable {
         return "\(aspect.title) · \(size.width) × \(size.height)"
     }
 }
+
+// MARK: - Codable
+
+extension OutputAspect: Codable {
+    /// "16:9", "window", or "custom:21:9" for a custom ratio.
+    public init(from decoder: Decoder) throws {
+        let text = try decoder.singleValueContainer().decode(String.self)
+        if text == "window" {
+            self = .window
+            return
+        }
+        let isCustom = text.hasPrefix("custom:")
+        let terms = text.dropFirst(isCustom ? 7 : 0).split(separator: ":").compactMap { Int($0) }
+        guard terms.count == 2 else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Unknown aspect ratio \(text)"))
+        }
+        let candidate = OutputAspect.custom(width: terms[0], height: terms[1])
+        if !isCustom, let preset = OutputAspect.presets.first(where: { $0.terms.map { [$0.width, $0.height] } == terms }) {
+            self = preset
+        } else {
+            self = candidate
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case .window: try c.encode("window")
+        case .custom: try c.encode("custom:\(title)")
+        default: try c.encode(title)
+        }
+    }
+
+    /// The preset with this ratio, or a custom ratio close to it with small terms.
+    public static func matching(ratio: Double) -> OutputAspect {
+        guard ratio.isFinite, ratio > 0 else { return .r16x9 }
+        if let preset = presets.first(where: { $0.ratio.map { abs($0 - ratio) < 1e-6 * ratio } ?? false }) {
+            return preset
+        }
+        // Smallest terms that reproduce the ratio to 0.1 %.
+        for height in 1...99 {
+            let width = (ratio * Double(height)).rounded()
+            if width >= 1, width <= 999, abs(width / Double(height) - ratio) < 1e-3 * ratio {
+                return .custom(width: Int(width), height: height)
+            }
+        }
+        return .custom(width: Int((ratio * 100).rounded()), height: 100)
+    }
+}
+
+extension LongEdge: Codable {
+    public init(from decoder: Decoder) throws {
+        let pixels = try decoder.singleValueContainer().decode(Int.self)
+        self = LongEdge.presets.first { $0.pixels == pixels } ?? .custom(pixels)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encode(pixels)
+    }
+}
+
+extension OutputFormat: Codable {
+    enum CodingKeys: String, CodingKey {
+        case aspect
+        case longEdge = "long_edge"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init()
+        aspect = try c.decodeIfPresent(OutputAspect.self, forKey: .aspect) ?? .r16x9
+        longEdge = try c.decodeIfPresent(LongEdge.self, forKey: .longEdge) ?? .px3840
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(aspect, forKey: .aspect)
+        try c.encode(longEdge, forKey: .longEdge)
+    }
+}
