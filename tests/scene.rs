@@ -270,3 +270,30 @@ fn divergence_stays_below_ninety_degrees() {
     let theta = d["source"]["divergence_deg"].as_f64().unwrap();
     assert!(theta > 70.0 && theta < 90.0, "{theta}");
 }
+
+/// Messages with math keep their markup in `message_math` and are plain Unicode in
+/// `message`; a `$` in an element name stays literal.
+#[test]
+fn issue_math_has_a_plain_form() {
+    let mut s = examples::example("lens").unwrap();
+    if let fringe_core::scene::Source::GaussianBeam { waist_um, .. } = &mut s.source {
+        *waist_um = 0.3;
+    }
+    s.domain.pml_wl = 9.0;
+    s.elements[0].name = "Lens $1".into();
+    s.elements[0].material = fringe_core::scene::Material::Dielectric { n: 1.2, k: 0.9 };
+    s.elements[0].x_um = s.domain.x_max_um - 1.0;
+    let issues = validate(&s);
+    let math: Vec<_> = issues.iter().filter(|i| i.message_math.is_some()).collect();
+    assert!(math.len() >= 3, "{issues:?}");
+    for i in &issues {
+        assert!(!i.message.contains('\\'), "markup in plain message: {}", i.message);
+        if let Some(tex) = &i.message_math {
+            assert_eq!(fringe_core::scene::tex::plain(tex), i.message);
+        } else {
+            assert!(!i.message.contains("$\\"), "{}", i.message);
+        }
+    }
+    assert!(issues.iter().any(|i| i.message.contains("w₀") && i.message.contains("λ/2")));
+    assert!(issues.iter().any(|i| i.message.contains("n² − k²")));
+}

@@ -378,7 +378,7 @@ private struct InvalidSceneCard: View {
             Image(systemName: "exclamationmark.octagon.fill")
                 .font(.title2)
                 .foregroundStyle(.red)
-            Text(issue.sentence)
+            MathText(issue.mathSentence)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             if count > 1 {

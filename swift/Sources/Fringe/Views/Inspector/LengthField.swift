@@ -107,7 +107,7 @@ struct IssueLines: View {
     var body: some View {
         ForEach(issues, id: \.self) { issue in
             Label {
-                Text(issue.sentence)
+                MathText(issue.mathSentence)
                     .fixedSize(horizontal: false, vertical: true)
             } icon: {
                 Image(systemName: issue.isError ? "exclamationmark.octagon.fill" : "exclamationmark.triangle.fill")

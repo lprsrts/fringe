@@ -2,6 +2,7 @@
 
 pub mod derived;
 pub mod examples;
+pub mod tex;
 pub mod types;
 pub mod validate;
 

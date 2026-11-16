@@ -11,6 +11,7 @@ use crate::solver::Quality;
 use crate::source::gaussian;
 use crate::types::Vec2;
 
+use super::tex;
 use super::types::*;
 
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -25,7 +26,12 @@ pub struct Issue {
     pub path: String,
     pub code: String,
     pub severity: Severity,
+    /// Plain text, for the CLI and logs.
     pub message: String,
+    /// The message with its math marked up (see `scene::tex`), when it has any; the app
+    /// typesets it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_math: Option<String>,
     /// Set when the issue only applies to one quality (e.g. a final solve that is
     /// too large); `None` applies to both.
     pub quality: Option<Quality>,
@@ -38,6 +44,7 @@ impl Issue {
             code: code.into(),
             severity: Severity::Error,
             message: message.into(),
+            message_math: None,
             quality: None,
         }
     }
@@ -48,8 +55,17 @@ impl Issue {
             code: code.into(),
             severity: Severity::Warning,
             message: message.into(),
+            message_math: None,
             quality: None,
         }
+    }
+
+    /// Treats the message as having `$…$` math: keeps it as `message_math` and makes
+    /// `message` its plain form.
+    pub fn with_math(mut self) -> Self {
+        self.message_math = Some(std::mem::take(&mut self.message));
+        self.message = super::tex::plain(self.message_math.as_deref().unwrap_or_default());
+        self
     }
 
     pub fn for_quality(mut self, q: Quality) -> Self {
@@ -87,24 +103,44 @@ impl Checker {
         self.issues.push(Issue::warning(path, code, msg));
     }
 
-    /// Checks `lo ≤ v ≤ hi`; returns whether the value is acceptable.
+    /// `err` for a message with `$…$` math; names put into it must be `tex::escape`d.
+    fn err_math(&mut self, path: impl Into<String>, code: &str, msg: impl Into<String>) {
+        self.issues.push(Issue::error(path, code, msg).with_math());
+    }
+
+    fn warn_math(&mut self, path: impl Into<String>, code: &str, msg: impl Into<String>) {
+        self.issues.push(Issue::warning(path, code, msg).with_math());
+    }
+
+    /// `err` for a message built from a field label, which has math only if it has a `$`.
+    fn err_maybe_math(&mut self, path: &str, code: &str, msg: String) {
+        if msg.contains('$') {
+            self.err_math(path, code, msg);
+        } else {
+            self.err(path, code, msg);
+        }
+    }
+
+    /// Checks `lo ≤ v ≤ hi`; returns whether the value is acceptable. `what` may have
+    /// `$…$` math.
     fn range(&mut self, path: &str, v: f64, lo: f64, hi: f64, what: &str) -> bool {
         if !v.is_finite() {
-            self.err(path, "non_finite", format!("{what} must be a finite number"));
+            self.err_maybe_math(path, "non_finite", format!("{what} must be a finite number"));
             false
         } else if v < lo || v > hi {
-            self.err(path, "out_of_range", format!("{what} must be between {} and {} (got {})", fmt(lo), fmt(hi), fmt(v)));
+            self.err_maybe_math(path, "out_of_range", format!("{what} must be between {} and {} (got {})", fmt(lo), fmt(hi), fmt(v)));
             false
         } else {
             true
         }
     }
 
+    /// `what` may have `$…$` math.
     fn finite(&mut self, path: &str, v: f64, what: &str) -> bool {
         if v.is_finite() {
             true
         } else {
-            self.err(path, "non_finite", format!("{what} must be a finite number"));
+            self.err_maybe_math(path, "non_finite", format!("{what} must be a finite number"));
             false
         }
     }
@@ -210,12 +246,12 @@ pub fn validate(scene: &Scene) -> Vec<Issue> {
                     .min(interior.y_max - b.bbox.y_max);
                 if margin < 0.25 * lambda_b {
                     flagged[i] = true;
-                    c.warn(
+                    c.warn_math(
                         format!("elements[{i}]"),
                         "near_pml",
                         format!(
-                            "{} is within 0.25 λ of the domain edge; the absorbing layer may affect it",
-                            element_label(&scene.elements[i], i)
+                            r"{} is within 0.25 $\lambda$ of the domain edge; the absorbing layer may affect it",
+                            tex::escape(&element_label(&scene.elements[i], i))
                         ),
                     );
                 }
@@ -238,13 +274,13 @@ pub fn validate(scene: &Scene) -> Vec<Issue> {
                 reported.insert(pair);
                 let (i, j) = pair;
                 let what = if gap == 0.0 { "overlap".to_string() } else { format!("are {} µm apart", fmt(gap)) };
-                c.err(
+                c.err_math(
                     format!("elements[{j}]"),
                     "overlap",
                     format!(
-                        "{} and {} {}; bodies must be at least {} µm (0.05 λ) apart",
-                        element_label(&scene.elements[i], i),
-                        element_label(&scene.elements[j], j),
+                        r"{} and {} {}; bodies must be at least {} µm (0.05 $\lambda$) apart",
+                        tex::escape(&element_label(&scene.elements[i], i)),
+                        tex::escape(&element_label(&scene.elements[j], j)),
                         what,
                         fmt(min_feature)
                     ),
@@ -272,23 +308,23 @@ fn check_source(c: &mut Checker, s: &Source, lambda_b: f64) {
             check_amplitude(c, amplitude);
         }
         Source::GaussianBeam { waist_um, waist_x_um, waist_y_um, angle_deg, amplitude, phase_deg } => {
-            c.finite("source.waist_x_um", waist_x_um, "Waist x");
-            c.finite("source.waist_y_um", waist_y_um, "Waist y");
+            c.finite("source.waist_x_um", waist_x_um, "Waist $x$");
+            c.finite("source.waist_y_um", waist_y_um, "Waist $y$");
             c.finite("source.angle_deg", angle_deg, "Angle");
             c.finite("source.phase_deg", phase_deg, "Phase");
             check_amplitude(c, amplitude);
             if c.finite("source.waist_um", waist_um, "Waist") {
                 if waist_um < 0.1 * lambda_b {
-                    c.err(
+                    c.err_math(
                         "source.waist_um",
                         "waist_too_small",
-                        format!("waist must be at least 0.1 λ = {} µm", fmt(0.1 * lambda_b)),
+                        format!(r"waist must be at least 0.1 $\lambda$ = {} µm", fmt(0.1 * lambda_b)),
                     );
                 } else if waist_um < 0.5 * lambda_b {
-                    c.warn(
+                    c.warn_math(
                         "source.waist_um",
                         "subwavelength_waist",
-                        "realised focus is wider than w0 (waist below λ/2 in the background)",
+                        r"realised focus is wider than $w_0$ (waist below $\lambda/2$ in the background)",
                     );
                 }
             }
@@ -346,17 +382,17 @@ fn check_domain(c: &mut Checker, d: &Domain, lambda_b: f64) -> bool {
     ] {
         ok &= c.finite(path, v, "Domain bound");
     }
-    ok &= c.range("domain.pml_wl", d.pml_wl, 0.5, 4.0, "PML thickness (in λ)");
+    ok &= c.range("domain.pml_wl", d.pml_wl, 0.5, 4.0, r"PML thickness (in $\lambda$)");
     if !ok {
         return false;
     }
     let (w, h) = (d.x_max_um - d.x_min_um, d.y_max_um - d.y_min_um);
     for (path, size, what) in [("domain.x_max_um", w, "width"), ("domain.y_max_um", h, "height")] {
         if size < 2.0 * lambda_b {
-            c.err(path, "domain_size", format!("domain {what} must be at least 2 λ = {} µm", fmt(2.0 * lambda_b)));
+            c.err_math(path, "domain_size", format!(r"domain {what} must be at least 2 $\lambda$ = {} µm", fmt(2.0 * lambda_b)));
             ok = false;
         } else if size > 400.0 * lambda_b {
-            c.err(path, "domain_size", format!("domain {what} must be at most 400 λ = {} µm", fmt(400.0 * lambda_b)));
+            c.err_math(path, "domain_size", format!(r"domain {what} must be at most 400 $\lambda$ = {} µm", fmt(400.0 * lambda_b)));
             ok = false;
         }
     }
@@ -394,10 +430,10 @@ fn check_solver(c: &mut Checker, s: &SolverSettings) {
     let b = &s.mom;
     check_ppw(c, "solver.mom.preview_ppw", b.preview_ppw);
     check_ppw(c, "solver.mom.final_ppw", b.final_ppw);
-    if c.finite("solver.mom.cfie_beta_scale", b.cfie_beta_scale, "CFIE β scale")
+    if c.finite("solver.mom.cfie_beta_scale", b.cfie_beta_scale, r"CFIE $\beta$ scale")
         && !(b.cfie_beta_scale > 0.0 && b.cfie_beta_scale <= 10.0)
     {
-        c.err("solver.mom.cfie_beta_scale", "out_of_range", "CFIE β scale must be in (0, 10]");
+        c.err_math("solver.mom.cfie_beta_scale", "out_of_range", r"CFIE $\beta$ scale must be in (0, 10]");
     }
     check_ppw(c, "solver.output.preview_ppw", s.output.preview_ppw);
     check_ppw(c, "solver.output.final_ppw", s.output.final_ppw);
@@ -411,19 +447,19 @@ fn check_solver(c: &mut Checker, s: &SolverSettings) {
 fn check_element(c: &mut Checker, i: usize, e: &Element, lambda0: f64, lambda_b: f64) {
     let p = |field: &str| format!("elements[{i}].{field}");
     let s = |field: &str| format!("elements[{i}].shape.{field}");
-    c.finite(&p("x_um"), e.x_um, "Position x");
-    c.finite(&p("y_um"), e.y_um, "Position y");
+    c.finite(&p("x_um"), e.x_um, "Position $x$");
+    c.finite(&p("y_um"), e.y_um, "Position $y$");
     c.finite(&p("rotation_deg"), e.rotation_deg, "Rotation");
 
     let pec = matches!(e.material, Material::Pec);
     if let Material::Dielectric { n, k } = e.material {
-        let n_ok = c.range(&p("material.n"), n, 1.0, 6.0, "Refractive index n");
-        let k_ok = c.range(&p("material.k"), k, 0.0, 1.0, "Extinction k");
+        let n_ok = c.range(&p("material.n"), n, 1.0, 6.0, "Refractive index $n$");
+        let k_ok = c.range(&p("material.k"), k, 0.0, 1.0, "Extinction $k$");
         if n_ok && k_ok && n * n - k * k < 1.0 {
-            c.err(
+            c.err_math(
                 p("material.k"),
                 "material_index",
-                "n² − k² must be at least 1 (metals with ε′ < 1 are not supported; use PEC)",
+                r"$n^2 - k^2$ must be at least 1 (metals with $\varepsilon' < 1$ are not supported; use PEC)",
             );
         }
     }

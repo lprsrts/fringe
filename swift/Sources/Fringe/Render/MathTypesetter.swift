@@ -140,6 +140,8 @@ enum MathTypesetter {
             return parseCommand(&chars, position: position, upright: upright)
         case "-":
             return [Atom(run: Run(text: "−", shape: .upright, position: position))]
+        case "'":
+            return [Atom(run: Run(text: "′", shape: .upright, position: position))]
         default:
             let shape: Shape = c.isLetter && !upright ? .italic : .upright
             return [Atom(run: Run(text: String(c), shape: shape, position: position))]

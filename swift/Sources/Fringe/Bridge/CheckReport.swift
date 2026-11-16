@@ -32,7 +32,10 @@ public struct Issue: Decodable, Hashable, Sendable {
     public var path: String
     public var code: String
     public var severity: IssueSeverity
+    /// Plain text.
     public var message: String
+    /// The message with `$…$` math, when it has any.
+    public var messageMath: String?
     /// nil when the issue applies to both qualities.
     public var quality: QualityName?
 
@@ -41,14 +44,16 @@ public struct Issue: Decodable, Hashable, Sendable {
         case code
         case severity
         case message
+        case messageMath = "message_math"
         case quality
     }
 
-    public init(path: String, code: String, severity: IssueSeverity, message: String, quality: QualityName? = nil) {
+    public init(path: String, code: String, severity: IssueSeverity, message: String, messageMath: String? = nil, quality: QualityName? = nil) {
         self.path = path
         self.code = code
         self.severity = severity
         self.message = message
+        self.messageMath = messageMath
         self.quality = quality
     }
 
@@ -74,7 +79,12 @@ public struct Issue: Decodable, Hashable, Sendable {
     }
 
     /// The message with its first letter capitalised and a closing full stop.
-    public var sentence: String {
+    public var sentence: String { Self.sentence(message) }
+
+    /// `sentence` with its math marked up, for `MathText`.
+    public var mathSentence: String { Self.sentence(messageMath ?? MathTypesetter.escaped(message)) }
+
+    private static func sentence(_ message: String) -> String {
         guard let first = message.first else { return message }
         var text = first.uppercased() + message.dropFirst()
         if !text.hasSuffix(".") { text += "." }
