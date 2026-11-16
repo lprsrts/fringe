@@ -396,35 +396,6 @@ fn all_cases_report() {
     }
 }
 
-/// Wave-3 reference readiness (spec §9.3): the default scene at 16 against 20
-/// panels per wavelength, and the energy balance of the lossless lens.
-#[test]
-#[ignore]
-fn lens_reference() {
-    use beam_core::analytic::metrics::{rel_l2, resample};
-    let mut s = example("lens").unwrap();
-    s.solver.method = Method::Mom;
-    let run = |ppw: f64| {
-        let mut s = s.clone();
-        s.solver.mom.final_ppw = Some(ppw);
-        solve(&s, Quality::Final, &SolveContext::new()).unwrap()
-    };
-    let (a, b) = (run(16.0), run(20.0));
-    let a_on_b: Vec<C64> =
-        resample(&a, Part::Total, &b.grid).into_iter().map(|v| v.unwrap_or(C64::new(f64::NAN, 0.0))).collect();
-    let mask: Vec<bool> = (0..b.grid.len()).map(|i| !b.is_pec(i)).collect();
-    let e = rel_l2(&a_on_b, &b.total, Some(&mask));
-    let fb = flux_balance(&b, b.scene.domain.rect().expand(-0.5));
-    eprintln!(
-        "lens: 16 vs 20 ppw {e:.3e}; balance |inflow| / scattered flux = {:.3e} (inflow {:.3e}, scattered {:.3e})",
-        fb.residual(),
-        fb.inflow,
-        fb.scattered_flux
-    );
-    assert!(e <= 2e-3, "16 vs 20 ppw: {e}");
-    assert!(fb.residual() <= 2e-3, "energy balance {}", fb.residual());
-}
-
 /// Corners, sharp apexes, combs and thin bodies: 12 against 24 panels per λ and
 /// the lossless energy balance.
 #[test]

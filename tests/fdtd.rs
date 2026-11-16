@@ -5,7 +5,7 @@ mod common;
 
 use std::time::{Duration, Instant};
 
-use beam_core::analytic::cases::{self, case_scene, field_error, run_case};
+use beam_core::analytic::cases::case_scene;
 use beam_core::job::Job;
 use beam_core::problem::compile;
 use beam_core::scene::{examples, Material, Shape};
@@ -257,37 +257,6 @@ fn default_scene_performance() {
     }
 }
 
-/// Measured errors and run statistics for every FDTD case (diagnostic).
-#[test]
-#[ignore]
-fn report_cases() {
-    for c in cases::CASES.iter().filter(|c| c.fdtd.is_some()) {
-        let r = run_case(c.id, Method::Fdtd, Quality::Final).unwrap();
-        eprintln!("{:22} {:?} error {:?} tol {:?} {:.2} s {}", c.id, r.status, r.error, r.tolerance, r.seconds, r.detail);
-    }
-}
-
-/// Errors of `mie_diel` at 12–30 ppw with and without subpixel smoothing
-/// (diagnostic).
-#[test]
-#[ignore]
-fn subpixel_errors() {
-    for subpixel in [true, false] {
-        for ppw in [12.0, 16.0, 20.0, 24.0, 30.0] {
-            let mut s = case_scene("mie_diel").unwrap();
-            s.solver.method = Method::Fdtd;
-            s.solver.fdtd.final_ppw = Some(ppw);
-            s.solver.fdtd.subpixel = subpixel;
-            let f = solve(&s, Quality::Final, &SolveContext::new()).unwrap();
-            eprintln!(
-                "subpixel {subpixel} ppw {ppw}: error {:.3e}, periods {:?}",
-                field_error("mie_diel", &f),
-                f.meta.solver.periods
-            );
-        }
-    }
-}
-
 #[test]
 fn materials_are_dielectric_or_pec() {
     // A guard that the case scenes keep the materials these tests assume.
@@ -295,92 +264,47 @@ fn materials_are_dielectric_or_pec() {
     assert!(matches!(s.elements[0].material, Material::Dielectric { .. }));
 }
 
-/// TM resonances of the `mie_high_index` cylinder near the drive (diagnostic).
-#[test]
-#[ignore]
-fn high_index_resonances() {
-    use beam_core::analytic::MieCylinder;
-    use beam_core::geometry::BodyMaterial;
-    use beam_core::types::Vec2;
-    let k0 = 2.0 * std::f64::consts::PI;
-    let nf = 4001;
-    let mut curves: Vec<Vec<f64>> = vec![Vec::new(); 14];
-    let fs: Vec<f64> = (0..nf).map(|i| 0.75 + 0.5 * i as f64 / (nf - 1) as f64).collect();
-    for &f in &fs {
-        let mie = MieCylinder::new(Vec2::ZERO, 0.5, BodyMaterial::dielectric(3.5, 0.0), 1.0, k0 * f, 0.0, 1.0, 0.0);
-        for (n, c) in curves.iter_mut().enumerate() {
-            c.push(mie.c.get(n).map_or(0.0, |v| v.norm()));
-        }
-    }
-    for (n, c) in curves.iter().enumerate() {
-        for i in 1..nf - 1 {
-            if c[i] > c[i - 1] && c[i] >= c[i + 1] && c[i] > 0.5 {
-                let half = c.iter().filter(|&&v| v > c[i] / 2f64.sqrt()).count() as f64 * (fs[1] - fs[0]);
-                eprintln!("n {n}: peak at f/f0 = {:.5}, |c| = {:.3}, fwhm {:.2e}", fs[i], c[i], half);
-            }
-        }
-    }
-}
-
-/// Estimated against measured time and periods over every example and some
-/// cases, all forced to FDTD (diagnostic; resonant scenes such as `waveguide`
-/// and `mie_high_index` at final quality are the least accurate).
+/// `estimate()` against the measured time (best of three) on every example at
+/// both qualities, forced to FDTD; asserted within 2× with BEAM_PERF=1.
 #[test]
 #[ignore]
 fn estimate_calibration() {
-    let mut scenes: Vec<(String, beam_core::Scene)> = examples::EXAMPLES
-        .iter()
-        .map(|e| (e.name.to_string(), examples::example(e.name).unwrap()))
-        .collect();
-    for id in ["mie_diel", "slab_airy_0", "mirror_0", "mie_high_index"] {
-        scenes.push((id.to_string(), case_scene(id).unwrap()));
-    }
     let mut worst: f64 = 1.0;
-    for (name, mut s) in scenes {
+    for info in examples::EXAMPLES.iter() {
+        let mut s = examples::example(info.name).unwrap();
         s.solver.method = Method::Fdtd;
         for q in [Quality::Preview, Quality::Final] {
             let p = compile(&s, q).unwrap();
-            if !FdtdSolver.check(&p).iter().all(|i| !i.is_error()) {
-                eprintln!("{name:16} {:7}: rejected by check()", q.name());
+            if FdtdSolver.check(&p).iter().any(|i| i.is_error()) {
+                eprintln!("{:16} {:7}: rejected by check()", info.name, q.name());
                 continue;
             }
-            let est = solver_for(Method::Fdtd).estimate(&p);
-            let t = Instant::now();
-            let f = solve(&s, q, &SolveContext::new()).unwrap();
-            let secs = t.elapsed().as_secs_f64();
+            let est = beam_core::solver::estimate(&p);
+            let mut secs = f64::INFINITY;
+            let mut periods = None;
+            for _ in 0..3 {
+                let t = Instant::now();
+                let f = solve(&s, q, &SolveContext::new()).unwrap();
+                secs = secs.min(t.elapsed().as_secs_f64());
+                periods = f.meta.solver.periods;
+            }
             let ratio = est.seconds / secs;
-            worst = if (ratio.ln()).abs() > worst.ln().abs() { ratio } else { worst };
             eprintln!(
-                "{name:16} {:7}: {:8.3} s, estimate {:8.3} s (×{ratio:.2}), periods {:?} est {:.0}, {}, converged {}",
+                "{:16} {:7}: {secs:8.3} s, estimate {:8.3} s (×{ratio:.2}), periods {periods:?}, estimated {:.0}",
+                info.name,
                 q.name(),
-                secs,
                 est.seconds,
-                f.meta.solver.periods,
-                FdtdSolver::estimated_periods(&p),
-                est.detail,
-                f.meta.solver.converged
+                FdtdSolver::estimated_periods(&p)
             );
+            if secs > 0.05 {
+                worst = worst.max(ratio.max(1.0 / ratio));
+            }
         }
     }
     eprintln!("worst estimate/measured ratio {worst:.2}");
-}
-
-/// Default scene: preview against final, and the focal peak of each
-/// (diagnostic for the cross-solver bounds of spec §9.3).
-#[test]
-#[ignore]
-fn preview_against_final() {
-    use beam_core::analytic::metrics::{focal_peak, rel_l2, resample};
-    use beam_core::solver::Part;
-    use beam_core::C64;
-    let s = examples::default();
-    let pre = solve(&s, Quality::Preview, &SolveContext::new()).unwrap();
-    let fin = solve(&s, Quality::Final, &SolveContext::new()).unwrap();
-    let on_fin: Vec<C64> =
-        resample(&pre, Part::Total, &fin.grid).into_iter().map(|v| v.unwrap_or(C64::new(0.0, 0.0))).collect();
-    let mask: Vec<bool> = resample(&pre, Part::Total, &fin.grid).iter().map(|v| v.is_some()).collect();
-    eprintln!("preview vs final rel L2: {:.3e}", rel_l2(&on_fin, &fin.total, Some(&mask)));
-    eprintln!("focus preview {:?}, final {:?}", focal_peak(&pre, 0.0, 0.0, 19.0), focal_peak(&fin, 0.0, 0.0, 19.0));
+    if perf() {
+        assert!(worst <= 2.0, "worst ratio {worst:.2}");
+    }
 }
 
 /// A PEC face 0.3 Δ past a node line: the node 0.3 Δ in front of it is PEC
