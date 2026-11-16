@@ -95,6 +95,28 @@ fn airy_lossless_conserves_energy() {
 }
 
 #[test]
+fn airy_low_index_slab_takes_the_decaying_branch() {
+    // Slab index below the background with k_y past the slab's light line: the
+    // wave inside is evanescent. A +0.0 imaginary part must not pick the growing
+    // root (which overflows to NaN for a thick slab).
+    let k_y = K0 * 1.5 * 0.95;
+    for d in [3.0, 60.0] {
+        let slab = AirySlab { x_front: 0.0, thickness: d, n_slab: C64::new(1.0, 0.0), n_b: 1.5, k0: K0 };
+        let c = slab.coefficients(k_y);
+        assert!(c.k2x.im < 0.0, "d = {d}: k2x = {}", c.k2x);
+        assert!(c.r.is_finite() && c.t.is_finite(), "d = {d}: r = {}, t = {}", c.r, c.t);
+        // Frustrated total reflection between two lossless half-spaces conserves energy.
+        assert!((c.r.norm_sqr() + c.t.norm_sqr() - 1.0).abs() < 1e-12, "d = {d}: |r| = {}", c.r.norm());
+        let neg = AirySlab { n_slab: C64::new(1.0, -0.0), ..slab };
+        let cn = neg.coefficients(k_y);
+        assert!((c.r - cn.r).norm() < 1e-12 && (c.t - cn.t).norm() < 1e-12, "d = {d}");
+    }
+    let thick = AirySlab { x_front: 0.0, thickness: 60.0, n_slab: C64::new(1.0, 0.0), n_b: 1.5, k0: K0 };
+    let (r, t) = thick.rt(k_y);
+    assert!((r.norm() - 1.0).abs() < 1e-12 && t.norm() < 1e-100, "r = {r}, t = {t}");
+}
+
+#[test]
 fn airy_thin_slab_is_invisible() {
     let slab = AirySlab { x_front: 0.0, thickness: 0.0, n_slab: C64::new(1.5, -0.1), n_b: 1.0, k0: K0 };
     let (r, t) = slab.rt(2.0);

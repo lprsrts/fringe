@@ -29,9 +29,19 @@ pub struct AiryCoefficients {
 impl AirySlab {
     pub fn coefficients(&self, k_y: f64) -> AiryCoefficients {
         let k_b = self.k0 * self.n_b;
-        let k_x = C64::new(k_b * k_b - k_y * k_y, 0.0).sqrt();
-        // Principal root: with Im n_s² ≤ 0 this has Im ≤ 0, a decaying wave.
-        let k2x = (self.k0 * self.k0 * self.n_slab * self.n_slab - k_y * k_y).sqrt();
+        // Both normal wavenumbers take the branch with Im ≤ 0 (decaying along +x
+        // under e^{-jk·r}). The principal sqrt picks Im ≥ 0 when the argument is a
+        // negative real with +0.0 imaginary part (an evanescent component, or a
+        // lossless slab built with C64::new(n, 0.0)), so the sign is forced here.
+        // r and t are invariant under k2x → −k2x; this only avoids overflow.
+        let mut k_x = C64::new(k_b * k_b - k_y * k_y, 0.0).sqrt();
+        if k_x.im > 0.0 {
+            k_x = -k_x;
+        }
+        let mut k2x = (self.k0 * self.k0 * self.n_slab * self.n_slab - k_y * k_y).sqrt();
+        if k2x.im > 0.0 {
+            k2x = -k2x;
+        }
         let r12 = (k_x - k2x) / (k_x + k2x);
         let r23 = -r12;
         let t12 = 2.0 * k_x / (k_x + k2x);
