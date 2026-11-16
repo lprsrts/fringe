@@ -1,5 +1,14 @@
 # Beam
 
+> **v2 in progress.** Beam is being rewritten as a full-wave 2D (Ez) solver:
+> scenes are JSON (schema version 2, lengths in µm), and FDTD, FEM and MoM
+> solvers share one scattered-field formulation. The scene model, incident
+> fields, analytic references, rendering, C ABI and `beam-cli` are in place;
+> the three solvers are still stubs that return the incident field only. Try
+> `beam-cli example lens | beam-cli solve - -o out.png`, and see
+> `beam-cli --help`. The paraxial model described below is gone, as are the
+> `info` and `export` commands.
+
 Beam draws Gaussian laser beams. You set a waist, a wavelength and a few
 optical elements (lenses, mirrors, dielectric interfaces, apertures), and it
 propagates the beam through them and renders the intensity along the optical
