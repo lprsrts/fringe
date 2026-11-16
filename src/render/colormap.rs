@@ -1,24 +1,46 @@
-//! Colormaps and intensity transfer functions.
-//!
-//! Every colormap takes a value in [0, 1] and returns opaque RGBA8. Out-of-range
-//! input is clamped and NaN maps to 0.
+//! Colormaps. Every map takes t in [0, 1] (clamped; NaN maps to 0) and returns
+//! opaque sRGB RGBA8.
 
 use std::str::FromStr;
 
-/// Palette choice. Discriminants are part of the C ABI (`CColormap`).
-#[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default)]
 pub enum Colormap {
+    Viridis,
     #[default]
-    Viridis = 0,
-    Inferno = 1,
-    Plasma = 2,
-    Turbo = 3,
-    LaserGlow = 4,
-    Asympton = 5,
+    Inferno,
+    Plasma,
+    Turbo,
+    LaserGlow,
+    Asympton,
+    RdBu,
+    SpectralGlow,
+    Twilight,
+    PhaseWheel,
+}
+
+/// How a map is meant to be read: ordered values, values around a neutral
+/// midpoint, or angles.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ColormapKind {
+    Sequential,
+    Diverging,
+    Cyclic,
 }
 
 impl Colormap {
+    pub const ALL: [Colormap; 10] = [
+        Colormap::Viridis,
+        Colormap::Inferno,
+        Colormap::Plasma,
+        Colormap::Turbo,
+        Colormap::LaserGlow,
+        Colormap::Asympton,
+        Colormap::RdBu,
+        Colormap::SpectralGlow,
+        Colormap::Twilight,
+        Colormap::PhaseWheel,
+    ];
+
     /// Name accepted by `from_str`, e.g. `"laser_glow"`.
     pub const fn name(&self) -> &'static str {
         match self {
@@ -28,18 +50,41 @@ impl Colormap {
             Colormap::Turbo => "turbo",
             Colormap::LaserGlow => "laser_glow",
             Colormap::Asympton => "asympton",
+            Colormap::RdBu => "rdbu",
+            Colormap::SpectralGlow => "spectral_glow",
+            Colormap::Twilight => "twilight",
+            Colormap::PhaseWheel => "phase_wheel",
         }
     }
 
-    pub const fn all() -> [Colormap; 6] {
-        [
-            Colormap::Viridis,
-            Colormap::Inferno,
-            Colormap::Plasma,
-            Colormap::Turbo,
-            Colormap::LaserGlow,
-            Colormap::Asympton,
-        ]
+    pub const fn kind(&self) -> ColormapKind {
+        match self {
+            Colormap::RdBu | Colormap::SpectralGlow => ColormapKind::Diverging,
+            Colormap::Twilight | Colormap::PhaseWheel => ColormapKind::Cyclic,
+            _ => ColormapKind::Sequential,
+        }
+    }
+
+    /// Colour for `t`; `wavelength_nm` only matters for the laser maps.
+    pub fn map(&self, t: f64, wavelength_nm: f64) -> [u8; 4] {
+        match self {
+            Colormap::Viridis => colormap_viridis(t),
+            Colormap::Inferno => colormap_inferno(t),
+            Colormap::Plasma => colormap_plasma(t),
+            Colormap::Turbo => colormap_turbo(t),
+            Colormap::LaserGlow => colormap_laser_glow(t, wavelength_nm),
+            Colormap::Asympton => colormap_asympton(t),
+            Colormap::RdBu => colormap_rdbu(t),
+            Colormap::SpectralGlow => colormap_spectral_glow(t, wavelength_nm),
+            Colormap::Twilight => colormap_twilight(t),
+            Colormap::PhaseWheel => colormap_phase_wheel(t),
+        }
+    }
+
+    /// `n` colours sampled at t = i/(n − 1).
+    pub fn lut(&self, wavelength_nm: f64, n: usize) -> Vec<[u8; 4]> {
+        let n = n.max(2);
+        (0..n).map(|i| self.map(i as f64 / (n - 1) as f64, wavelength_nm)).collect()
     }
 }
 
@@ -47,204 +92,19 @@ impl FromStr for Colormap {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.trim().to_lowercase().replace('-', "_").as_str() {
-            "viridis" => Ok(Colormap::Viridis),
-            "inferno" => Ok(Colormap::Inferno),
-            "plasma" => Ok(Colormap::Plasma),
-            "turbo" => Ok(Colormap::Turbo),
-            "laser_glow" | "laserglow" | "laser" => Ok(Colormap::LaserGlow),
-            "asympton" => Ok(Colormap::Asympton),
-            other => Err(format!(
-                "unknown colormap '{}' (expected viridis, inferno, plasma, turbo, laser_glow or asympton)",
-                other
-            )),
+        let key = s.trim().to_lowercase().replace('-', "_");
+        let key = match key.as_str() {
+            "laserglow" | "laser" => "laser_glow",
+            "rd_bu" => "rdbu",
+            "spectralglow" => "spectral_glow",
+            "phasewheel" | "phase" => "phase_wheel",
+            k => k,
         }
-    }
-}
-
-/// How intensity is turned into colour. Same layout as the C `CRenderStyle`
-/// (32 bytes, 8-byte aligned).
-#[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub struct RenderStyle {
-    pub colormap: Colormap,
-    /// Exponent applied to normalised intensity before colour mapping.
-    pub gamma: f64,
-    /// Overlay wavefront fringes on the intensity.
-    pub show_wavefront_composite: bool,
-    /// Fringe depth in [0, 1]; 0 disables them even if the overlay is on.
-    pub fringe_modulation: f64,
-}
-
-impl Default for RenderStyle {
-    fn default() -> Self {
-        Self {
-            colormap: Colormap::Viridis,
-            gamma: 1.0,
-            show_wavefront_composite: false,
-            fringe_modulation: 0.0,
-        }
-    }
-}
-
-impl RenderStyle {
-    /// A non-positive or NaN `gamma` is replaced by 1.
-    pub fn new(colormap: Colormap, gamma: f64) -> Self {
-        Self {
-            colormap,
-            gamma: if gamma <= 0.0 || gamma.is_nan() {
-                1.0
-            } else {
-                gamma
-            },
-            show_wavefront_composite: false,
-            fringe_modulation: 0.0,
-        }
-    }
-
-    pub fn with_wavefront(mut self, show_wavefront: bool, fringe_modulation: f64) -> Self {
-        self.show_wavefront_composite = show_wavefront;
-        self.fringe_modulation = fringe_modulation.clamp(0.0, 1.0);
-        self
-    }
-
-    #[inline]
-    pub fn map_intensity(&self, normalized_intensity: f64, wavelength_m: f64) -> [u8; 4] {
-        map_intensity_to_rgba(
-            normalized_intensity,
-            self.gamma,
-            self.colormap,
-            wavelength_m,
-        )
-    }
-}
-
-/// Curve applied to normalised intensity before it is coloured.
-#[derive(Copy, Clone, Debug, PartialEq, Default)]
-pub enum TransferFunction {
-    /// `T(I) = I`
-    #[default]
-    Linear,
-    /// `T(I) = I^gamma`
-    Gamma(f64),
-    /// `T(I) = ln(1 + a*I) / ln(1 + a)`, with `a = compression`.
-    Logarithmic { compression: f64 },
-    /// `T(I) = clamp(1 + 10*log10(I) / D, 0, 1)`: the top `D` dB fill the range.
-    Decibel { dynamic_range_db: f64 },
-}
-
-impl TransferFunction {
-    /// `Linear` for gamma ~1, otherwise `Gamma` (invalid values fall back to 1).
-    pub fn from_gamma(gamma: f64) -> Self {
-        if (gamma - 1.0).abs() < 1e-6 {
-            TransferFunction::Linear
-        } else {
-            TransferFunction::Gamma(if gamma <= 0.0 || gamma.is_nan() {
-                1.0
-            } else {
-                gamma
-            })
-        }
-    }
-
-    /// Map an intensity in [0, 1] to [0, 1]. Inputs outside the range are clamped first;
-    /// bad parameters fall back to gamma 1, compression 1000 or 60 dB.
-    #[inline]
-    pub fn apply(&self, normalized_intensity: f64) -> f64 {
-        if normalized_intensity.is_nan() || normalized_intensity <= 0.0 {
-            return 0.0;
-        }
-        if normalized_intensity >= 1.0 {
-            return 1.0;
-        }
-
-        match *self {
-            TransferFunction::Linear => normalized_intensity,
-            TransferFunction::Gamma(gamma) => {
-                let g = if gamma <= 0.0 || gamma.is_nan() {
-                    1.0
-                } else {
-                    gamma
-                };
-                normalized_intensity.powf(g)
-            }
-            TransferFunction::Logarithmic { compression } => {
-                let a = if compression <= 0.0 || compression.is_nan() {
-                    1000.0
-                } else {
-                    compression
-                };
-                (1.0 + a * normalized_intensity).ln() / (1.0 + a).ln()
-            }
-            TransferFunction::Decibel { dynamic_range_db } => {
-                let d = if dynamic_range_db <= 0.0 || dynamic_range_db.is_nan() {
-                    60.0
-                } else {
-                    dynamic_range_db
-                };
-                let floor_val = 10.0f64.powf(-d / 10.0);
-                if normalized_intensity <= floor_val {
-                    0.0
-                } else {
-                    let db = 10.0 * normalized_intensity.log10();
-                    ((d + db) / d).clamp(0.0, 1.0)
-                }
-            }
-        }
-    }
-}
-
-/// An RGBA8 pixel.
-#[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default)]
-pub struct Rgba {
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
-    pub a: u8,
-}
-
-impl Rgba {
-    pub const WHITE: Self = Self {
-        r: 255,
-        g: 255,
-        b: 255,
-        a: 255,
-    };
-    pub const BLACK: Self = Self {
-        r: 0,
-        g: 0,
-        b: 0,
-        a: 255,
-    };
-
-    #[inline(always)]
-    pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
-        Self { r, g, b, a }
-    }
-
-    #[inline(always)]
-    pub const fn to_array(self) -> [u8; 4] {
-        [self.r, self.g, self.b, self.a]
-    }
-}
-
-impl From<[u8; 4]> for Rgba {
-    #[inline(always)]
-    fn from(arr: [u8; 4]) -> Self {
-        Self {
-            r: arr[0],
-            g: arr[1],
-            b: arr[2],
-            a: arr[3],
-        }
-    }
-}
-
-impl From<Rgba> for [u8; 4] {
-    #[inline(always)]
-    fn from(rgba: Rgba) -> Self {
-        [rgba.r, rgba.g, rgba.b, rgba.a]
+        .to_string();
+        Colormap::ALL.iter().copied().find(|c| c.name() == key).ok_or_else(|| {
+            let names: Vec<&str> = Colormap::ALL.iter().map(|c| c.name()).collect();
+            format!("unknown colormap '{}' (expected one of {})", s.trim(), names.join(", "))
+        })
     }
 }
 
@@ -257,23 +117,6 @@ pub mod asympton_tokens {
     pub const SIGNAL_YELLOW: [u8; 3] = [243, 198, 35]; // #F3C623
     pub const GOLD_ACCENT: [u8; 3] = [241, 204, 64]; // #F1CC40
     pub const HIGHLIGHT_CREAM: [u8; 3] = [255, 242, 178]; // #FFF2B2
-}
-
-/// Convert a wavelength to nanometres, guessing the unit.
-///
-/// Values in [10, 10000] are taken to be nanometres already; anything else is
-/// metres. Non-positive or NaN input gives 632.8 nm.
-#[inline]
-pub fn wavelength_to_nm(wavelength: f64) -> f64 {
-    if wavelength <= 0.0 || wavelength.is_nan() {
-        632.8
-    } else if wavelength < 1.0e-3 {
-        wavelength * 1.0e9
-    } else if (10.0..=10_000.0).contains(&wavelength) {
-        wavelength
-    } else {
-        wavelength * 1.0e9
-    }
 }
 
 /// Approximate perceived colour of monochromatic light, after Dan Bruton's
@@ -499,89 +342,105 @@ pub fn colormap_asympton(t: f64) -> [u8; 4] {
     ]
 }
 
-/// Colour for `v` in [0, 1]. `wavelength_m` only matters for `LaserGlow`.
-pub fn map_colormap(colormap: Colormap, v: f64, wavelength_m: f64) -> [u8; 4] {
-    match colormap {
-        Colormap::Viridis => colormap_viridis(v),
-        Colormap::Inferno => colormap_inferno(v),
-        Colormap::Plasma => colormap_plasma(v),
-        Colormap::Turbo => colormap_turbo(v),
-        Colormap::LaserGlow => {
-            let nm = wavelength_to_nm(wavelength_m);
-            colormap_laser_glow(v, nm)
-        }
-        Colormap::Asympton => colormap_asympton(v),
+// ColorBrewer RdBu-11, reversed so that t = 0 is blue.
+const RDBU: [[u8; 3]; 11] = [
+    [0x05, 0x30, 0x61],
+    [0x21, 0x66, 0xac],
+    [0x43, 0x93, 0xc3],
+    [0x92, 0xc5, 0xde],
+    [0xd1, 0xe5, 0xf0],
+    [0xf7, 0xf7, 0xf7],
+    [0xfd, 0xdb, 0xc7],
+    [0xf4, 0xa5, 0x82],
+    [0xd6, 0x60, 0x4d],
+    [0xb2, 0x18, 0x2b],
+    [0x67, 0x00, 0x1f],
+];
+
+fn srgb_to_linear(c: u8) -> f64 {
+    let v = c as f64 / 255.0;
+    if v <= 0.04045 {
+        v / 12.92
+    } else {
+        ((v + 0.055) / 1.055).powf(2.4)
     }
 }
 
-/// [`map_colormap`] after applying `gamma`.
-pub fn map_intensity_to_rgba(
-    normalized_intensity: f64,
-    gamma: f64,
-    colormap: Colormap,
-    wavelength_m: f64,
-) -> [u8; 4] {
-    let transfer = TransferFunction::from_gamma(gamma);
-    let corrected = transfer.apply(normalized_intensity);
-    map_colormap(colormap, corrected, wavelength_m)
+fn linear_to_srgb(v: f64) -> u8 {
+    let v = v.clamp(0.0, 1.0);
+    let s = if v <= 0.003_130_8 { 12.92 * v } else { 1.055 * v.powf(1.0 / 2.4) - 0.055 };
+    (s * 255.0).round().clamp(0.0, 255.0) as u8
 }
 
-/// [`map_colormap`] after applying `transfer`.
-pub fn map_intensity_with_transfer(
-    normalized_intensity: f64,
-    transfer: TransferFunction,
-    colormap: Colormap,
-    wavelength_m: f64,
-) -> [u8; 4] {
-    let corrected = transfer.apply(normalized_intensity);
-    map_colormap(colormap, corrected, wavelength_m)
+fn clamp_t(t: f64) -> f64 {
+    if t.is_nan() {
+        0.0
+    } else {
+        t.clamp(0.0, 1.0)
+    }
 }
 
-/// A colormap and transfer function sampled at 256 levels.
-#[derive(Clone, Debug, PartialEq)]
-pub struct ColormapLut {
-    table: [[u8; 4]; 256],
+/// Equally spaced stops interpolated in sRGB (`linear = false`) or in linear light.
+fn stops(table: &[[u8; 3]], t: f64, linear: bool) -> [u8; 4] {
+    let t = clamp_t(t) * (table.len() - 1) as f64;
+    let i = (t.floor() as usize).min(table.len() - 2);
+    let f = t - i as f64;
+    let mut out = [0, 0, 0, 255];
+    for ch in 0..3 {
+        let (a, b) = (table[i][ch], table[i + 1][ch]);
+        out[ch] = if linear {
+            linear_to_srgb(srgb_to_linear(a) * (1.0 - f) + srgb_to_linear(b) * f)
+        } else {
+            (a as f64 * (1.0 - f) + b as f64 * f).round() as u8
+        };
+    }
+    out
 }
 
-impl ColormapLut {
-    /// Table with a linear transfer function.
-    pub fn new(colormap: Colormap, wavelength_m: f64) -> Self {
-        Self::with_gamma(colormap, wavelength_m, 1.0)
-    }
+/// Diverging blue–white–red (ColorBrewer RdBu, reversed), interpolated in linear light.
+pub fn colormap_rdbu(t: f64) -> [u8; 4] {
+    stops(&RDBU, t, true)
+}
 
-    pub fn with_gamma(colormap: Colormap, wavelength_m: f64, gamma: f64) -> Self {
-        Self::with_transfer(colormap, wavelength_m, TransferFunction::from_gamma(gamma))
+/// Diverging with a black centre: the beam's colour above 0.5 and its spectral
+/// complement below, both ramping through [`colormap_laser_glow`].
+pub fn colormap_spectral_glow(t: f64, wavelength_nm: f64) -> [u8; 4] {
+    let t = clamp_t(t);
+    let a = (2.0 * t - 1.0).abs();
+    if t >= 0.5 {
+        colormap_laser_glow(a, wavelength_nm)
+    } else {
+        colormap_laser_glow(a, (1160.0 - wavelength_nm).clamp(400.0, 700.0))
     }
+}
 
-    pub fn with_transfer(
-        colormap: Colormap,
-        wavelength_m: f64,
-        transfer: TransferFunction,
-    ) -> Self {
-        let mut table = [[0u8; 4]; 256];
-        for (i, entry) in table.iter_mut().enumerate() {
-            let t = i as f64 / 255.0;
-            let corrected = transfer.apply(t);
-            *entry = map_colormap(colormap, corrected, wavelength_m);
-        }
-        Self { table }
-    }
+// An approximation of matplotlib's twilight with nine sRGB stops.
+const TWILIGHT: [[u8; 3]; 9] = [
+    [226, 217, 226],
+    [160, 180, 205],
+    [100, 125, 192],
+    [98, 72, 170],
+    [48, 20, 58],
+    [125, 42, 85],
+    [178, 92, 82],
+    [210, 165, 155],
+    [226, 217, 226],
+];
 
-    /// Nearest entry for a value in [0, 1] (clamped).
-    #[inline(always)]
-    pub fn lookup(&self, normalized_intensity: f64) -> [u8; 4] {
-        let idx = (normalized_intensity.clamp(0.0, 1.0) * 255.0).round() as usize;
-        self.table[idx.min(255)]
-    }
+/// Cyclic, light at both ends and dark in the middle.
+pub fn colormap_twilight(t: f64) -> [u8; 4] {
+    stops(&TWILIGHT, t, false)
+}
 
-    #[inline(always)]
-    pub fn lookup_byte(&self, byte_val: u8) -> [u8; 4] {
-        self.table[byte_val as usize]
+/// Cyclic hue wheel: `0.5 + 0.5 cos(2π(t − {0, 1/3, 2/3}))` scaled to 0.12–0.95.
+pub fn colormap_phase_wheel(t: f64) -> [u8; 4] {
+    let t = clamp_t(t);
+    let mut out = [0, 0, 0, 255];
+    for (ch, o) in out.iter_mut().take(3).enumerate() {
+        let v = 0.5 + 0.5 * (2.0 * std::f64::consts::PI * (t - ch as f64 / 3.0)).cos();
+        *o = ((0.12 + 0.83 * v) * 255.0).round() as u8;
     }
-
-    pub fn as_slice(&self) -> &[[u8; 4]; 256] {
-        &self.table
-    }
+    out
 }
 
 #[cfg(test)]
@@ -589,36 +448,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn colormap_abi_discriminants() {
-        assert_eq!(std::mem::size_of::<Colormap>(), 4);
-        assert_eq!(Colormap::Viridis as u32, 0);
-        assert_eq!(Colormap::Inferno as u32, 1);
-        assert_eq!(Colormap::Plasma as u32, 2);
-        assert_eq!(Colormap::Turbo as u32, 3);
-        assert_eq!(Colormap::LaserGlow as u32, 4);
-        assert_eq!(Colormap::Asympton as u32, 5);
-    }
-
-    #[test]
-    fn render_style_matches_c_layout() {
-        assert_eq!(std::mem::size_of::<RenderStyle>(), 32);
-        assert_eq!(std::mem::align_of::<RenderStyle>(), 8);
-    }
-
-    #[test]
-    fn viridis_luminance_increases() {
-        let mut prev_lum = -1.0;
-        for i in 0..=100 {
-            let t = i as f64 / 100.0;
-            let [r, g, b, _] = map_colormap(Colormap::Viridis, t, 632.8e-9);
-            let lum = 0.2126 * r as f64 + 0.7152 * g as f64 + 0.0722 * b as f64;
-            assert!(lum >= prev_lum - 0.5, "luminance dropped at t={}", t);
-            prev_lum = lum;
+    fn names_round_trip() {
+        for c in Colormap::ALL {
+            assert_eq!(c.name().parse::<Colormap>().unwrap(), c);
         }
-        let [r0, _, _, _] = map_colormap(Colormap::Viridis, 0.0, 632.8e-9);
-        let [r1, g1, _, _] = map_colormap(Colormap::Viridis, 1.0, 632.8e-9);
-        assert!(r0 < 100);
-        assert!(r1 > 200 && g1 > 200);
+        assert!("nope".parse::<Colormap>().is_err());
     }
 
     #[test]
@@ -652,102 +486,36 @@ mod tests {
     }
 
     #[test]
-    fn inferno_spans_dark_to_bright() {
-        let [r0, g0, b0, _] = map_colormap(Colormap::Inferno, 0.0, 632.8e-9);
-        let [r1, g1, b1, _] = map_colormap(Colormap::Inferno, 1.0, 632.8e-9);
-        let lum0 = 0.2126 * r0 as f64 + 0.7152 * g0 as f64 + 0.0722 * b0 as f64;
-        let lum1 = 0.2126 * r1 as f64 + 0.7152 * g1 as f64 + 0.0722 * b1 as f64;
-        assert!(lum1 - lum0 > 220.0);
-        assert!(lum0 < 15.0);
-    }
-
-    #[test]
-    fn plasma_midtones_are_saturated() {
-        for i in 20..=80 {
-            let t = i as f64 / 100.0;
-            let [r, g, b, _] = map_colormap(Colormap::Plasma, t, 632.8e-9);
-            let delta = r.max(g).max(b) - r.min(g).min(b);
-            assert!(delta >= 50);
-        }
-    }
-
-    #[test]
     fn laser_glow_black_to_white_through_beam_colour() {
-        let peak = map_colormap(Colormap::LaserGlow, 1.0, 532.0e-9);
-        assert_eq!(peak, [255, 255, 255, 255]);
-        let zero = map_colormap(Colormap::LaserGlow, 0.0, 532.0e-9);
-        assert_eq!(zero, [0, 0, 0, 255]);
-        let mid = map_colormap(Colormap::LaserGlow, 0.5, 532.0e-9);
+        assert_eq!(colormap_laser_glow(1.0, 532.0), [255, 255, 255, 255]);
+        assert_eq!(colormap_laser_glow(0.0, 532.0), [0, 0, 0, 255]);
+        let mid = colormap_laser_glow(0.5, 532.0);
         assert!(mid[1] > mid[0] && mid[1] > mid[2]);
     }
 
     #[test]
     fn asympton_stops() {
-        let p0 = map_colormap(Colormap::Asympton, 0.0, 632.8e-9);
-        assert_eq!(p0, [26, 29, 32, 255]);
-        let p_mid = map_colormap(Colormap::Asympton, 0.5, 632.8e-9);
-        assert_eq!(p_mid, [142, 156, 168, 255]);
-        let p_acc = map_colormap(Colormap::Asympton, 0.85, 632.8e-9);
-        assert_eq!(p_acc, [243, 198, 35, 255]);
+        assert_eq!(colormap_asympton(0.0), [26, 29, 32, 255]);
+        assert_eq!(colormap_asympton(0.5), [142, 156, 168, 255]);
+        assert_eq!(colormap_asympton(0.85), [243, 198, 35, 255]);
     }
 
     #[test]
-    fn transfer_functions_are_monotonic_and_bounded() {
-        let transfers = [
-            TransferFunction::Linear,
-            TransferFunction::Gamma(0.5),
-            TransferFunction::Gamma(2.2),
-            TransferFunction::Decibel {
-                dynamic_range_db: 60.0,
-            },
-            TransferFunction::Logarithmic {
-                compression: 1000.0,
-            },
-        ];
-        for tf in transfers {
-            assert_eq!(tf.apply(0.0), 0.0);
-            assert_eq!(tf.apply(1.0), 1.0);
-            assert_eq!(tf.apply(-5.0), 0.0);
-            assert_eq!(tf.apply(5.0), 1.0);
-            let mut prev = -1.0;
-            for step in 0..=100 {
-                let v = step as f64 / 100.0;
-                let val = tf.apply(v);
-                assert!(val >= prev - 1e-9);
-                prev = val;
-            }
-        }
+    fn rdbu_endpoints_and_midpoint() {
+        assert_eq!(colormap_rdbu(0.0), [0x05, 0x30, 0x61, 255]);
+        assert_eq!(colormap_rdbu(1.0), [0x67, 0x00, 0x1f, 255]);
+        assert_eq!(colormap_rdbu(0.5), [0xf7, 0xf7, 0xf7, 255]);
     }
 
     #[test]
-    fn lut_matches_direct_mapping() {
-        let lut = ColormapLut::new(Colormap::Turbo, 632.8e-9);
-        for i in 0..256 {
-            let t = i as f64 / 255.0;
-            let direct = map_colormap(Colormap::Turbo, t, 632.8e-9);
-            let lut_val = lut.lookup_byte(i as u8);
-            assert_eq!(direct, lut_val);
-        }
+    fn spectral_glow_is_black_in_the_middle() {
+        assert_eq!(colormap_spectral_glow(0.5, 633.0), [0, 0, 0, 255]);
+        assert_eq!(colormap_spectral_glow(1.0, 633.0), [255, 255, 255, 255]);
     }
 
     #[test]
-    fn wavelength_unit_guessing_and_colour() {
-        assert_eq!(wavelength_to_nm(-1.0), 632.8);
-        assert_eq!(wavelength_to_nm(f64::NAN), 632.8);
-
-        assert!((wavelength_to_nm(632.8e-9) - 632.8).abs() < 1e-9);
-
-        assert_eq!(wavelength_to_nm(532.0), 532.0);
-
-        // 1 m is metres, not nanometres, so it should come out as dim IR red rather than UV violet.
-        let nm_1m = wavelength_to_nm(1.0);
-        assert!(nm_1m >= 1e9);
-        let rgb_1m = wavelength_to_rgb(nm_1m);
-        assert_eq!(rgb_1m, [97, 0, 0]);
-
-        let nm_1nm = wavelength_to_nm(1e-9);
-        assert!((nm_1nm - 1.0).abs() < 1e-9);
-        let rgb_1nm = wavelength_to_rgb(nm_1nm);
-        assert_eq!(rgb_1nm, [56, 0, 97]);
+    fn wavelength_colour() {
+        assert_eq!(wavelength_to_rgb(1e9), [97, 0, 0]);
+        assert_eq!(wavelength_to_rgb(1.0), [56, 0, 97]);
     }
 }

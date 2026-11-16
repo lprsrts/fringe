@@ -1,4 +1,4 @@
-//! PNG encoding and file export.
+//! PNG and .npy export.
 
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
@@ -7,31 +7,24 @@ use std::path::Path;
 use image::codecs::png::PngEncoder;
 use image::{ExtendedColorType, ImageEncoder};
 
-use super::colormap::RenderStyle;
-use super::grid::{render_longitudinal_rgba, RenderError, MAX_DIMENSION};
-use crate::physics::{GaussianBeam, OpticalTrain};
+use super::{RenderError, MAX_DIMENSION};
+use crate::solver::{FieldGrid, Part};
 
 /// Byte length of a `width` x `height` RGBA8 image, checking the size limits.
 fn rgba_len(width: u32, height: u32) -> Result<usize, RenderError> {
     if width == 0 || height == 0 || width > MAX_DIMENSION || height > MAX_DIMENSION {
-        return Err(RenderError::InvalidDimensions {
-            width: width as usize,
-            height: height as usize,
-        });
+        return Err(RenderError::InvalidDimensions { width, height });
     }
     (width as usize)
         .checked_mul(height as usize)
         .and_then(|p| p.checked_mul(4))
-        .ok_or(RenderError::BufferOverflow)
+        .ok_or(RenderError::InvalidDimensions { width, height })
 }
 
 fn check_rgba_buffer(buffer: &[u8], width: u32, height: u32) -> Result<(), RenderError> {
     let expected = rgba_len(width, height)?;
     if buffer.len() != expected {
-        return Err(RenderError::BufferLengthMismatch {
-            expected,
-            actual: buffer.len(),
-        });
+        return Err(RenderError::BufferTooSmall { need: expected, got: buffer.len() });
     }
     Ok(())
 }
@@ -64,14 +57,7 @@ pub fn export_png_file<P: AsRef<Path>>(
     }
 
     // Keep the temp file in the same directory so the rename stays on one filesystem.
-    let tmp_path = match path.file_name() {
-        Some(name) => {
-            let mut tmp_name = name.to_os_string();
-            tmp_name.push(".tmp");
-            path.with_file_name(tmp_name)
-        }
-        None => path.with_extension("tmp"),
-    };
+    let tmp_path = tmp_path(path);
 
     let written = (|| -> Result<(), RenderError> {
         let mut writer = BufWriter::new(File::create(&tmp_path)?);
@@ -92,34 +78,61 @@ pub fn export_png_file<P: AsRef<Path>>(
     written
 }
 
-/// Render a longitudinal (z, x) view of `beam` through `train` and save it as PNG.
-///
-/// See [`render_longitudinal_rgba`] for the meaning of the bounds.
-#[allow(clippy::too_many_arguments)]
-pub fn export_beam_to_png_file<P: AsRef<Path>>(
-    path: P,
-    beam: &GaussianBeam,
-    train: &OpticalTrain,
-    style: &RenderStyle,
-    z_min: f64,
-    z_max: f64,
-    x_max: f64,
-    width: u32,
-    height: u32,
-) -> Result<(), RenderError> {
-    let mut rgba = vec![0u8; rgba_len(width, height)?];
-    render_longitudinal_rgba(
-        beam,
-        train,
-        style,
-        z_min,
-        z_max,
-        x_max,
-        width as usize,
-        height as usize,
-        &mut rgba,
-    )?;
-    export_png_file(path, &rgba, width, height)
+/// The temporary sibling `<name>.tmp` used for atomic writes.
+fn tmp_path(path: &Path) -> std::path::PathBuf {
+    match path.file_name() {
+        Some(name) => {
+            let mut tmp_name = name.to_os_string();
+            tmp_name.push(".tmp");
+            path.with_file_name(tmp_name)
+        }
+        None => path.with_extension("tmp"),
+    }
+}
+
+/// Writes `part` of the field as a complex128 .npy array of shape (ny, nx), row 0
+/// at the top (max y), plus a `<path>.json` sidecar with the grid and run info.
+pub fn write_npy_c128<P: AsRef<Path>>(path: P, field: &FieldGrid, part: Part) -> Result<(), RenderError> {
+    let path = path.as_ref();
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() && !parent.exists() {
+            fs::create_dir_all(parent)?;
+        }
+    }
+    let g = &field.grid;
+    let mut header = format!("{{'descr': '<c16', 'fortran_order': False, 'shape': ({}, {}), }}", g.ny, g.nx);
+    // Magic (6) + version (2) + length (2) + header must be a multiple of 64.
+    let total = 10 + header.len() + 1;
+    header.push_str(&" ".repeat((64 - total % 64) % 64));
+    header.push('\n');
+    let tmp = tmp_path(path);
+    let written = (|| -> Result<(), RenderError> {
+        let mut w = BufWriter::new(File::create(&tmp)?);
+        w.write_all(b"\x93NUMPY\x01\x00")?;
+        w.write_all(&(header.len() as u16).to_le_bytes())?;
+        w.write_all(header.as_bytes())?;
+        for j in (0..g.ny).rev() {
+            for i in 0..g.nx {
+                let v = field.value(part, g.index(i, j));
+                w.write_all(&v.re.to_le_bytes())?;
+                w.write_all(&v.im.to_le_bytes())?;
+            }
+        }
+        w.flush()?;
+        Ok(())
+    })()
+    .and_then(|()| fs::rename(&tmp, path).map_err(RenderError::Io));
+    if written.is_err() {
+        let _ = fs::remove_file(&tmp);
+        return written;
+    }
+    let mut info = field.info_json();
+    info["part"] = serde_json::Value::from(part.name());
+    info["layout"] = serde_json::Value::from("shape (ny, nx), row 0 at y_max, column 0 at x_min");
+    let mut side = path.as_os_str().to_os_string();
+    side.push(".json");
+    fs::write(side, serde_json::to_string_pretty(&info).unwrap_or_default())?;
+    Ok(())
 }
 
 #[cfg(test)]

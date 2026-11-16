@@ -3,9 +3,12 @@
 
 pub mod analytic;
 pub mod check;
+pub mod ffi;
 pub mod geometry;
+pub mod job;
 pub mod linalg;
 pub mod problem;
+pub mod render;
 pub mod scene;
 pub mod solver;
 pub mod source;
