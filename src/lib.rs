@@ -1,16 +1,12 @@
-//! Gaussian beam propagation through paraxial optical systems, and rendering of
-//! the resulting intensity fields to RGBA buffers and PNG files.
-//!
-//! The C ABI used by the macOS app lives in [`ffi`].
+//! Full-wave 2D electromagnetics (Ez polarisation) for optical scenes: a lens, a
+//! slit, a grating, solved with FDTD, FEM or MoM and rendered to images.
 
-pub mod ffi;
+pub mod geometry;
 pub mod linalg;
-pub mod physics;
-pub mod render;
+pub mod scene;
+pub mod solver;
+pub mod types;
 
-pub use ffi::*;
-pub use physics::{
-    AbcdMatrix, Complex, ComplexAbcdMatrix, GaussianBeam, OpticalElement, OpticalTrain,
-    PlacedElement,
-};
-pub use render::*;
+pub use scene::{parse_scene, Scene};
+pub use solver::{Method, Quality};
+pub use types::{Rect, Vec2, C64};
