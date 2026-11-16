@@ -251,6 +251,22 @@ mod bessel {
     }
 
     #[test]
+    fn real_miller_neumann_meets_hankel_at_the_switch() {
+        // Real arguments switch from Miller–Neumann to Hankel's expansion at x = 20.
+        let mut worst = 0.0f64;
+        for k in 0..=80 {
+            let x = 18.0 + 4.0 * k as f64 / 80.0;
+            let a = miller_neumann_real(x);
+            let b = asymptotic_real(x);
+            for (p, q) in [(a.0, b.0), (a.1, b.1), (a.2, b.2), (a.3, b.3)] {
+                worst = worst.max((p - q).abs());
+            }
+        }
+        eprintln!("Miller–Neumann vs Hankel on [18, 22]: {worst:.2e}");
+        assert!(worst <= 1e-14, "{worst:.2e}");
+    }
+
+    #[test]
     fn chebyshev_tables_match_direct_evaluation() {
         let mut worst = 0.0f64;
         for k in 0..=200_000 {

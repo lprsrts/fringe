@@ -26,6 +26,31 @@ fn mie_pec_field_vanishes_on_the_surface() {
     }
 }
 
+/// A large cylinder (x = k a ≈ 31) needs more orders than the old fixed
+/// X + 4 X^{1/3} + 10: the plane-wave incident minus the truncated series must
+/// still vanish on the surface.
+#[test]
+fn mie_pec_large_cylinder_truncation() {
+    let r = 31.0 / K0;
+    for angle in [0.0, 0.9] {
+        let m = mie(BodyMaterial::Pec, r, angle);
+        let worst = (0..90)
+            .map(|k| m.total(m.center + Vec2::from_angle(2.0 * PI * k as f64 / 90.0) * r).norm())
+            .fold(0.0, f64::max);
+        assert!(worst <= 1e-10, "max |E_tot(a)| = {worst:.2e} with {} orders", m.c.len());
+    }
+    // Dielectric of the same size: E and ∂E continuous through the public evaluators.
+    let m = mie(BodyMaterial::dielectric(1.5, 0.01), r, 0.3);
+    for k in 0..36 {
+        let phi = 2.0 * PI * k as f64 / 36.0;
+        let (eo, _) = m.series_at(r, phi, false);
+        let (ei, _) = m.series_at(r, phi, true);
+        assert!((eo - ei).norm() <= 1e-9 * eo.norm().max(1.0));
+        let p = m.center + Vec2::from_angle(phi) * r;
+        assert!((m.total(p) - eo).norm() <= 1e-10, "exterior evaluator vs series at φ = {phi}");
+    }
+}
+
 #[test]
 fn mie_dielectric_is_continuous() {
     for (n, k, r) in [(1.5, 0.0, 1.0), (1.5, 0.05, 1.0), (3.5, 0.0, 0.5), (2.0, 0.3, 1.7)] {

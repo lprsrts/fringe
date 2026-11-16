@@ -4,13 +4,18 @@
 //! Three regimes, chosen by |z|:
 //! - |z| ≤ 8: the ascending power series. The terms are bounded by I0(|z|) ≈ 430,
 //!   so cancellation costs at most three digits.
-//! - 8 < |z| ≤ 12: Miller's backward recurrence for J_n, normalised with
-//!   `e^{jz} = J0 + 2 Σ jⁿ Jₙ` (or `1 = J0 + 2 Σ J_{2k}` for real x), and
+//! - 8 < |z| ≤ 12 (complex) or 8 < x ≤ 20 (real): Miller's backward recurrence
+//!   for J_n, normalised with `e^{jz} = J0 + 2 Σ jⁿ Jₙ` (or `1 = J0 + 2 Σ J_{2k}`
+//!   for real x), and
 //!   Neumann's series for Y0 and Y1 in terms of the J_n. Neither sum cancels
 //!   badly, unlike the power series at these arguments (which loses ~1e−11 on Y0
 //!   at x = 10).
-//! - |z| > 12: Hankel's asymptotic expansion truncated at its smallest term; the
-//!   measured error at the switch is about 1e−12.
+//! - |z| > 12 (complex) or x > 20 (real): Hankel's asymptotic expansion
+//!   truncated at its smallest term. At |z| = 12 its error is about 1e−12; at
+//!   x = 20 the two real methods agree to 4e−16, so real arguments switch there
+//!   (the Chebyshev tables are built from the same direct path). The phase χ = x − νπ/2 − π/4 is
+//!   never formed: sin x and cos x are rotated by the exact cos(π/4), which keeps
+//!   the argument reduction exact for large x.
 //!
 //! In the lower half plane J and Y grow like e^{|Im z|} while H⁽²⁾ = J − jY
 //! decays, so below the switch H⁽²⁾ loses about e^{2|Im z|}·1e−16 relative
@@ -18,13 +23,16 @@
 //!
 //! H = H⁽²⁾ throughout (outgoing waves under e^{+jωt}).
 
-use std::f64::consts::{FRAC_2_PI, FRAC_PI_4, PI};
+use std::f64::consts::{FRAC_1_SQRT_2, FRAC_2_PI, PI};
 
 use crate::types::{C64, EULER_GAMMA, J};
 
 const SERIES_MAX: f64 = 8.0;
 const ASYMPTOTIC_MIN: f64 = 12.0;
-/// Room for Miller's recurrence below the asymptotic switch (start index ≤ 50).
+/// The switch to Hankel's expansion for real arguments, shared by the direct
+/// path and the Chebyshev table builder.
+const ASYMPTOTIC_MIN_REAL: f64 = 20.0;
+/// Room for Miller's recurrence below the asymptotic switch (start index ≤ 62).
 const MILLER_BUF: usize = 64;
 
 /// 1/k for k < 64, so the inner loops multiply instead of divide.
@@ -62,7 +70,7 @@ pub fn j_y_01_real_direct(x: f64) -> (f64, f64, f64, f64) {
     }
     if x <= SERIES_MAX {
         series_real(x)
-    } else if x <= ASYMPTOTIC_MIN {
+    } else if x <= ASYMPTOTIC_MIN_REAL {
         miller_neumann_real(x)
     } else {
         asymptotic_real(x)
@@ -86,13 +94,12 @@ fn cheb_table() -> &'static ChebTable {
         (0..CHEB_INTERVALS)
             .map(|i| {
                 let a = SERIES_MAX + i as f64;
-                // Miller–Neumann is accurate to ~1e−15 up to x = 20; beyond, Hankel's
-                // expansion is better than e^{−40}.
+                // The direct path: Miller–Neumann up to x = 20, Hankel's expansion beyond.
                 let vals: Vec<[f64; 4]> = nodes
                     .iter()
                     .map(|u| {
                         let x = a + 0.5 * (u + 1.0);
-                        let (j0, j1, y0, y1) = if x <= 20.0 { miller_neumann_real(x) } else { asymptotic_real(x) };
+                        let (j0, j1, y0, y1) = j_y_01_real_direct(x);
                         [j0, j1, y0, y1]
                     })
                     .collect();
@@ -386,24 +393,28 @@ fn hankel_sums(z: C64, sign: C64) -> (C64, C64) {
     (out[0], out[1])
 }
 
+/// e^{jπ/4} and e^{j3π/4}: the phase shifts of H0⁽²⁾ and H1⁽²⁾ relative to e^{−jz}.
+const ROT_0: C64 = C64::new(FRAC_1_SQRT_2, FRAC_1_SQRT_2);
+const ROT_1: C64 = C64::new(-FRAC_1_SQRT_2, FRAC_1_SQRT_2);
+
 /// H0⁽²⁾, H1⁽²⁾ from Hankel's expansion (exposed for regime-overlap tests).
 pub fn hankel2_asymptotic(z: C64) -> (C64, C64) {
     let (s0, s1) = hankel_sums(z, -J);
     let pre = (2.0 / (PI * z)).sqrt();
     // H_ν⁽²⁾ ≈ √(2/(πz)) e^{−j(z − νπ/2 − π/4)} Σ (−j)ᵏ a_k(ν)/zᵏ
-    let h0 = pre * (-J * (z - FRAC_PI_4)).exp() * s0;
-    let h1 = pre * (-J * (z - 3.0 * FRAC_PI_4)).exp() * s1;
-    (h0, h1)
+    let e = (-J * z).exp();
+    (pre * e * ROT_0 * s0, pre * e * ROT_1 * s1)
 }
 
 fn j_y_asymptotic_complex(z: C64) -> (C64, C64, C64, C64) {
     let (s0m, s1m) = hankel_sums(z, -J);
     let (s0p, s1p) = hankel_sums(z, J);
     let pre = (2.0 / (PI * z)).sqrt();
-    let h2_0 = pre * (-J * (z - FRAC_PI_4)).exp() * s0m;
-    let h2_1 = pre * (-J * (z - 3.0 * FRAC_PI_4)).exp() * s1m;
-    let h1_0 = pre * (J * (z - FRAC_PI_4)).exp() * s0p;
-    let h1_1 = pre * (J * (z - 3.0 * FRAC_PI_4)).exp() * s1p;
+    let (em, ep) = ((-J * z).exp(), (J * z).exp());
+    let h2_0 = pre * em * ROT_0 * s0m;
+    let h2_1 = pre * em * ROT_1 * s1m;
+    let h1_0 = pre * ep * ROT_0.conj() * s0p;
+    let h1_1 = pre * ep * ROT_1.conj() * s1p;
     let j0 = 0.5 * (h1_0 + h2_0);
     let j1 = 0.5 * (h1_1 + h2_1);
     let y0 = (h1_0 - h2_0) / (2.0 * J);
@@ -439,10 +450,10 @@ pub fn asymptotic_real(x: f64) -> (f64, f64, f64, f64) {
         *o = (p, q);
     }
     let pre = (FRAC_2_PI / x).sqrt();
-    let chi0 = x - FRAC_PI_4;
-    let chi1 = x - 3.0 * FRAC_PI_4;
-    let (s0, c0) = chi0.sin_cos();
-    let (s1, c1) = chi1.sin_cos();
+    // sin and cos of χ0 = x − π/4 and χ1 = x − 3π/4 from those of x.
+    let (sx, cx) = x.sin_cos();
+    let (s0, c0) = (FRAC_1_SQRT_2 * (sx - cx), FRAC_1_SQRT_2 * (cx + sx));
+    let (s1, c1) = (-FRAC_1_SQRT_2 * (sx + cx), FRAC_1_SQRT_2 * (sx - cx));
     let (p0, q0) = pq[0];
     let (p1, q1) = pq[1];
     (

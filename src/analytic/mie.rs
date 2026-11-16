@@ -55,31 +55,46 @@ impl MieCylinder {
             Some(m) => x.max(m.norm() * x),
             None => x,
         };
-        let n_max = (big_x + 4.0 * big_x.cbrt() + 10.0).ceil() as usize;
+        // Coefficients are computed up to a cap of X + 6 X^{1/3} + 10 and the
+        // series is cut at the first order past X where every term at ρ = a (the
+        // incident Jₙ(x), the scattered cₙHₙ(x) and the interior bₙJₙ(mx)) is
+        // below 1e−16 of the amplitude. Past the turning point these decay
+        // faster than exponentially, so the omitted tail is of the same size.
+        let cap = (big_x + 6.0 * big_x.cbrt() + 10.0).ceil() as usize;
         let xc = C64::new(x, 0.0);
-        let jx = bessel_j_array(n_max + 1, xc);
-        let hx = hankel2_array(n_max + 1, x);
-        let (c, b) = match m {
-            None => ((0..=n_max).map(|n| -jx[n] / hx[n]).collect(), Vec::new()),
+        let jx = bessel_j_array(cap + 1, xc);
+        let hx = hankel2_array(cap + 1, x);
+        let (mut c, mut b): (Vec<C64>, Vec<C64>) = match m {
+            None => ((0..=cap).map(|n| -jx[n] / hx[n]).collect(), Vec::new()),
             Some(m) => {
                 let mx = m * x;
-                let jmx = bessel_j_array(n_max + 1, mx);
+                let jmx = bessel_j_array(cap + 1, mx);
                 let djx = bessel_deriv(&jx, xc);
                 let dhx = bessel_deriv(&hx, xc);
                 let djmx = bessel_deriv(&jmx, mx);
-                let mut c = Vec::with_capacity(n_max + 1);
-                let mut b = Vec::with_capacity(n_max + 1);
-                for n in 0..=n_max {
+                let mut c = Vec::with_capacity(cap + 1);
+                let mut b = Vec::with_capacity(cap + 1);
+                for n in 0..=cap {
                     // Written with the log-derivative Jₙ′(mx)/Jₙ(mx) so a tiny Jₙ(mx)
                     // at high order cannot underflow the ratio.
                     let d = djmx[n] / jmx[n];
                     let cn = (m * jx[n] * d - djx[n]) / (dhx[n] - m * hx[n] * d);
                     c.push(cn);
+                    // bₙJₙ(mx) = Jₙ(x) + cₙHₙ(x): the interior term at the surface.
                     b.push((jx[n] + cn * hx[n]) / jmx[n]);
                 }
                 (c, b)
             }
         };
+        let negligible = |n: usize| {
+            let interior = if b.is_empty() { 0.0 } else { (jx[n] + c[n] * hx[n]).norm() };
+            jx[n].norm() < 1e-16 && (c[n] * hx[n]).norm() < 1e-16 && interior < 1e-16
+        };
+        let n_max = (x.ceil() as usize..=cap).find(|&n| negligible(n)).unwrap_or(cap);
+        c.truncate(n_max + 1);
+        if !b.is_empty() {
+            b.truncate(n_max + 1);
+        }
         MieCylinder { center, radius, k_b, angle, amplitude, phase, m, c, b }
     }
 
