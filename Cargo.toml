@@ -3,6 +3,7 @@ name = "fringe_core"
 version = "0.2.0"
 edition = "2021"
 description = "Full-wave 2D (Ez) optics solvers (FDTD, FEM, MoM) with a C ABI and a CLI"
+license = "MIT OR Apache-2.0"
 publish = false
 # The floor set by the dependencies (image 0.25); clippy's incompatible_msrv
 # lint checks this crate's own code against it.

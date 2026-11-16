@@ -276,3 +276,18 @@ icon/               app icon: the Icon Composer document, its layer generator an
 art/banner/         cover banner: its scene, compose script and the rendered banner
 tests/              integration tests; tests/fixtures holds example scenes and Bessel references
 ```
+
+## License
+
+Fringe is licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- MIT license ([LICENSE-MIT](LICENSE-MIT))
+
+at your option. Unless you explicitly state otherwise, any contribution you
+submit for inclusion in Fringe, as defined in the Apache-2.0 license, is dual
+licensed as above, without any additional terms or conditions.
+
+The app and `fringe-cli` link third-party crates; their licenses are collected in
+[THIRD-PARTY-LICENSES.txt](THIRD-PARTY-LICENSES.txt), which `scripts/third-party-licenses.py`
+writes from `Cargo.lock` and which ships inside the app and the CLI tarball.

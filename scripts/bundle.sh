@@ -29,6 +29,8 @@ strip -S "$app/Contents/MacOS/Fringe"
 # The icon, compiled from icon/AppIcon.icon by icon/build.sh: Assets.car carries the
 # Liquid Glass icon, AppIcon.icns the flat fallback.
 cp "$root/icon/compiled/Assets.car" "$root/icon/compiled/AppIcon.icns" "$app/Contents/Resources/"
+# The licenses: Fringe's own and those of the crates it links.
+cp "$root/LICENSE-MIT" "$root/LICENSE-APACHE" "$root/THIRD-PARTY-LICENSES.txt" "$app/Contents/Resources/"
 
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -62,7 +64,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
     <key>LSMinimumSystemVersion</key>
     <string>${min_os}</string>
     <key>NSHumanReadableCopyright</key>
-    <string>Copyright © ${year} Mehmet Alper Saritas</string>
+    <string>Copyright © ${year} Alper Saritas</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSPrincipalClass</key>

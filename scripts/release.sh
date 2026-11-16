@@ -56,6 +56,9 @@ notarize_file() {
     fi
 }
 
+# The notices ship in the app and the tarball, so they must match Cargo.lock.
+python3 "$root/scripts/third-party-licenses.py" --check
+
 rm -rf "$dist"
 mkdir -p "$dist"
 
@@ -88,11 +91,8 @@ codesign --force --timestamp --sign "$identity" "$dmg"
 cli="$root/target/release/fringe-cli"
 codesign --force --options runtime --timestamp --identifier com.asympton.fringe.cli --sign "$identity" "$cli"
 cli_tar="$dist/fringe-cli-$version-aarch64-apple-darwin.tar.gz"
-extras=()
-for f in LICENSE LICENSE-MIT LICENSE-APACHE THIRD-PARTY-LICENSES.txt; do
-    [[ -f "$root/$f" ]] && extras+=("$f")
-done
-tar -czf "$cli_tar" -C "$root/target/release" fringe-cli ${extras[@]+-C "$root" "${extras[@]}"}
+tar -czf "$cli_tar" -C "$root/target/release" fringe-cli \
+    -C "$root" LICENSE-MIT LICENSE-APACHE THIRD-PARTY-LICENSES.txt
 
 if [[ "$notarize" == 1 ]]; then
     notarize_file "$dmg"
