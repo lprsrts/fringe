@@ -43,7 +43,7 @@ struct MainToolbar: CustomizableToolbarContent {
                 Menu("Overlays", systemImage: "square.3.layers.3d") {
                     OverlayToggles(model: model)
                 }
-                .help("Overlays (⇧⌘O)")
+                .help("Overlays; show or hide all with ⇧⌘O")
                 Picker("Colormap", systemImage: "paintpalette", selection: Binding(get: { model.display.colormap }, set: { model.setColormap($0) })) {
                     ForEach(model.availableColormaps) { Text($0.title).tag($0) }
                 }
