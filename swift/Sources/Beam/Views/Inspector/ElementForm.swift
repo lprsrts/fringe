@@ -442,14 +442,14 @@ private struct DerivedSection: View {
         if let lens = info.lens {
             rows.append(Row(title: "Paraxial Focal Length", value: lens.paraxialFocalUm.map { Format.micrometres($0) } ?? "No power"))
             if let bfl = lens.backFocalUm {
-                rows.append(Row(title: "Back Focal Length", value: Format.micrometres(bfl)))
+                rows.append(Row(title: "Paraxial Back Focal Length", value: Format.micrometres(bfl)))
             }
             if let edge = lens.edgeThicknessUm {
                 rows.append(Row(title: "Edge Thickness", value: Format.micrometres(edge), isInvalid: edge <= 0))
             }
         }
         if let mirror = info.mirror {
-            rows.append(Row(title: "Focal Length", value: mirror.focalUm.map { Format.micrometres($0) } ?? "Flat"))
+            rows.append(Row(title: "Paraxial Focal Length", value: mirror.focalUm.map { Format.micrometres($0) } ?? "Flat"))
         }
         if let grating = info.grating {
             let orders = grating.orders.map { "\($0.m > 0 ? "+" : "")\($0.m): \(Format.degrees($0.angleDeg))" }

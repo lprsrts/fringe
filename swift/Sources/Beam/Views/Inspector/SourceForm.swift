@@ -113,13 +113,18 @@ struct SourceForm: View {
         }
 
         if source.kind == .gaussianBeam, let derived = model.checkReport?.derived?.source {
-            Section("Derived") {
+            Section {
                 if let zR = derived.rayleighRangeUm {
                     LabeledContent("Rayleigh Range", value: Format.micrometres(zR))
                 }
                 if let theta = derived.divergenceDeg {
                     LabeledContent("Divergence", value: Format.degrees(theta, digits: 2))
                 }
+            } header: {
+                Text("Derived")
+            } footer: {
+                Text("Paraxial estimates, not solver output.")
+                    .foregroundStyle(.secondary)
             }
             .monospacedDigit()
         }
