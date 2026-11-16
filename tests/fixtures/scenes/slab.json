@@ -1,0 +1,74 @@
+{
+  "version": 2,
+  "wavelength_um": 1.0,
+  "background": {
+    "n": 1.0
+  },
+  "polarization": "ez",
+  "source": {
+    "type": "gaussian_beam",
+    "waist_um": 2.5,
+    "waist_x_um": -1.5,
+    "waist_y_um": 0.0,
+    "angle_deg": 30.0,
+    "amplitude": 1.0,
+    "phase_deg": 0.0
+  },
+  "elements": [
+    {
+      "id": "slab-1",
+      "name": "Slab",
+      "enabled": true,
+      "material": {
+        "type": "dielectric",
+        "n": 1.5,
+        "k": 0.0
+      },
+      "x_um": 0.0,
+      "y_um": 0.0,
+      "rotation_deg": 0.0,
+      "shape": {
+        "kind": "slab",
+        "thickness_um": 3.0,
+        "height_um": 16.0
+      }
+    }
+  ],
+  "domain": {
+    "x_min_um": -8.0,
+    "x_max_um": 8.0,
+    "y_min_um": -9.0,
+    "y_max_um": 9.0,
+    "pml_wl": 1.0
+  },
+  "solver": {
+    "method": "fdtd",
+    "fdtd": {
+      "preview_ppw": null,
+      "final_ppw": null,
+      "courant": 0.6,
+      "max_periods": null,
+      "steady_tol": null,
+      "subpixel": true,
+      "dispersion_correction": true
+    },
+    "fem": {
+      "preview_ppw": null,
+      "final_ppw": null,
+      "order": 3,
+      "pml_reflection": 1e-6
+    },
+    "mom": {
+      "preview_ppw": null,
+      "final_ppw": null,
+      "pec_formulation": "auto",
+      "cfie_beta_scale": 1.0,
+      "corner_grading": true
+    },
+    "output": {
+      "preview_ppw": null,
+      "final_ppw": null
+    },
+    "memory_limit_mb": null
+  }
+}

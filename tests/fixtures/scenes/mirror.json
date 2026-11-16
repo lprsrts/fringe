@@ -1,0 +1,73 @@
+{
+  "version": 2,
+  "wavelength_um": 1.0,
+  "background": {
+    "n": 1.0
+  },
+  "polarization": "ez",
+  "source": {
+    "type": "gaussian_beam",
+    "waist_um": 2.5,
+    "waist_x_um": -6.0,
+    "waist_y_um": 0.0,
+    "angle_deg": 0.0,
+    "amplitude": 1.0,
+    "phase_deg": 0.0
+  },
+  "elements": [
+    {
+      "id": "mirror-1",
+      "name": "Concave mirror",
+      "enabled": true,
+      "material": {
+        "type": "pec"
+      },
+      "x_um": 8.0,
+      "y_um": 0.0,
+      "rotation_deg": 0.0,
+      "shape": {
+        "kind": "mirror",
+        "aperture_um": 12.0,
+        "thickness_um": 0.5,
+        "radius_um": 20.0
+      }
+    }
+  ],
+  "domain": {
+    "x_min_um": -12.0,
+    "x_max_um": 12.0,
+    "y_min_um": -6.75,
+    "y_max_um": 6.75,
+    "pml_wl": 1.0
+  },
+  "solver": {
+    "method": "mom",
+    "fdtd": {
+      "preview_ppw": null,
+      "final_ppw": null,
+      "courant": 0.6,
+      "max_periods": null,
+      "steady_tol": null,
+      "subpixel": true,
+      "dispersion_correction": true
+    },
+    "fem": {
+      "preview_ppw": null,
+      "final_ppw": null,
+      "order": 3,
+      "pml_reflection": 1e-6
+    },
+    "mom": {
+      "preview_ppw": null,
+      "final_ppw": null,
+      "pec_formulation": "auto",
+      "cfie_beta_scale": 1.0,
+      "corner_grading": true
+    },
+    "output": {
+      "preview_ppw": null,
+      "final_ppw": null
+    },
+    "memory_limit_mb": null
+  }
+}

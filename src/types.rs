@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 pub type C64 = num_complex::Complex64;
 
+#[allow(clippy::approx_constant)] // std's EGAMMA is not stable yet
 pub const EULER_GAMMA: f64 = 0.577_215_664_901_532_9;
 
 /// The imaginary unit.

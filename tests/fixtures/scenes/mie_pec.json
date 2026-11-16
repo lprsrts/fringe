@@ -1,0 +1,68 @@
+{
+  "version": 2,
+  "wavelength_um": 1.0,
+  "background": {
+    "n": 1.0
+  },
+  "polarization": "ez",
+  "source": {
+    "type": "plane_wave",
+    "angle_deg": 0.0,
+    "amplitude": 1.0,
+    "phase_deg": 0.0
+  },
+  "elements": [
+    {
+      "id": "cylinder-1",
+      "name": "PEC cylinder",
+      "enabled": true,
+      "material": {
+        "type": "pec"
+      },
+      "x_um": 0.0,
+      "y_um": 0.0,
+      "rotation_deg": 0.0,
+      "shape": {
+        "kind": "cylinder",
+        "radius_um": 1.0
+      }
+    }
+  ],
+  "domain": {
+    "x_min_um": -6.0,
+    "x_max_um": 10.0,
+    "y_min_um": -4.5,
+    "y_max_um": 4.5,
+    "pml_wl": 1.0
+  },
+  "solver": {
+    "method": "mom",
+    "fdtd": {
+      "preview_ppw": null,
+      "final_ppw": null,
+      "courant": 0.6,
+      "max_periods": null,
+      "steady_tol": null,
+      "subpixel": true,
+      "dispersion_correction": true
+    },
+    "fem": {
+      "preview_ppw": null,
+      "final_ppw": null,
+      "order": 3,
+      "pml_reflection": 1e-6
+    },
+    "mom": {
+      "preview_ppw": null,
+      "final_ppw": null,
+      "pec_formulation": "auto",
+      "cfie_beta_scale": 1.0,
+      "corner_grading": true
+    },
+    "output": {
+      "preview_ppw": null,
+      "final_ppw": null
+    },
+    "memory_limit_mb": null
+  }
+}

@@ -172,7 +172,7 @@ pub fn simpson(v: &[f64], h: f64) -> f64 {
         3 => h / 3.0 * (v[0] + 4.0 * v[1] + v[2]),
         _ => {
             let intervals = n - 1;
-            let (simpson_end, tail) = if intervals % 2 == 0 { (n, false) } else { (n - 3, true) };
+            let (simpson_end, tail) = if intervals.is_multiple_of(2) { (n, false) } else { (n - 3, true) };
             let mut s = 0.0;
             let mut k = 0;
             while k + 2 < simpson_end {
