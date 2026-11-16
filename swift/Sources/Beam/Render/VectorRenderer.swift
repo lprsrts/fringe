@@ -177,9 +177,11 @@ private struct OverlayPainter {
         context.saveGState()
         context.addPath(path)
         context.setStrokeColor(color)
+        // A fixed-width line keeps fixed dashes; scaled dashes on it close up in a
+        // small image. Dashes get butt caps, since round caps eat into the gaps.
         context.setLineWidth(fixedWidth ? width : width * scale)
-        context.setLineDash(phase: 0, lengths: dash.map { $0 * scale })
-        context.setLineCap(.round)
+        context.setLineDash(phase: 0, lengths: dash.map { fixedWidth ? $0 : $0 * scale })
+        context.setLineCap(dash.isEmpty ? .round : .butt)
         context.setLineJoin(.round)
         context.strokePath()
         context.restoreGState()
@@ -296,7 +298,7 @@ private struct OverlayPainter {
         let accent = NSColor.controlAccentColor.cgColor
         for body in outlines.bodies(of: selected) {
             // Fixed width on screen, so the selection reads the same at any size.
-            stroke(path(body.outline), color: accent, width: 2.5, dash: body.enabled ? [] : [5, 4], fixedWidth: true)
+            stroke(path(body.outline), color: accent, width: 2.5, dash: body.enabled ? [] : [6, 4], fixedWidth: true)
         }
         if model.showsHandles, let anchor = model.anchors[selected] {
             let p = map.point(anchor)
