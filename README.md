@@ -179,7 +179,8 @@ beam-cli frames slit.json -o frames/ --frames 24 --quantity real
 # Check a scene: validation issues, cost estimates, derived values.
 beam-cli check slit.json
 
-# Solve one scene with all three solvers and compare them.
+# Solve one scene with all three solvers: time, the intensity peak on the axis
+# past the last element, and the difference between each pair.
 beam-cli compare slit.json
 
 # The validation cases (add --slow for all of them).
@@ -190,7 +191,7 @@ beam-cli validate --case mie_diel,balance --solver all
 `plasma`, `turbo`, `laser_glow`, `asympton`, `spectral_glow` (sequential),
 `rdbu` (diverging, for the real part), `twilight`, `phase_wheel` (cyclic, for
 phase). Exit codes: 0 ok, 1 check or validation failure, 2 usage, 3 solve
-error, 130 cancelled (Ctrl-C).
+error or a file that could not be read or written, 130 cancelled (Ctrl-C).
 
 The `.npy` file is complex128 with row 0 at the top (y_max); a `.npy.json`
 sidecar next to it records the grid.

@@ -15,6 +15,7 @@ use beam_core::check::check;
 use beam_core::job::Job;
 use beam_core::render::view::{NormMode, Normalization, PartName, ViewRect};
 use beam_core::render::{export_png_file, render_rgba, write_npy_c128, Colormap, Quantity, View};
+use beam_core::scene::validate::fmt;
 use beam_core::scene::{examples, parse_scene, to_json, Scene, Severity};
 use beam_core::solver::context::{STATE_CANCELLED, STATE_RUNNING};
 use beam_core::solver::{FieldGrid, Method, Part, Quality, SolveError};
@@ -32,6 +33,9 @@ Usage:
   beam-cli validate [--case ID[,ID…]|all] [--solver fdtd,fem,mom|all]
                     [--quality preview|final] [--slow] [--json]
   beam-cli compare SCENE [--solvers fem,mom,fdtd] [--quality final] [--json]
+                                          solve with each solver; time, peak on
+                                          the source axis past the last element,
+                                          and the difference between each pair
   beam-cli --help | --version
 
 SCENE is a scene JSON file, or - for standard input.
@@ -54,20 +58,16 @@ Solve options:
   --stats FILE                 write the field info as JSON
   --quiet                      no progress or summary
 
-Exit codes: 0 ok, 1 check or validation failure, 2 usage, 3 solve error, 130 cancelled.
+Exit codes: 0 ok, 1 check or validation failure, 2 usage, 3 solve or file error,
+130 cancelled.
 ";
 
 enum Fail {
     Usage(String),
     Check,
+    /// A solve that failed, or a file that could not be read or written.
     Solve(String),
     Cancelled,
-}
-
-impl From<String> for Fail {
-    fn from(s: String) -> Self {
-        Fail::Usage(s)
-    }
 }
 
 type Result<T> = std::result::Result<T, Fail>;
@@ -168,6 +168,8 @@ impl Args {
         }
     }
 
+    /// The first remaining argument that is not a flag. Read the value flags
+    /// first: until then their values are still in the list.
     fn positional(&mut self) -> Option<String> {
         let i = self.items.iter().position(|s| s.as_deref().is_some_and(|s| s == "-" || !s.starts_with('-')))?;
         self.items[i].take()
@@ -184,10 +186,10 @@ impl Args {
 fn read_scene(src: &str) -> Result<Scene> {
     let text = if src == "-" {
         let mut s = String::new();
-        std::io::stdin().read_to_string(&mut s).map_err(|e| Fail::Usage(format!("reading stdin: {e}")))?;
+        std::io::stdin().read_to_string(&mut s).map_err(|e| Fail::Solve(format!("reading stdin: {e}")))?;
         s
     } else {
-        std::fs::read_to_string(src).map_err(|e| Fail::Usage(format!("reading {src}: {e}")))?
+        std::fs::read_to_string(src).map_err(|e| Fail::Solve(format!("reading {src}: {e}")))?
     };
     parse_scene(&text).map_err(|e| {
         eprintln!("beam-cli: {}: {}", if src == "-" { "stdin" } else { src }, e.message);
@@ -240,18 +242,20 @@ fn cmd_check(a: &mut Args) -> Result<()> {
         if let Some(est) = &report.estimates {
             for (label, e) in [("Preview", &est.preview), ("Final", &est.final_)] {
                 if let Some(e) = e {
+                    let time = if e.seconds < 0.05 { "under 0.1 s".to_string() } else { format!("about {:.1} s", e.seconds) };
                     println!(
-                        "{label}: {} at {}/λ, {}, about {:.1} s and {:.0} MB",
+                        "{label}: {} at {}/λ, {}, {time} and {:.0} MB",
                         e.method.label(),
                         e.ppw,
                         e.detail,
-                        e.seconds,
                         e.memory_mb
                     );
                 }
             }
         }
-        println!("Derived: {}", serde_json::to_string(&report.derived).unwrap_or_default());
+        for line in derived_lines(&report.derived) {
+            println!("{line}");
+        }
     }
     if report.issues.iter().any(|i| i.severity == Severity::Error) {
         return Err(Fail::Check);
@@ -259,35 +263,127 @@ fn cmd_check(a: &mut Args) -> Result<()> {
     Ok(())
 }
 
+/// The derived values of a check report as labelled lines.
+fn derived_lines(d: &serde_json::Value) -> Vec<String> {
+    let um = |v: &serde_json::Value| v.as_f64().map(|x| format!("{} µm", fmt(x)));
+    let deg = |v: &serde_json::Value| v.as_f64().map(|x| format!("{x:.2}°"));
+    let mut out = Vec::new();
+    if let (Some(b), Some(m)) = (d["lambda_b_um"].as_f64(), d["lambda_min_um"].as_f64()) {
+        let mut line = format!("Wavelength: {} µm in the background", fmt(b));
+        if m < b {
+            line += &format!(", {} µm in the densest element", fmt(m));
+        }
+        out.push(line);
+    }
+    let src = &d["source"];
+    if let (Some(z), Some(t)) = (um(&src["rayleigh_range_um"]), deg(&src["divergence_deg"])) {
+        out.push(format!("Source: Rayleigh range {z}, divergence half-angle {t} (paraxial)"));
+    }
+    for e in d["elements"].as_array().into_iter().flatten() {
+        let id = e["id"].as_str().unwrap_or("?");
+        let mut parts = Vec::new();
+        if let Some(l) = e.get("lens") {
+            match (um(&l["paraxial_focal_um"]), um(&l["back_focal_um"])) {
+                (Some(f), Some(b)) => parts.push(format!("paraxial focal length {f}, paraxial back focal length {b}")),
+                _ => parts.push("no paraxial focus (afocal)".into()),
+            }
+            if let Some([x, y]) = l["paraxial_focus_um"].as_array().map(|a| [a[0].as_f64(), a[1].as_f64()]) {
+                if let (Some(x), Some(y)) = (x, y) {
+                    parts.push(format!("paraxial focus at ({}, {}) µm", fmt(x), fmt(y)));
+                }
+            }
+            if let Some(t) = um(&l["edge_thickness_um"]) {
+                parts.push(format!("edge thickness {t}"));
+            }
+        }
+        if let Some(m) = e.get("mirror") {
+            parts.push(match um(&m["focal_um"]) {
+                Some(f) => format!("paraxial focal length {f}"),
+                None => "flat".into(),
+            });
+        }
+        if let Some(g) = e.get("grating") {
+            let orders: Vec<String> = g["orders"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|o| Some(format!("{} at {}", o["m"].as_i64()?, deg(&o["angle_deg"])?)))
+                .collect();
+            parts.push(format!("propagating orders {}", orders.join(", ")));
+        }
+        if let Some(sl) = e.get("slits") {
+            if let Some(a) = deg(&sl["single_slit_null_deg"]) {
+                parts.push(format!("first single-slit null at {a}"));
+            }
+            if let Some(a) = deg(&sl["fringe_spacing_deg"]) {
+                parts.push(format!("fringe spacing {a}"));
+            }
+        }
+        if let Some(c) = e.get("cylinder") {
+            if let Some(x) = c["size_parameter"].as_f64() {
+                parts.push(format!("size parameter k r = {x:.2}"));
+            }
+        }
+        if let Some(w) = e.get("waveguide") {
+            if let (Some(v), Some(n)) = (w["v_number"].as_f64(), w["guided_modes"].as_i64()) {
+                parts.push(format!("V number {v:.2}, {n} guided modes"));
+            }
+        }
+        if let Some(p) = e.get("prism") {
+            parts.push(match deg(&p["min_deviation_deg"]) {
+                Some(a) => format!("minimum deviation {a}"),
+                None => "no minimum deviation (total internal reflection)".into(),
+            });
+        }
+        if !parts.is_empty() {
+            out.push(format!("{id}: {}", parts.join("; ")));
+        }
+    }
+    out
+}
+
 /// Solve and display options shared by `solve` and `frames`.
 struct SolveOpts {
+    method: Option<Method>,
     quality: Quality,
+    ppw: Option<f64>,
     width: Option<u32>,
     height: Option<u32>,
     view: View,
     quiet: bool,
 }
 
-fn solve_opts(a: &mut Args, scene: &mut Scene, default_quantity: Quantity) -> Result<SolveOpts> {
-    if let Some(m) = a.value(&["--solver"])? {
-        scene.solver.method = Method::parse(&m).ok_or_else(|| Fail::Usage(format!("unknown solver '{m}'")))?;
+impl SolveOpts {
+    /// Applies the solver and resolution overrides to the scene.
+    fn apply(&self, scene: &mut Scene) {
+        if let Some(m) = self.method {
+            scene.solver.method = m;
+        }
+        if let Some(ppw) = self.ppw {
+            let s = &mut scene.solver;
+            let slot = match (s.method, self.quality) {
+                (Method::Fdtd, Quality::Preview) => &mut s.fdtd.preview_ppw,
+                (Method::Fdtd, Quality::Final) => &mut s.fdtd.final_ppw,
+                (Method::Fem, Quality::Preview) => &mut s.fem.preview_ppw,
+                (Method::Fem, Quality::Final) => &mut s.fem.final_ppw,
+                (Method::Mom, Quality::Preview) => &mut s.mom.preview_ppw,
+                (Method::Mom, Quality::Final) => &mut s.mom.final_ppw,
+            };
+            *slot = Some(ppw);
+        }
     }
+}
+
+fn solve_opts(a: &mut Args, default_quantity: Quantity) -> Result<SolveOpts> {
+    let method = match a.value(&["--solver"])? {
+        Some(m) => Some(Method::parse(&m).ok_or_else(|| Fail::Usage(format!("unknown solver '{m}'")))?),
+        None => None,
+    };
     let quality = match a.value(&["--quality"])? {
         Some(q) => Quality::parse(&q).ok_or_else(|| Fail::Usage(format!("unknown quality '{q}'")))?,
         None => Quality::Final,
     };
-    if let Some(ppw) = a.parsed::<f64>(&["--ppw"])? {
-        let s = &mut scene.solver;
-        let slot = match (s.method, quality) {
-            (Method::Fdtd, Quality::Preview) => &mut s.fdtd.preview_ppw,
-            (Method::Fdtd, Quality::Final) => &mut s.fdtd.final_ppw,
-            (Method::Fem, Quality::Preview) => &mut s.fem.preview_ppw,
-            (Method::Fem, Quality::Final) => &mut s.fem.final_ppw,
-            (Method::Mom, Quality::Preview) => &mut s.mom.preview_ppw,
-            (Method::Mom, Quality::Final) => &mut s.mom.final_ppw,
-        };
-        *slot = Some(ppw);
-    }
+    let ppw = a.parsed::<f64>(&["--ppw"])?;
     let quantity = match a.value(&["--quantity"])? {
         Some(q) => Quantity::parse(&q).ok_or_else(|| Fail::Usage(format!("unknown quantity '{q}'")))?,
         None => default_quantity,
@@ -328,10 +424,10 @@ fn solve_opts(a: &mut Args, scene: &mut Scene, default_quantity: Quantity) -> Re
             return Err(Fail::Usage(format!("image sizes must be 1–{}", beam_core::render::MAX_DIMENSION)));
         }
     }
-    Ok(SolveOpts { quality, width, height, view, quiet: a.flag(&["--quiet", "-q"]) })
+    Ok(SolveOpts { method, quality, ppw, width, height, view, quiet: a.flag(&["--quiet", "-q"]) })
 }
 
-/// Pixel size and view rectangle (spec §8): one dimension follows the other from
+/// Pixel size and view rectangle: one dimension follows the other from
 /// the domain aspect; with both, the domain is centred and grown to fit.
 fn image_size(scene: &Scene, width: Option<u32>, height: Option<u32>) -> (u32, u32, Option<ViewRect>) {
     let d = &scene.domain;
@@ -444,10 +540,12 @@ fn cmd_solve(a: &mut Args) -> Result<()> {
     let out = a.value(&["-o", "--output"])?.ok_or_else(|| Fail::Usage("solve needs -o OUT.png".into()))?;
     let npy = a.value(&["--npy"])?;
     let stats = a.value(&["--stats"])?;
-    let src = a.value(&["--scene"])?.or_else(|| a.positional()).ok_or_else(|| Fail::Usage("solve needs a SCENE".into()))?;
-    let mut scene = read_scene(&src)?;
-    let mut opts = solve_opts(a, &mut scene, Quantity::Intensity)?;
+    let scene_flag = a.value(&["--scene"])?;
+    let mut opts = solve_opts(a, Quantity::Intensity)?;
+    let src = scene_flag.or_else(|| a.positional()).ok_or_else(|| Fail::Usage("solve needs a SCENE".into()))?;
     a.finish()?;
+    let mut scene = read_scene(&src)?;
+    opts.apply(&mut scene);
     let (w, h, rect) = image_size(&scene, opts.width, opts.height);
     opts.view.view_um = rect;
     let field = solve_scene(&scene, opts.quality, opts.quiet)?;
@@ -478,10 +576,11 @@ fn cmd_frames(a: &mut Args) -> Result<()> {
     if n == 0 {
         return Err(Fail::Usage("--frames must be at least 1".into()));
     }
+    let mut opts = solve_opts(a, Quantity::Real)?;
     let src = a.positional().ok_or_else(|| Fail::Usage("frames needs a SCENE".into()))?;
-    let mut scene = read_scene(&src)?;
-    let mut opts = solve_opts(a, &mut scene, Quantity::Real)?;
     a.finish()?;
+    let mut scene = read_scene(&src)?;
+    opts.apply(&mut scene);
     let (w, h, rect) = image_size(&scene, opts.width, opts.height);
     opts.view.view_um = rect;
     let field = solve_scene(&scene, opts.quality, opts.quiet)?;
@@ -603,12 +702,17 @@ fn cmd_compare(a: &mut Args) -> Result<()> {
         let f = solve_scene(&s, quality, as_json)?;
         fields.push((m, f));
     }
+    // The intensity peak on the source axis past the last enabled element (the
+    // whole axis when there is none): the focus of a lens, the first maximum
+    // behind a slit.
+    let bodies = beam_core::geometry::bodies_from_scene(&scene);
+    let x_from = bodies.iter().map(|b| b.bbox.x_max).fold(scene.domain.x_min_um, f64::max);
     let mut per_solver = Vec::new();
     for (m, f) in &fields {
-        let peak = focal_peak(f, axis_y, scene.domain.x_min_um, scene.domain.x_max_um);
+        let peak = focal_peak(f, axis_y, x_from, scene.domain.x_max_um);
         per_solver.push(serde_json::json!({
             "solver": m, "seconds": f.meta.wall_s, "unknowns": f.meta.solver.unknowns,
-            "focal_peak_x_um": peak.map(|p| p.0), "focal_peak_intensity": peak.map(|p| p.1),
+            "axial_peak_x_um": peak.map(|p| p.0), "axial_peak_intensity": peak.map(|p| p.1),
             "peak_intensity": f.norms().max[0].powi(2),
         }));
     }
@@ -628,20 +732,22 @@ fn cmd_compare(a: &mut Args) -> Result<()> {
     if as_json {
         println!("{}", serde_json::to_string_pretty(&serde_json::json!({ "solvers": per_solver, "pairs": pairs })).unwrap_or_default());
     } else {
+        let label = |v: &serde_json::Value| v.as_str().and_then(Method::parse).map_or("?", |m| m.label());
+        println!("past x = {} µm on the axis y = {} µm:", fmt(x_from), fmt(axis_y));
         for s in &per_solver {
             println!(
-                "{:<5} {:>8.2} s  focal peak x = {}  peak |E|² = {:.3}",
-                s["solver"].as_str().unwrap_or("").to_uppercase(),
+                "{:<5} {:>8.2} s  axial peak x = {}  peak |E|² = {:.3}",
+                label(&s["solver"]),
                 s["seconds"].as_f64().unwrap_or(0.0),
-                s["focal_peak_x_um"].as_f64().map_or("-".into(), |v| format!("{v:.3} µm")),
+                s["axial_peak_x_um"].as_f64().map_or("-".into(), |v| format!("{v:.3} µm")),
                 s["peak_intensity"].as_f64().unwrap_or(0.0)
             );
         }
         for p in &pairs {
             println!(
                 "{} vs {}: relative L2 difference {:.3e}",
-                p["a"].as_str().unwrap_or("").to_uppercase(),
-                p["b"].as_str().unwrap_or("").to_uppercase(),
+                label(&p["a"]),
+                label(&p["b"]),
                 p["rel_l2"].as_f64().unwrap_or(f64::NAN)
             );
         }

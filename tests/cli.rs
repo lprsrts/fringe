@@ -124,3 +124,35 @@ fn validate_prints_a_row_per_case_and_solver() {
     assert_eq!(code(&cli(&["validate", "--case", "nope"], None)), 2);
     assert_eq!(code(&cli(&["validate", "--solver", "nope"], None)), 2);
 }
+
+/// Value flags may come before SCENE; a missing scene file is a file error
+/// (exit 3), not a usage error.
+#[test]
+fn flags_before_scene_and_file_errors() {
+    let dir = tmp("flag_order");
+    std::fs::create_dir_all(&dir).unwrap();
+    let scene = dir.join("mie.json");
+    std::fs::write(&scene, example("mie_pec")).unwrap();
+    let png = dir.join("o.png");
+    let (s, p) = (scene.to_str().unwrap(), png.to_str().unwrap());
+    let o = cli(&["solve", "--solver", "mom", "--quality", "preview", "--width", "64", s, "-o", p, "--quiet"], None);
+    assert_eq!(code(&o), 0, "{}", String::from_utf8_lossy(&o.stderr));
+    let frames = dir.join("frames");
+    let o = cli(&["frames", "--width", "32", "--frames", "2", "--quality", "preview", s, "-o", frames.to_str().unwrap(), "--quiet"], None);
+    assert_eq!(code(&o), 0, "{}", String::from_utf8_lossy(&o.stderr));
+    let o = cli(&["solve", dir.join("missing.json").to_str().unwrap(), "-o", p], None);
+    assert_eq!(code(&o), 3);
+    assert!(!String::from_utf8_lossy(&o.stderr).contains("--help"));
+}
+
+#[test]
+fn compare_and_check_read_as_text() {
+    let o = cli(&["compare", "-", "--solvers", "mom,fdtd", "--quality", "preview"], Some(&example("mie_pec")));
+    assert_eq!(code(&o), 0, "{}", String::from_utf8_lossy(&o.stderr));
+    let text = String::from_utf8_lossy(&o.stdout);
+    assert!(text.contains("MoM vs FDTD") && text.contains("axial peak"), "{text}");
+    let o = cli(&["check", "-"], Some(&example("lens")));
+    let text = String::from_utf8_lossy(&o.stdout);
+    assert!(text.contains("lens-1: paraxial focal length 12.5217 µm"), "{text}");
+    assert!(!text.contains('{'), "{text}");
+}
