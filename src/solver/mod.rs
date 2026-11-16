@@ -192,6 +192,24 @@ pub fn solver_for(m: Method) -> &'static dyn Solver {
     }
 }
 
+/// Seconds per output point and incident plane wave for evaluating the incident
+/// field (one GEMM; release build, M-series Mac).
+const C_INCIDENT: f64 = 5e-11;
+
+/// The selected solver's estimate for `p`, plus the cost of evaluating the
+/// incident field on the output grid, which matters for a Gaussian beam with
+/// thousands of plane waves.
+pub fn estimate(p: &Problem) -> Estimate {
+    let solver = solver_for(p.settings.method);
+    let mut est = solver.estimate(p);
+    let points = match p.settings.method {
+        Method::Fdtd => est.grid.map_or(0, |[nx, ny]| nx * ny),
+        Method::Fem | Method::Mom => p.output_grid().len(),
+    };
+    est.seconds += C_INCIDENT * points as f64 * p.incident.comps.len() as f64;
+    est
+}
+
 /// Validates, compiles and solves `scene` with its selected method, and returns
 /// the total and incident fields on the solver's grid.
 pub fn solve(scene: &Scene, quality: Quality, ctx: &SolveContext) -> Result<FieldGrid, SolveError> {
@@ -199,7 +217,7 @@ pub fn solve(scene: &Scene, quality: Quality, ctx: &SolveContext) -> Result<Fiel
     ctx.stage(Stage::Setup, (0.0, 0.02));
     let p = compile(scene, quality).map_err(SolveError::Invalid)?;
     let solver = solver_for(p.settings.method);
-    let est = solver.estimate(&p);
+    let est = estimate(&p);
     if let Some(e) = solver.check(&p).into_iter().find(|i| i.is_error()) {
         if e.code == "too_large" {
             return Err(SolveError::TooLarge { need_mb: est.memory_mb, limit_mb: p.settings.memory_limit_mb });

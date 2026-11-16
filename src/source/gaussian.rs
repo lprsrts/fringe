@@ -16,6 +16,29 @@ use super::PlaneComponent;
 /// at the probes by less than this (relative to the amplitude).
 const ACCEPT_TOL: f64 = 1e-10;
 
+/// Most plane waves a beam may have. The scenes in the examples need about a
+/// hundred; the count grows with the distance from the waist to the far corner
+/// of the domain, and validation rejects a waist that would need more.
+pub const MAX_COMPONENTS: usize = 4096;
+
+/// Largest spectral angle kept: beyond sin α = 12.2/(k w0) the spectrum is
+/// below 1e−16.
+fn alpha_max(k: f64, w0: f64) -> f64 {
+    (12.2 / (k * w0)).min(1.0).asin().min(std::f64::consts::FRAC_PI_2)
+}
+
+/// The first quadrature size tried for a beam that must be accurate out to
+/// `r_max` from its waist (not clamped).
+pub fn nodes_needed(k: f64, w0: f64, r_max: f64) -> f64 {
+    (0.6 * k * r_max * alpha_max(k, w0)).ceil() + 24.0
+}
+
+/// The largest `r_max` for which [`nodes_needed`] stays within
+/// [`MAX_COMPONENTS`].
+pub fn max_reach(k: f64, w0: f64) -> f64 {
+    (MAX_COMPONENTS as f64 - 25.0) / (0.6 * k * alpha_max(k, w0))
+}
+
 pub fn components(
     k: f64,
     w0: f64,
@@ -25,19 +48,19 @@ pub fn components(
     phase: f64,
     accurate_in: Rect,
 ) -> (Vec<PlaneComponent>, Vec<String>) {
-    // Beyond sin α = 12.2/(k w0) the spectrum is below 1e−16.
-    let alpha_max = (12.2 / (k * w0)).min(1.0).asin().min(std::f64::consts::FRAC_PI_2);
+    let alpha_max = alpha_max(k, w0);
     let r_max = accurate_in
         .corners()
         .iter()
         .map(|c| c.dist(waist))
         .fold(0.0, f64::max);
     let probes = probe_points(waist, theta, r_max);
-    let mut m = ((0.6 * k * r_max * alpha_max).ceil() as usize + 24).clamp(32, 8192);
+    // Start low enough that one refinement fits under the cap.
+    let mut m = (nodes_needed(k, w0, r_max).min(1e9) as usize).clamp(32, MAX_COMPONENTS * 2 / 3);
     let mut warnings = Vec::new();
     let mut comps = build(k, w0, theta, amplitude, phase, alpha_max, m);
     for attempt in 0..=6 {
-        let m_next = (1.5 * m as f64).ceil() as usize;
+        let m_next = ((1.5 * m as f64).ceil() as usize).min(MAX_COMPONENTS);
         let finer = build(k, w0, theta, amplitude, phase, alpha_max, m_next);
         let diff = probes
             .iter()
@@ -46,7 +69,7 @@ pub fn components(
         if diff <= ACCEPT_TOL * amplitude {
             break;
         }
-        if attempt == 6 {
+        if attempt == 6 || m_next == MAX_COMPONENTS {
             warnings.push(format!(
                 "the Gaussian beam's angular spectrum is only accurate to {:.1e} of its amplitude over this domain",
                 diff / amplitude

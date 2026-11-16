@@ -191,3 +191,33 @@ fn check_report_shape() {
     assert!(!bad.ok);
     assert_eq!(bad.issues[0].code, "parse");
 }
+
+fn codes_at(s: &beam_core::Scene, path: &str) -> Vec<String> {
+    errors(&validate(s)).iter().filter(|i| i.path == path).map(|i| i.code.clone()).collect()
+}
+
+/// A waist far from the domain would need a huge plane-wave sum; it is refused
+/// with a message that says how far is possible, and the check returns at once.
+#[test]
+fn far_waist_is_refused_quickly() {
+    use beam_core::scene::Source;
+    let set = |s: &mut beam_core::Scene, x: f64, w: f64| {
+        if let Source::GaussianBeam { waist_x_um, waist_um, .. } = &mut s.source {
+            *waist_x_um = x;
+            *waist_um = w;
+        }
+    };
+    let mut s = examples::default();
+    set(&mut s, -100.0, 0.1);
+    assert!(codes_at(&s, "source.waist_x_um").is_empty());
+    set(&mut s, -10000.0, 0.1);
+    let t = std::time::Instant::now();
+    let r = check(&s);
+    assert!(t.elapsed().as_secs_f64() < 2.0, "check took {:.1} s", t.elapsed().as_secs_f64());
+    let e = r.issues.iter().find(|i| i.code == "waist_too_far").expect("waist_too_far");
+    assert_eq!(e.path, "source.waist_x_um");
+    assert!(e.message.contains("can only be built out to"), "{}", e.message);
+    // A wide beam diverges less and may sit farther away.
+    set(&mut s, -2000.0, 20.0);
+    assert!(codes_at(&s, "source.waist_x_um").is_empty());
+}

@@ -219,3 +219,16 @@ fn default_scene_incident_is_accurate() {
     eprintln!("default scene: {} components", inc.comps.len());
     assert!(inc.comps.len() < 400);
 }
+
+/// Built directly (no validation), a beam whose waist is far from the domain
+/// stops at the component cap with an accuracy warning instead of growing the
+/// quadrature without bound.
+#[test]
+fn far_waist_is_capped() {
+    use beam_core::source::gaussian::MAX_COMPONENTS;
+    let t = std::time::Instant::now();
+    let inc = beam(0.1, Vec2::new(-10000.0, 0.0), 0.0, Rect::new(-6.0, 10.0, -4.5, 4.5));
+    assert!(inc.comps.len() <= MAX_COMPONENTS, "{} components", inc.comps.len());
+    assert!(!inc.warnings.is_empty());
+    assert!(t.elapsed().as_secs_f64() < 5.0, "took {:.1} s", t.elapsed().as_secs_f64());
+}

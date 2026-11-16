@@ -7,6 +7,7 @@ use crate::geometry::{
     element_bodies, lens_surface_x, min_gap, polygon_self_intersects, signed_area, Body,
 };
 use crate::solver::Quality;
+use crate::source::gaussian;
 use crate::types::Vec2;
 
 use super::types::*;
@@ -150,6 +151,9 @@ pub fn validate(scene: &Scene) -> Vec<Issue> {
 
     check_source(&mut c, &scene.source, lambda_b);
     let domain_ok = check_domain(&mut c, &scene.domain, lambda_b);
+    if domain_ok {
+        check_waist_reach(&mut c, scene, lambda_b);
+    }
     check_solver(&mut c, &scene.solver);
 
     let mut element_ok = vec![true; scene.elements.len()];
@@ -290,6 +294,32 @@ fn check_source(c: &mut Checker, s: &Source, lambda_b: f64) {
 fn check_amplitude(c: &mut Checker, a: f64) {
     if c.finite("source.amplitude", a, "Amplitude") && a <= 0.0 {
         c.err("source.amplitude", "out_of_range", "amplitude must be positive");
+    }
+}
+
+/// A Gaussian beam is a sum of plane waves, and the number it needs grows with
+/// the distance from the waist to the far corner of the domain (PML included).
+/// A waist too far away is refused rather than built for minutes.
+fn check_waist_reach(c: &mut Checker, scene: &Scene, lambda_b: f64) {
+    let Source::GaussianBeam { waist_um, waist_x_um, waist_y_um, .. } = scene.source else { return };
+    if !(waist_um.is_finite() && waist_x_um.is_finite() && waist_y_um.is_finite() && waist_um >= 0.1 * lambda_b) {
+        return;
+    }
+    let outer = scene.domain.rect().expand(scene.domain.pml_wl * lambda_b);
+    let waist = Vec2::new(waist_x_um, waist_y_um);
+    let r_max = outer.corners().iter().map(|p| p.dist(waist)).fold(0.0, f64::max);
+    let k = 2.0 * std::f64::consts::PI / lambda_b;
+    if gaussian::nodes_needed(k, waist_um, r_max) > gaussian::MAX_COMPONENTS as f64 {
+        c.err(
+            "source.waist_x_um",
+            "waist_too_far",
+            format!(
+                "the waist is {:.0} µm from the far corner of the domain; a beam with a {} µm waist can only be built out to {:.0} µm",
+                r_max,
+                fmt(waist_um),
+                gaussian::max_reach(k, waist_um).floor()
+            ),
+        );
     }
 }
 

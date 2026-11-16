@@ -48,7 +48,7 @@ pub fn check(scene: &Scene) -> CheckReport {
         let p = compile_unchecked(scene, q);
         let solver = solver_for(p.settings.method);
         let mut extra = solver.check(&p);
-        let est: Estimate = solver.estimate(&p);
+        let est: Estimate = crate::solver::estimate(&p);
         if est.memory_mb > p.settings.memory_limit_mb {
             extra.push(Issue::error(
                 "solver.memory_limit_mb",
