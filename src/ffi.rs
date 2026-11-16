@@ -9,10 +9,11 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 
 use crate::check::check_json;
-use crate::geometry::{element_bodies, BodyMaterial};
+use crate::geometry::{element_bodies, BodyMaterial, MAX_POLYGON_VERTICES};
 use crate::job::Job;
 use crate::render::{export_png_file, render_rgba, write_npy_c128, Colormap, View};
-use crate::scene::{examples, parse_scene, to_json, validate, Issue, Source};
+use crate::scene::validate::{MAX_GRATING_BARS, MAX_SLITS};
+use crate::scene::{examples, parse_scene, to_json, validate, Issue, Shape, Source};
 use crate::solver::context::{STATE_CANCELLED, STATE_DONE, STATE_FAILED};
 use crate::solver::{FieldGrid, Part, Quality, SolveError};
 use crate::types::Vec2;
@@ -139,11 +140,20 @@ pub fn scene_outlines_json(scene_json: &str) -> Value {
     let lambda_b = scene.wavelength_um / scene.background.n;
     let chord = lambda_b / 20.0;
     // Disabled elements are listed too (flagged), so the app can draw and select
-    // them; an element whose parameters do not give a finite outline is skipped.
+    // them; an element whose parameters do not give a finite outline is skipped,
+    // and so is one with more slits, bars or vertices than validation allows
+    // (the scene is not validated here, and those would cost time and memory in
+    // proportion). `polyline` bounds the points per contour.
     let bodies: Vec<Value> = scene
         .elements
         .iter()
         .enumerate()
+        .filter(|(_, e)| match &e.shape {
+            Shape::Slits { count, .. } => *count <= MAX_SLITS,
+            Shape::Grating { count, .. } => *count <= MAX_GRATING_BARS,
+            Shape::Polygon { vertices_um } => vertices_um.len() <= MAX_POLYGON_VERTICES,
+            _ => true,
+        })
         .flat_map(|(i, e)| element_bodies(i, e).into_iter().map(move |b| (e.enabled, b)))
         .filter_map(|(enabled, b)| {
             let outline: Vec<[f64; 2]> = b.contour.polyline(chord, 2f64.to_radians()).iter().map(|p| p.to_array()).collect();

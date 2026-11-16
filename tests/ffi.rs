@@ -108,6 +108,34 @@ fn outlines() {
     assert_eq!(find("lens-3").unwrap()["enabled"], false);
 }
 
+/// Outlines are not validated, so a huge element, a tiny wavelength or an
+/// element count far over the limits must still come back quickly and small.
+#[test]
+fn outlines_are_bounded() {
+    let base: serde_json::Value = serde_json::from_str(default_scene().to_str().unwrap()).unwrap();
+    let mut cases = Vec::new();
+    let mut big = base.clone();
+    big["elements"][0]["shape"] = serde_json::json!({ "kind": "cylinder", "radius_um": 1e5 });
+    cases.push(big);
+    let mut tiny = base.clone();
+    tiny["wavelength_um"] = 1e-7.into();
+    cases.push(tiny);
+    let mut slits = base.clone();
+    slits["elements"][0]["material"] = serde_json::json!({ "type": "pec" });
+    slits["elements"][0]["shape"] = serde_json::json!({
+        "kind": "slits", "count": 4_000_000_000u32, "slit_width_um": 1.0, "pitch_um": 2.0,
+        "screen_height_um": 10.0, "thickness_um": 0.5
+    });
+    cases.push(slits);
+    for v in cases {
+        let t = Instant::now();
+        let o = json(unsafe { beam_scene_outlines(cstr(&v.to_string()).as_ptr()) });
+        assert!(t.elapsed() < Duration::from_secs(2), "took {:?}", t.elapsed());
+        let points: usize = o["bodies"].as_array().unwrap().iter().map(|b| b["outline"].as_array().unwrap().len()).sum();
+        assert!(points <= 10_000, "{points} outline points");
+    }
+}
+
 #[test]
 fn job_lifecycle_on_the_default_scene() {
     let scene = default_scene();

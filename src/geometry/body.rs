@@ -4,6 +4,9 @@ use crate::types::{Rect, Vec2, C64};
 
 use super::curve::Segment;
 
+/// See [`Contour::polyline`].
+pub const MAX_POLYLINE_PIECES: f64 = 4096.0;
+
 /// A closed, continuous boundary traversed counter-clockwise (interior on the left).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Contour {
@@ -77,8 +80,11 @@ impl Contour {
 
     /// Points along the contour (the closing point is not repeated). Each segment is
     /// split into equal-parameter pieces no longer than `max_chord` and turning no
-    /// more than `max_angle_rad`.
+    /// more than `max_angle_rad`. The chord is raised if needed so that the
+    /// length-based pieces number at most [`MAX_POLYLINE_PIECES`] per contour,
+    /// which bounds the output for a huge body or a tiny wavelength.
     pub fn polyline(&self, max_chord: f64, max_angle_rad: f64) -> Vec<Vec2> {
+        let max_chord = max_chord.max(self.length() / MAX_POLYLINE_PIECES);
         let mut out = Vec::new();
         for s in &self.segments {
             let mut n = 1usize;

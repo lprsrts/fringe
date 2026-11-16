@@ -67,6 +67,10 @@ impl Issue {
     }
 }
 
+/// Most slits in a slit screen and bars in a grating.
+pub const MAX_SLITS: u32 = 64;
+pub const MAX_GRATING_BARS: u32 = 200;
+
 /// Minimum feature size and gap, in background wavelengths.
 pub const MIN_FEATURE_WL: f64 = 0.05;
 
@@ -499,8 +503,8 @@ fn check_element(c: &mut Checker, i: usize, e: &Element, lambda0: f64, lambda_b:
             }
         }
         Shape::Slits { count, slit_width_um: w, pitch_um, screen_height_um, thickness_um } => {
-            let n_ok = if !(1..=64).contains(&count) {
-                c.err(s("count"), "out_of_range", "slit count must be between 1 and 64");
+            let n_ok = if !(1..=MAX_SLITS).contains(&count) {
+                c.err(s("count"), "out_of_range", format!("slit count must be between 1 and {MAX_SLITS}"));
                 false
             } else {
                 true
@@ -535,8 +539,8 @@ fn check_element(c: &mut Checker, i: usize, e: &Element, lambda0: f64, lambda_b:
         Shape::Grating { period_um, fill_factor, depth_um, count, substrate_um } => {
             let p_ok = c.dim(&s("period_um"), period_um, feat, "Period");
             c.dim(&s("depth_um"), depth_um, thick, "Depth");
-            if !(1..=200).contains(&count) {
-                c.err(s("count"), "out_of_range", "bar count must be between 1 and 200");
+            if !(1..=MAX_GRATING_BARS).contains(&count) {
+                c.err(s("count"), "out_of_range", format!("bar count must be between 1 and {MAX_GRATING_BARS}"));
             }
             let f_ok = c.finite(&s("fill_factor"), fill_factor, "Fill factor");
             if f_ok && !(fill_factor > 0.0 && fill_factor < 1.0) {
