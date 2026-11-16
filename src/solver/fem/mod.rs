@@ -43,7 +43,9 @@ const C_MEM: f64 = 6.5e-4;
 const C_T: f64 = 2.0e-7;
 
 /// Estimated number of DOFs (all nodes) of the mesh `mesh::build` makes: about
-/// p² · (2/√3)/h² per unit area plus the finer constraint points along contours.
+/// p² · (2/√3)/h² per unit area plus the constraint points along contours. Every
+/// segment gets at least one constraint point, so a polygon with many short
+/// edges costs more than its perimeter suggests.
 pub(crate) fn estimate_dofs(p: &Problem) -> f64 {
     let order = p.settings.fem.order.clamp(1, 3) as f64;
     let h_b = mesh::background_h(p, order);
@@ -52,13 +54,30 @@ pub(crate) fn estimate_dofs(p: &Problem) -> f64 {
     for (b, body) in p.bodies.iter().enumerate() {
         let area = body.contour.area().abs();
         total -= area * per_area(h_b);
-        if let Some(h) = mesh::body_h(p, b, order) {
+        let h_in = mesh::body_h(p, b, order);
+        if let Some(h) = h_in {
             total += area * per_area(h);
-            // Constraint points along the contour at the finer spacing.
-            total += order * body.contour.length() / h.min(h_b) * 1.5;
         }
+        // Constraint points along the contour, as `mesh::build` places them.
+        let h_bnd = h_in.map_or(h_b, |h| h.min(h_b));
+        let points: f64 = body.contour.segments.iter().map(|s| (s.length() / h_bnd).ceil().max(1.0)).sum();
+        total += order * order * points;
     }
     total.max(1.0)
+}
+
+/// Peak memory for `n` system unknowns: the factorisation plus, per output
+/// point, the sampled field and the pipeline's total, incident and region
+/// arrays (70 B, as for MoM).
+fn memory_mb(p: &Problem, n: f64) -> f64 {
+    C_MEM * n * n.max(2.0).log2() + 70.0 * p.output_grid().len() as f64 / 1e6
+}
+
+fn max_dofs(q: Quality) -> f64 {
+    match q {
+        Quality::Preview => MAX_DOFS_PREVIEW,
+        Quality::Final => MAX_DOFS_FINAL,
+    }
 }
 
 /// Estimated size of the global system: P3 face DOFs (2 per vertex, 2/9 of all)
@@ -80,10 +99,7 @@ impl Solver for FemSolver {
     fn check(&self, p: &Problem) -> Vec<Issue> {
         let mut issues = Vec::new();
         let dofs = estimate_dofs(p);
-        let limit = match p.quality {
-            Quality::Preview => MAX_DOFS_PREVIEW,
-            Quality::Final => MAX_DOFS_FINAL,
-        };
+        let limit = max_dofs(p.quality);
         if dofs > limit {
             issues.push(
                 Issue::error(
@@ -106,7 +122,7 @@ impl Solver for FemSolver {
         let n = estimate_unknowns(p).max(2.0);
         Estimate {
             unknowns: n as u64,
-            memory_mb: C_MEM * n * n.log2(),
+            memory_mb: memory_mb(p, n),
             seconds: C_T * n.powf(1.4),
             grid: None,
             detail: format!("{}k unknowns · P{}", n as u64 / 1000, p.settings.fem.order),
@@ -134,6 +150,21 @@ impl Solver for FemSolver {
         ctx.set_unknowns(dofs.n_free as u64);
         lap("dofs", &mut timings);
         ctx.checkpoint()?;
+        // The estimate that let this solve start is a model; refuse the real
+        // mesh if it is over the limits before factoring it.
+        let n = dofs.n_free as f64;
+        let need_mb = memory_mb(p, n);
+        if need_mb > p.settings.memory_limit_mb {
+            return Err(SolveError::TooLarge { need_mb, limit_mb: p.settings.memory_limit_mb });
+        }
+        if n > max_dofs(p.quality) {
+            return Err(SolveError::Unsupported(format!(
+                "the FEM {} mesh has {:.0}k unknowns, more than the {:.0}k limit",
+                p.quality.name(),
+                n / 1e3,
+                max_dofs(p.quality) / 1e3
+            )));
+        }
 
         ctx.stage(Stage::Assemble, (0.10, 0.25));
         let mut sys = assemble::assemble(p, &mesh, &el, &dofs, ctx)?;

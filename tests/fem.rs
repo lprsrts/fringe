@@ -289,3 +289,29 @@ fn fem_pml_hygiene_detects_a_weak_pml() {
     let bound = cases::spec("pml_hygiene").unwrap().fem.unwrap();
     assert!(e > 2.0 * bound, "R0 = 1e-3 gives {e:.2e}, bound {bound:.1e}");
 }
+
+/// The estimate counts a polygon's vertices as mesh constraint points and the
+/// output grid as memory.
+#[test]
+fn fem_estimate_counts_vertices_and_output() {
+    use beam_core::scene::Shape;
+    let mut s = case_scene("mie_diel").unwrap();
+    s.solver.method = FEM;
+    let n = 2000;
+    s.elements[0].shape = Shape::Polygon {
+        vertices_um: (0..n)
+            .map(|k| 2.0 * std::f64::consts::PI * k as f64 / n as f64)
+            .map(|a| [a.cos(), a.sin()])
+            .collect(),
+    };
+    let p = compile(&s, Quality::Preview).unwrap();
+    let est = beam_core::solver::estimate(&p);
+    let f = solve(&s, Quality::Preview, &SolveContext::new()).unwrap();
+    let ratio = est.unknowns as f64 / f.meta.solver.unknowns as f64;
+    assert!((0.7..=1.5).contains(&ratio), "estimate {} vs {} unknowns", est.unknowns, f.meta.solver.unknowns);
+    s.solver.output.preview_ppw = Some(80.0);
+    let p = compile(&s, Quality::Preview).unwrap();
+    let est_fine = beam_core::solver::estimate(&p);
+    let points = p.output_grid().len() as f64;
+    assert!(est_fine.memory_mb - est.memory_mb > 60.0 * points / 1e6, "{} vs {} MB", est_fine.memory_mb, est.memory_mb);
+}
