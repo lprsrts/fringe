@@ -28,7 +28,7 @@ public struct HoverReadout: Equatable {
 @Observable
 public final class AppState {
     /// Every edit goes through here.
-    public var document: BeamDocument {
+    public var document: FringeDocument {
         didSet { documentChanged(from: oldValue) }
     }
 
@@ -99,35 +99,39 @@ public final class AppState {
     @ObservationIgnored private weak var shownOutlinesField: FieldHandle?
     @ObservationIgnored private weak var shownFocusField: FieldHandle?
     @ObservationIgnored private var shownFocusPoints: [[Double]] = []
-    public let examples: [ExampleInfo] = BeamBridge.examples()
+    public let examples: [ExampleInfo] = FringeBridge.examples()
 
     @ObservationIgnored public var undoManager: UndoManager?
     /// The document as it was when the first of the current drags or gestures began.
-    @ObservationIgnored private var trackingSnapshot: BeamDocument?
+    @ObservationIgnored private var trackingSnapshot: FringeDocument?
     @ObservationIgnored private var lastEdit: (name: String, key: AnyHashable, time: Date)?
     @ObservationIgnored private var persistTask: Task<Void, Never>?
+    /// False after a launch with overrides until the user changes something, so a
+    /// scripted run never replaces the saved document.
+    @ObservationIgnored private var persistsDocument = true
     @ObservationIgnored private var noticeTask: Task<Void, Never>?
     @ObservationIgnored private var exportAfterFinal = false
     @ObservationIgnored private var lutCache: (name: String, wavelength: Double, lut: [UInt8])?
 
     private static let maxPreviewEdge: CGFloat = 4096
-    static let log = Logger(subsystem: "com.asympton.beam-bg", category: "app")
+    static let log = Logger(subsystem: "com.asympton.fringe", category: "app")
 
     /// UserDefaults key of the saved document.
-    public static let documentKey = "beam.document.v2"
+    public static let documentKey = "fringe.document.v2"
 
     public init() {
-        var document = Self.restoredDocument() ?? BeamDocument(scene: BeamBridge.defaultScene())
+        var document = Self.restoredDocument() ?? FringeDocument(scene: FringeBridge.defaultScene())
         let launch = LaunchOptions.read(examples: examples)
         launch.apply(to: &document)
         self.document = document
+        persistsDocument = !launch.hasOverrides
         if let selection = launch.selection(in: document.scene) {
             self.selection = selection
         }
 
         solver.onResult = { [weak self] in self?.solveResultChanged() }
         solver.onNotice = { [weak self] message in self?.showNotice(message) }
-        outlines = BeamBridge.outlines(document.scene)
+        outlines = FringeBridge.outlines(document.scene)
         enforceShapeLock()
         solver.update(scene: self.document.scene, tracking: false)
         if launch.runFinal {
@@ -139,7 +143,10 @@ public final class AppState {
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.saveNow() }
+            MainActor.assumeIsolated {
+                guard let self, self.persistsDocument else { return }
+                self.saveNow()
+            }
         }
     }
 
@@ -208,12 +215,13 @@ public final class AppState {
     /// step, so typing a value or clicking zoom repeatedly is not one step per key or click.
     /// Pass a key that identifies the target (an element and property), so edits to two
     /// different elements never merge.
-    public func edit(_ name: String, coalescingKey: AnyHashable? = nil, _ change: (inout BeamDocument) -> Void) {
+    public func edit(_ name: String, coalescingKey: AnyHashable? = nil, _ change: (inout FringeDocument) -> Void) {
         let before = document
         var after = document
         change(&after)
         lockShape(&after)
         guard after != before else { return }
+        persistsDocument = true
         document = after
         let now = Date()
         guard let key = coalescingKey else {
@@ -232,7 +240,7 @@ public final class AppState {
 
     /// A binding that records each set as one undo step, except while a slider or
     /// gesture is tracking, when the whole drag becomes one step on release.
-    public func binding<Value>(_ name: String, _ keyPath: WritableKeyPath<BeamDocument, Value>) -> Binding<Value> {
+    public func binding<Value>(_ name: String, _ keyPath: WritableKeyPath<FringeDocument, Value>) -> Binding<Value> {
         Binding(
             get: { self.document[keyPath: keyPath] },
             set: { newValue in
@@ -240,6 +248,7 @@ public final class AppState {
                     var doc = self.document
                     doc[keyPath: keyPath] = newValue
                     self.lockShape(&doc)
+                    self.persistsDocument = true
                     self.document = doc
                 } else {
                     self.edit(name, coalescingKey: keyPath) { $0[keyPath: keyPath] = newValue }
@@ -299,7 +308,7 @@ public final class AppState {
         solver.update(scene: scene, tracking: false)
     }
 
-    private func registerUndo(_ name: String, restoring snapshot: BeamDocument) {
+    private func registerUndo(_ name: String, restoring snapshot: FringeDocument) {
         guard snapshot != document, let undoManager else { return }
         undoManager.registerUndo(withTarget: self) { model in
             MainActor.assumeIsolated {
@@ -308,6 +317,7 @@ public final class AppState {
                 restored.display.isPlaying = current.display.isPlaying
                 if current.display.isPlaying { model.playbackPhase = restored.display.phaseDeg }
                 model.lastEdit = nil
+                model.persistsDocument = true
                 model.document = restored
                 model.enforceShapeLock()
                 if model.selectedElementID == nil, case .element = model.selection {
@@ -321,12 +331,12 @@ public final class AppState {
 
     // MARK: Reacting to changes
 
-    private func documentChanged(from old: BeamDocument) {
+    private func documentChanged(from old: FringeDocument) {
         if document.scene != old.scene {
             if document.scene.elements != old.scene.elements || document.scene.source != old.scene.source
                 || document.scene.domain != old.scene.domain || document.scene.wavelengthUm != old.scene.wavelengthUm
                 || document.scene.background != old.scene.background {
-                outlines = BeamBridge.outlines(document.scene)
+                outlines = FringeBridge.outlines(document.scene)
             }
             solver.update(scene: document.scene, tracking: isTracking)
         }
@@ -339,7 +349,7 @@ public final class AppState {
     }
 
     /// The shape lock: domain height = width / image aspect.
-    private func lockShape(_ doc: inout BeamDocument) {
+    private func lockShape(_ doc: inout FringeDocument) {
         let aspect = doc.output.aspect.ratio ?? windowAspect
         if abs(doc.scene.domain.aspect - aspect) > 1e-9 * aspect {
             doc.applyShapeLock(imageAspect: aspect)
@@ -357,7 +367,7 @@ public final class AppState {
         if let shown = solver.shown {
             if shown.field !== shownOutlinesField {
                 shownOutlinesField = shown.field
-                shownOutlines = BeamBridge.outlines(shown.scene)
+                shownOutlines = FringeBridge.outlines(shown.scene)
             }
         } else {
             shownOutlinesField = nil
@@ -417,7 +427,7 @@ public final class AppState {
         let name = display.colormap.rawValue
         let wavelength = scene.wavelengthUm
         if let cache = lutCache, cache.name == name, cache.wavelength == wavelength { return cache.lut }
-        let lut = BeamBridge.colormapLUT(name, wavelengthUm: wavelength)
+        let lut = FringeBridge.colormapLUT(name, wavelengthUm: wavelength)
         lutCache = (name, wavelength, lut)
         return lut
     }
@@ -455,7 +465,7 @@ public final class AppState {
         var display = self.display
         display.phaseDeg = playbackPhase ?? display.phaseDeg
         let lut = stale
-            ? BeamBridge.colormapLUT(display.colormap.rawValue, wavelengthUm: source.wavelengthUm)
+            ? FringeBridge.colormapLUT(display.colormap.rawValue, wavelengthUm: source.wavelengthUm)
             : legendLUT
         // Disabled elements are not part of the solve, so the export leaves out their
         // dashed outlines (the canvas still shows them).
@@ -483,7 +493,7 @@ public final class AppState {
         guard let shown = solver.shown else { return [] }
         if shown.field !== shownFocusField {
             shownFocusField = shown.field
-            shownFocusPoints = Self.focusPoints(in: shown.scene, derived: BeamBridge.check(shown.scene).derived)
+            shownFocusPoints = Self.focusPoints(in: shown.scene, derived: FringeBridge.check(shown.scene).derived)
         }
         return shownFocusPoints
     }
@@ -528,6 +538,7 @@ public final class AppState {
 
     private func schedulePersist() {
         persistTask?.cancel()
+        guard persistsDocument else { return }
         persistTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(1))
             guard !Task.isCancelled else { return }
@@ -545,10 +556,20 @@ public final class AppState {
         }
     }
 
-    private static func restoredDocument() -> BeamDocument? {
-        guard let data = UserDefaults.standard.data(forKey: documentKey) else { return nil }
+    /// Where the app saved its document while it was called Beam.
+    private static let legacyDomain = "com.asympton.beam-bg"
+    private static let legacyDocumentKey = "beam.document.v2"
+
+    private static func restoredDocument() -> FringeDocument? {
+        var data = UserDefaults.standard.data(forKey: documentKey)
+        if data == nil, let legacy = UserDefaults(suiteName: legacyDomain)?.data(forKey: legacyDocumentKey) {
+            // Copied once, before any launch override applies; the old domain is left as it was.
+            UserDefaults.standard.set(legacy, forKey: documentKey)
+            data = legacy
+        }
+        guard let data else { return nil }
         do {
-            return try JSONDecoder().decode(BeamDocument.self, from: data)
+            return try JSONDecoder().decode(FringeDocument.self, from: data)
         } catch {
             log.error("The saved document could not be read, starting from the default scene: \(error.localizedDescription)")
             return nil
@@ -706,6 +727,7 @@ public final class AppState {
             doc.display.isPlaying = false
             if let phase = playbackPhase { doc.display.phaseDeg = (phase * 10).rounded() / 10 }
             playbackPhase = nil
+            persistsDocument = true
             document = doc
         } else {
             if !display.quantity.dependsOnPhase {
@@ -744,7 +766,7 @@ public final class AppState {
     }
 
     public func loadExample(_ info: ExampleInfo) {
-        guard let scene = BeamBridge.example(info.name) else { return }
+        guard let scene = FringeBridge.example(info.name) else { return }
         loadScene(scene, name: "Open Template", suggested: info)
     }
 
@@ -754,7 +776,7 @@ public final class AppState {
         do {
             let text = try String(contentsOf: url, encoding: .utf8)
             // The core reports unknown keys and old schema versions precisely.
-            let report = BeamBridge.check(json: text)
+            let report = FringeBridge.check(json: text)
             if let parse = report.issues.first(where: { $0.code == "parse" || $0.code == "schema_version" }) {
                 openErrorMessage = parse.sentence
                 return
@@ -771,7 +793,7 @@ public final class AppState {
     }
 
     public var suggestedSceneFilename: String {
-        let name = scene.elements.first?.displayName.lowercased().replacingOccurrences(of: " ", with: "-") ?? "beam"
+        let name = scene.elements.first?.displayName.lowercased().replacingOccurrences(of: " ", with: "-") ?? "fringe"
         return "\(name)-scene"
     }
 
@@ -779,7 +801,7 @@ public final class AppState {
 
     public var suggestedFilename: String {
         let method = solver.shown?.info.method ?? scene.solver.method
-        return "beam-\(method.rawValue)-\(display.quantity.fileTag)-\(output.aspect.fileTag)-\(output.longEdge.pixels)"
+        return "fringe-\(method.rawValue)-\(display.quantity.fileTag)-\(output.aspect.fileTag)-\(output.longEdge.pixels)"
     }
 
     /// ⌘E: asks first when the image is a preview or out of date.
@@ -880,7 +902,7 @@ public final class AppState {
         }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType(filenameExtension: "npy") ?? .data]
-        panel.nameFieldStringValue = "beam-\(shown.info.method.rawValue)-\(display.part.rawValue).npy"
+        panel.nameFieldStringValue = "fringe-\(shown.info.method.rawValue)-\(display.part.rawValue).npy"
         panel.message = "Saves the \(display.part.title.lowercased()) field as complex numbers, with a .json file describing the grid."
         let part = display.part
         let field = shown.field
@@ -992,7 +1014,7 @@ public final class AppState {
     }
 }
 
-/// A scene as a JSON file for Save Scene…, readable by `beam-cli`.
+/// A scene as a JSON file for Save Scene…, readable by `fringe-cli`.
 public struct SceneFile: Transferable, Sendable {
     public var json: String
 

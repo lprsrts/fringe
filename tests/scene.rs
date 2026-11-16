@@ -1,7 +1,7 @@
 mod common;
 
-use beam_core::check::{check, check_json};
-use beam_core::scene::{examples, parse_scene, to_json, validate, Issue, Severity, Shape};
+use fringe_core::check::{check, check_json};
+use fringe_core::scene::{examples, parse_scene, to_json, validate, Issue, Severity, Shape};
 
 fn errors(issues: &[Issue]) -> Vec<&Issue> {
     issues.iter().filter(|i| i.severity == Severity::Error).collect()
@@ -25,7 +25,7 @@ fn fixtures_round_trip_and_match_examples() {
         let back = parse_scene(&to_json(&scene)).unwrap();
         assert_eq!(back, scene, "{name}");
         let want = if name == "default" { examples::default() } else { examples::example(name).unwrap() };
-        assert_eq!(scene, want, "fixture {name} is stale; regenerate with beam-cli example");
+        assert_eq!(scene, want, "fixture {name} is stale; regenerate with fringe-cli example");
         let issues = validate(&scene);
         assert!(errors(&issues).is_empty(), "{name}: {issues:?}");
         assert!(issues.is_empty(), "{name} has warnings: {issues:?}");
@@ -155,7 +155,7 @@ fn shape_rules() {
     }
     assert!(validate(&bad).iter().any(|i| i.code == "slit_pitch"));
     let mut bad = s.clone();
-    bad.elements[0].material = beam_core::scene::Material::Dielectric { n: 1.5, k: 0.0 };
+    bad.elements[0].material = fringe_core::scene::Material::Dielectric { n: 1.5, k: 0.0 };
     assert!(validate(&bad).iter().any(|i| i.code == "pec_required"));
     let mut bad = examples::example("talbot").unwrap();
     if let Shape::Grating { fill_factor, .. } = &mut bad.elements[0].shape {
@@ -192,18 +192,18 @@ fn check_report_shape() {
     assert_eq!(bad.issues[0].code, "parse");
 }
 
-fn codes_at(s: &beam_core::Scene, path: &str) -> Vec<String> {
+fn codes_at(s: &fringe_core::Scene, path: &str) -> Vec<String> {
     errors(&validate(s)).iter().filter(|i| i.path == path).map(|i| i.code.clone()).collect()
 }
 
 #[test]
 fn amplitude_is_bounded() {
     let mut s = examples::default();
-    if let beam_core::scene::Source::GaussianBeam { amplitude, .. } = &mut s.source {
+    if let fringe_core::scene::Source::GaussianBeam { amplitude, .. } = &mut s.source {
         *amplitude = 1e40;
     }
     assert_eq!(codes_at(&s, "source.amplitude"), ["out_of_range"]);
-    if let beam_core::scene::Source::GaussianBeam { amplitude, .. } = &mut s.source {
+    if let fringe_core::scene::Source::GaussianBeam { amplitude, .. } = &mut s.source {
         *amplitude = 1e30;
     }
     assert!(codes_at(&s, "source.amplitude").is_empty());
@@ -213,8 +213,8 @@ fn amplitude_is_bounded() {
 /// with a message that says how far is possible, and the check returns at once.
 #[test]
 fn far_waist_is_refused_quickly() {
-    use beam_core::scene::Source;
-    let set = |s: &mut beam_core::Scene, x: f64, w: f64| {
+    use fringe_core::scene::Source;
+    let set = |s: &mut fringe_core::Scene, x: f64, w: f64| {
         if let Source::GaussianBeam { waist_x_um, waist_um, .. } = &mut s.source {
             *waist_x_um = x;
             *waist_um = w;
@@ -261,7 +261,7 @@ fn thin_and_huge_polygons_are_refused() {
 /// The divergence readout is an angle below 90° even for a sub-wavelength waist.
 #[test]
 fn divergence_stays_below_ninety_degrees() {
-    use beam_core::scene::Source;
+    use fringe_core::scene::Source;
     let mut s = examples::default();
     if let Source::GaussianBeam { waist_um, .. } = &mut s.source {
         *waist_um = 0.1;

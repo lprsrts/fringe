@@ -162,7 +162,7 @@ struct OverlayToggles: View {
     }
 
     /// A binding whose undo name says what the change did: "Show PML" or "Hide PML".
-    private func showHide(_ what: String, _ keyPath: WritableKeyPath<BeamDocument, Bool>) -> Binding<Bool> {
+    private func showHide(_ what: String, _ keyPath: WritableKeyPath<FringeDocument, Bool>) -> Binding<Bool> {
         Binding(
             get: { model.binding("Show \(what)", keyPath).wrappedValue },
             set: { newValue in model.binding(newValue ? "Show \(what)" : "Hide \(what)", keyPath).wrappedValue = newValue }

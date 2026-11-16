@@ -1,5 +1,5 @@
-//! C ABI (`include/beam_core.h`). Every entry point catches panics; strings
-//! returned to the caller are released with `beam_string_free`.
+//! C ABI (`include/fringe_core.h`). Every entry point catches panics; strings
+//! returned to the caller are released with `fringe_string_free`.
 
 use std::ffi::{c_char, CStr, CString};
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -18,11 +18,11 @@ use crate::solver::context::{STATE_CANCELLED, STATE_DONE, STATE_FAILED};
 use crate::solver::{FieldGrid, Part, Quality, SolveError};
 use crate::types::Vec2;
 
-pub const BEAM_ABI_VERSION: u32 = 2;
+pub const FRINGE_ABI_VERSION: u32 = 2;
 
-/// Matches `BeamProgress` in the header.
+/// Matches `FringeProgress` in the header.
 #[repr(C)]
-pub struct BeamProgress {
+pub struct FringeProgress {
     pub state: u32,
     pub stage: u32,
     pub fraction: f64,
@@ -30,8 +30,8 @@ pub struct BeamProgress {
     pub unknowns: u64,
 }
 
-pub struct BeamJob(Job);
-pub struct BeamField(Arc<FieldGrid>);
+pub struct FringeJob(Job);
+pub struct FringeField(Arc<FieldGrid>);
 
 fn guard<T>(fallback: T, f: impl FnOnce() -> T) -> T {
     catch_unwind(AssertUnwindSafe(f)).unwrap_or(fallback)
@@ -64,33 +64,33 @@ unsafe fn set_solve_error(out: *mut *mut c_char, e: &SolveError) {
 }
 
 #[no_mangle]
-pub extern "C" fn beam_abi_version() -> u32 {
-    BEAM_ABI_VERSION
+pub extern "C" fn fringe_abi_version() -> u32 {
+    FRINGE_ABI_VERSION
 }
 
 #[no_mangle]
-pub extern "C" fn beam_version() -> *const c_char {
+pub extern "C" fn fringe_version() -> *const c_char {
     concat!(env!("CARGO_PKG_VERSION"), "\0").as_ptr() as *const c_char
 }
 
 /// # Safety
 /// `s` must be NULL or a string returned by this library, freed once.
 #[no_mangle]
-pub unsafe extern "C" fn beam_string_free(s: *mut c_char) {
+pub unsafe extern "C" fn fringe_string_free(s: *mut c_char) {
     if !s.is_null() {
         guard((), || drop(CString::from_raw(s)));
     }
 }
 
 #[no_mangle]
-pub extern "C" fn beam_scene_default() -> *mut c_char {
+pub extern "C" fn fringe_scene_default() -> *mut c_char {
     guard(ptr::null_mut(), || into_c(to_json(&examples::default())))
 }
 
 /// # Safety
 /// `name` must be NULL or a valid C string.
 #[no_mangle]
-pub unsafe extern "C" fn beam_scene_example(name: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn fringe_scene_example(name: *const c_char) -> *mut c_char {
     guard(ptr::null_mut(), || {
         let Some(name) = str_arg(name) else { return ptr::null_mut() };
         if name.is_empty() {
@@ -112,7 +112,7 @@ pub unsafe extern "C" fn beam_scene_example(name: *const c_char) -> *mut c_char 
 /// # Safety
 /// `scene_json` must be NULL or a valid C string.
 #[no_mangle]
-pub unsafe extern "C" fn beam_scene_check(scene_json: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn fringe_scene_check(scene_json: *const c_char) -> *mut c_char {
     if scene_json.is_null() {
         return ptr::null_mut();
     }
@@ -189,7 +189,7 @@ pub fn scene_outlines_json(scene_json: &str) -> Value {
 /// # Safety
 /// `scene_json` must be NULL or a valid C string.
 #[no_mangle]
-pub unsafe extern "C" fn beam_scene_outlines(scene_json: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn fringe_scene_outlines(scene_json: *const c_char) -> *mut c_char {
     if scene_json.is_null() {
         return ptr::null_mut();
     }
@@ -213,7 +213,7 @@ fn quality_from(q: u32) -> Option<Quality> {
 /// # Safety
 /// `scene_json` must be NULL or a valid C string; `error_json_out` NULL or writable.
 #[no_mangle]
-pub unsafe extern "C" fn beam_job_start(scene_json: *const c_char, quality: u32, error_json_out: *mut *mut c_char) -> *mut BeamJob {
+pub unsafe extern "C" fn fringe_job_start(scene_json: *const c_char, quality: u32, error_json_out: *mut *mut c_char) -> *mut FringeJob {
     guard(ptr::null_mut(), || {
         let Some(text) = str_arg(scene_json) else {
             set_error(error_json_out, "parse", "scene JSON is NULL or not UTF-8", &[]);
@@ -236,27 +236,27 @@ pub unsafe extern "C" fn beam_job_start(scene_json: *const c_char, quality: u32,
             set_error(error_json_out, "invalid", msg, &issues);
             return ptr::null_mut();
         }
-        Box::into_raw(Box::new(BeamJob(Job::spawn(scene, q))))
+        Box::into_raw(Box::new(FringeJob(Job::spawn(scene, q))))
     })
 }
 
 /// # Safety
 /// `job` must be NULL or a live job; `out` NULL or writable.
 #[no_mangle]
-pub unsafe extern "C" fn beam_job_poll(job: *const BeamJob, out: *mut BeamProgress) {
+pub unsafe extern "C" fn fringe_job_poll(job: *const FringeJob, out: *mut FringeProgress) {
     if job.is_null() || out.is_null() {
         return;
     }
     guard((), || {
         let s = (*job).0.poll();
-        *out = BeamProgress { state: s.state, stage: s.stage, fraction: s.fraction, elapsed_s: s.elapsed_s, unknowns: s.unknowns };
+        *out = FringeProgress { state: s.state, stage: s.stage, fraction: s.fraction, elapsed_s: s.elapsed_s, unknowns: s.unknowns };
     })
 }
 
 /// # Safety
 /// `job` must be NULL or a live job.
 #[no_mangle]
-pub unsafe extern "C" fn beam_job_cancel(job: *mut BeamJob) {
+pub unsafe extern "C" fn fringe_job_cancel(job: *mut FringeJob) {
     if !job.is_null() {
         guard((), || (*job).0.cancel());
     }
@@ -265,7 +265,7 @@ pub unsafe extern "C" fn beam_job_cancel(job: *mut BeamJob) {
 /// # Safety
 /// `job` must be NULL or a live job; `error_json_out` NULL or writable.
 #[no_mangle]
-pub unsafe extern "C" fn beam_job_take_result(job: *mut BeamJob, error_json_out: *mut *mut c_char) -> *mut BeamField {
+pub unsafe extern "C" fn fringe_job_take_result(job: *mut FringeJob, error_json_out: *mut *mut c_char) -> *mut FringeField {
     if job.is_null() {
         return ptr::null_mut();
     }
@@ -273,7 +273,7 @@ pub unsafe extern "C" fn beam_job_take_result(job: *mut BeamJob, error_json_out:
         let job = &(*job).0;
         let state = job.poll().state;
         match job.take_result() {
-            Some(Ok(field)) => Box::into_raw(Box::new(BeamField(field))),
+            Some(Ok(field)) => Box::into_raw(Box::new(FringeField(field))),
             Some(Err(e)) => {
                 set_solve_error(error_json_out, &e);
                 ptr::null_mut()
@@ -294,7 +294,7 @@ pub unsafe extern "C" fn beam_job_take_result(job: *mut BeamJob, error_json_out:
 /// # Safety
 /// `job` must be NULL or a job not yet freed.
 #[no_mangle]
-pub unsafe extern "C" fn beam_job_free(job: *mut BeamJob) {
+pub unsafe extern "C" fn fringe_job_free(job: *mut FringeJob) {
     if !job.is_null() {
         guard((), || drop(Box::from_raw(job)));
     }
@@ -303,7 +303,7 @@ pub unsafe extern "C" fn beam_job_free(job: *mut BeamJob) {
 /// # Safety
 /// `field` must be NULL or a live field.
 #[no_mangle]
-pub unsafe extern "C" fn beam_field_info(field: *const BeamField) -> *mut c_char {
+pub unsafe extern "C" fn fringe_field_info(field: *const FringeField) -> *mut c_char {
     if field.is_null() {
         return ptr::null_mut();
     }
@@ -313,8 +313,8 @@ pub unsafe extern "C" fn beam_field_info(field: *const BeamField) -> *mut c_char
 /// # Safety
 /// `field` must be NULL or a live field; the outputs NULL or writable.
 #[no_mangle]
-pub unsafe extern "C" fn beam_field_sample(
-    field: *const BeamField,
+pub unsafe extern "C" fn fringe_field_sample(
+    field: *const FringeField,
     x_um: f64,
     y_um: f64,
     part: u32,
@@ -366,8 +366,8 @@ unsafe fn view_arg(view_json: *const c_char, error_json_out: *mut *mut c_char) -
 /// `field` must be NULL or live, `out_rgba` must hold `out_len` bytes, and the
 /// strings must be NULL or valid.
 #[no_mangle]
-pub unsafe extern "C" fn beam_field_render_rgba(
-    field: *const BeamField,
+pub unsafe extern "C" fn fringe_field_render_rgba(
+    field: *const FringeField,
     view_json: *const c_char,
     width: u32,
     height: u32,
@@ -395,8 +395,8 @@ pub unsafe extern "C" fn beam_field_render_rgba(
 /// # Safety
 /// `field` must be NULL or live; the strings NULL or valid.
 #[no_mangle]
-pub unsafe extern "C" fn beam_field_export_png(
-    field: *const BeamField,
+pub unsafe extern "C" fn fringe_field_export_png(
+    field: *const FringeField,
     view_json: *const c_char,
     width: u32,
     height: u32,
@@ -431,8 +431,8 @@ pub unsafe extern "C" fn beam_field_export_png(
 /// # Safety
 /// `field` must be NULL or live; `path` NULL or valid.
 #[no_mangle]
-pub unsafe extern "C" fn beam_field_export_npy(
-    field: *const BeamField,
+pub unsafe extern "C" fn fringe_field_export_npy(
+    field: *const FringeField,
     part: u32,
     path: *const c_char,
     error_json_out: *mut *mut c_char,
@@ -463,7 +463,7 @@ pub unsafe extern "C" fn beam_field_export_npy(
 /// # Safety
 /// `field` must be NULL or a field not yet freed.
 #[no_mangle]
-pub unsafe extern "C" fn beam_field_free(field: *mut BeamField) {
+pub unsafe extern "C" fn fringe_field_free(field: *mut FringeField) {
     if !field.is_null() {
         guard((), || drop(Box::from_raw(field)));
     }
@@ -472,7 +472,7 @@ pub unsafe extern "C" fn beam_field_free(field: *mut BeamField) {
 /// # Safety
 /// `name` must be NULL or valid; `out_rgba` must hold `out_len` bytes.
 #[no_mangle]
-pub unsafe extern "C" fn beam_colormap_lut(name: *const c_char, wavelength_um: f64, out_rgba: *mut u8, out_len: usize) -> bool {
+pub unsafe extern "C" fn fringe_colormap_lut(name: *const c_char, wavelength_um: f64, out_rgba: *mut u8, out_len: usize) -> bool {
     if out_rgba.is_null() || out_len < 1024 {
         return false;
     }

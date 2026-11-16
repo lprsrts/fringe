@@ -3,28 +3,29 @@ import os
 
 /// Scene and display overrides read from UserDefaults at launch, so a scripted run can open
 /// the app on a given scene without any input (for screenshots). Each key can be set with
-/// `defaults write com.asympton.beam-bg <Key> <value>` or passed as launch arguments,
-/// `open Beam.app --args -BeamLaunchScene double_slit -BeamLaunchQuality final`.
+/// `defaults write com.asympton.fringe <Key> <value>` or passed as launch arguments,
+/// `open Fringe.app --args -FringeLaunchScene double_slit -FringeLaunchQuality final`.
 ///
-/// - `BeamLaunchScene`: an example name (`lens`, `nanojet`, `mie_pec`, …), a path to a
+/// - `FringeLaunchScene`: an example name (`lens`, `nanojet`, `mie_pec`, …), a path to a
 ///   scene .json file, or scene JSON itself.
-/// - `BeamLaunchSolver`: `fdtd`, `fem` or `mom`.
-/// - `BeamLaunchQuality`: `preview` (default) or `final`, which runs a final solve at launch.
-/// - `BeamLaunchQuantity`: `intensity`, `magnitude`, `real` or `phase`.
-/// - `BeamLaunchColormap`: a colormap name, such as `inferno` or `rdbu`.
-/// - `BeamLaunchPhase`: φ in degrees.
-/// - `BeamLaunchSelection`: `source`, `simulation`, `display`, `output`, or an element index.
+/// - `FringeLaunchSolver`: `fdtd`, `fem` or `mom`.
+/// - `FringeLaunchQuality`: `preview` (default) or `final`, which runs a final solve at launch.
+/// - `FringeLaunchQuantity`: `intensity`, `magnitude`, `real` or `phase`.
+/// - `FringeLaunchColormap`: a colormap name, such as `inferno` or `rdbu`.
+/// - `FringeLaunchPhase`: φ in degrees.
+/// - `FringeLaunchSelection`: `source`, `simulation`, `display`, `output`, or an element index.
 ///
-/// Overrides are not saved: the saved document changes only when the user edits.
+/// Overrides are not saved: after a launch with overrides, the saved document changes only
+/// once the user edits.
 struct LaunchOptions {
-    private static let log = Logger(subsystem: "com.asympton.beam-bg", category: "launch")
-    static let sceneKey = "BeamLaunchScene"
-    static let solverKey = "BeamLaunchSolver"
-    static let qualityKey = "BeamLaunchQuality"
-    static let quantityKey = "BeamLaunchQuantity"
-    static let colormapKey = "BeamLaunchColormap"
-    static let phaseKey = "BeamLaunchPhase"
-    static let selectionKey = "BeamLaunchSelection"
+    private static let log = Logger(subsystem: "com.asympton.fringe", category: "launch")
+    static let sceneKey = "FringeLaunchScene"
+    static let solverKey = "FringeLaunchSolver"
+    static let qualityKey = "FringeLaunchQuality"
+    static let quantityKey = "FringeLaunchQuantity"
+    static let colormapKey = "FringeLaunchColormap"
+    static let phaseKey = "FringeLaunchPhase"
+    static let selectionKey = "FringeLaunchSelection"
 
     var scene: SimScene?
     var suggested: ExampleInfo?
@@ -35,13 +36,18 @@ struct LaunchOptions {
     var phaseDeg: Double?
     var selectionText: String?
 
+    /// Whether any override changes the document (a selection alone does not).
+    var hasOverrides: Bool {
+        scene != nil || solver != nil || runFinal || quantity != nil || colormap != nil || phaseDeg != nil
+    }
+
     static func read(examples: [ExampleInfo], defaults: UserDefaults = .standard) -> LaunchOptions {
         var options = LaunchOptions()
         if let text = defaults.string(forKey: sceneKey)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
             if text.hasPrefix("{") {
                 options.scene = try? SimScene.decode(json: text)
             } else if let info = examples.first(where: { $0.name == text }) {
-                options.scene = BeamBridge.example(info.name)
+                options.scene = FringeBridge.example(info.name)
                 options.suggested = info
             } else {
                 let path = (text as NSString).expandingTildeInPath
@@ -62,7 +68,7 @@ struct LaunchOptions {
         return options
     }
 
-    func apply(to document: inout BeamDocument) {
+    func apply(to document: inout FringeDocument) {
         if let scene {
             document.scene = scene
             document.adoptDomainAspect()

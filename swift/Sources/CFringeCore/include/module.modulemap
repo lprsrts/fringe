@@ -1,0 +1,4 @@
+module CFringeCore [system] {
+    header "fringe_core.h"
+    export *
+}

@@ -2,7 +2,7 @@ use std::io::Write;
 use std::process::{Command, Output, Stdio};
 
 fn cli(args: &[&str], stdin: Option<&str>) -> Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_beam-cli"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_fringe-cli"))
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -21,7 +21,7 @@ fn code(o: &Output) -> i32 {
 }
 
 fn tmp(name: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join("beam_cli_test");
+    let dir = std::env::temp_dir().join("fringe_cli_test");
     std::fs::create_dir_all(&dir).unwrap();
     dir.join(name)
 }
@@ -40,7 +40,7 @@ fn example(name: &str) -> String {
 fn help_version_and_usage_errors() {
     assert_eq!(code(&cli(&[], None)), 0);
     let o = cli(&["--version"], None);
-    assert!(String::from_utf8_lossy(&o.stdout).starts_with("beam-cli 0.2"));
+    assert!(String::from_utf8_lossy(&o.stdout).starts_with("fringe-cli 0.2"));
     assert_eq!(code(&cli(&["frobnicate"], None)), 2);
     assert_eq!(code(&cli(&["solve", "-"], Some(&example("lens")))), 2);
     let o = cli(&["info", "--waist", "1mm"], None);

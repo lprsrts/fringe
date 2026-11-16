@@ -1,13 +1,13 @@
-# Beam
+# Fringe
 
-Beam solves 2D optics scenes with full-wave electromagnetics and draws the
+Fringe solves 2D optics scenes with full-wave electromagnetics and draws the
 field. You place lenses, slabs, prisms, mirrors, slits, gratings, cylinders
 and waveguides in a Gaussian beam or a plane wave, pick one of three solvers
 (FDTD, FEM or MoM), and get the complex field Ez on a grid, which you can
 render as intensity, magnitude, a snapshot of the real part or phase, or
 animate over one optical cycle.
 
-The core is a Rust library with a C ABI. On top of it sit `beam-cli`, which
+The core is a Rust library with a C ABI. On top of it sit `fringe-cli`, which
 solves scene files and writes PNG and NumPy output, and a native macOS app
 for editing scenes and exporting images. I use it to make cover images, so
 some colormaps (`laser_glow`, `asympton`, `spectral_glow`) are there to look
@@ -40,7 +40,7 @@ good as much as to read well.
   FDTD and FEM add a perfectly matched layer (PML) around it, `pml_wl`
   background wavelengths thick.
 
-Scenes are JSON, schema version 2 (`beam-cli example lens` prints one). The
+Scenes are JSON, schema version 2 (`fringe-cli example lens` prints one). The
 app and the CLI read and write the same files.
 
 ## Solvers
@@ -74,7 +74,7 @@ Limits worth knowing:
   in wavelengths. It needs no PML, and it is the most accurate of the three on
   the scenes it handles, which is why it is the reference below.
 
-`beam-cli check` and the app show the estimated unknowns, time and memory
+`fringe-cli check` and the app show the estimated unknowns, time and memory
 before solving; a scene whose estimate is over the memory limit is refused
 (`too_large`) rather than started. A preview over the limits first drops its
 resolution, to no less than 60 % of the default, and the check says so
@@ -82,7 +82,7 @@ resolution, to no less than 60 % of the default, and the check says so
 
 ## Validation
 
-`beam-cli validate --case all --solver all --slow` runs every case against an
+`fringe-cli validate --case all --solver all --slow` runs every case against an
 analytic reference: Mie series for cylinders (PEC, dielectric, lossy, high
 index), the Airy formula for a slab under a Gaussian beam, and the image
 method for a flat PEC mirror. The error is the relative L2 norm of the total
@@ -137,7 +137,7 @@ The intensity maximum along the axis is very flat (it changes by 0.1 % over
 with errors of 1e-3 in the field. On the double slit (x ≥ −4 µm), FEM is
 within 2.0e-2 of MoM and FDTD within 4.3e-2.
 
-The paraxial focus that the app marks for a lens (and `beam-cli check`
+The paraxial focus that the app marks for a lens (and `fringe-cli check`
 reports) is the thick-lens geometric focus, x ≈ 9.0 µm on the default
 scene. The computed intensity peak is near 5.6 µm: a 3 µm waist in a 10 µm
 aperture is far from the paraxial limit.
@@ -155,39 +155,39 @@ Most of the FEM time is the sparse LU; most of the MoM final time is
 evaluating the field on the output grid. Cancelling takes under 30 ms in
 every stage except inside the FEM factorisation.
 
-## beam-cli
+## fringe-cli
 
 ```sh
-cargo build --release --bin beam-cli
-target/release/beam-cli --help
+cargo build --release --bin fringe-cli
+target/release/fringe-cli --help
 ```
 
 Examples:
 
 ```sh
 # List the example scenes, then solve one and write a PNG (final quality).
-beam-cli example
-beam-cli example lens | beam-cli solve - -o lens.png
+fringe-cli example
+fringe-cli example lens | fringe-cli solve - -o lens.png
 
 # The real part with a diverging map, at a given phase, 3000 px wide, with outlines.
-beam-cli example double_slit > slit.json
-beam-cli solve slit.json -o slit.png --quantity real --phase-deg 90 --width 3000 --outlines
+fringe-cli example double_slit > slit.json
+fringe-cli solve slit.json -o slit.png --quantity real --phase-deg 90 --width 3000 --outlines
 
 # A quick preview with another solver, plus the complex field as NumPy data.
-beam-cli solve slit.json -o slit_fem.png --solver fem --quality preview --npy slit.npy
+fringe-cli solve slit.json -o slit_fem.png --solver fem --quality preview --npy slit.npy
 
 # 24 frames over one optical cycle (one solve).
-beam-cli frames slit.json -o frames/ --frames 24 --quantity real
+fringe-cli frames slit.json -o frames/ --frames 24 --quantity real
 
 # Check a scene: validation issues, cost estimates, derived values.
-beam-cli check slit.json
+fringe-cli check slit.json
 
 # Solve one scene with all three solvers: time, the intensity peak on the axis
 # past the last element, and the difference between each pair.
-beam-cli compare slit.json
+fringe-cli compare slit.json
 
 # The validation cases (add --slow for all of them).
-beam-cli validate --case mie_diel,balance --solver all
+fringe-cli validate --case mie_diel,balance --solver all
 ```
 
 `SCENE` may be `-` for standard input. Colormaps: `viridis`, `inferno`,
@@ -207,9 +207,9 @@ app needs macOS 26.
 ```sh
 cargo test --release                       # fast tests
 cargo test --release -- --ignored          # slow tests (validation, cross-solver)
-BEAM_PERF=1 cargo test --release -- --ignored --test-threads=1   # with timing asserts
+FRINGE_PERF=1 cargo test --release -- --ignored --test-threads=1   # with timing asserts
 scripts/build.sh                           # static library, then the Swift app
-scripts/bundle.sh                          # the above, then target/Beam.app, signed ad hoc
+scripts/bundle.sh                          # the above, then target/Fringe.app, signed ad hoc
 scripts/check-schema.sh                    # build, then check that the app and the core agree on the scene JSON
 ```
 
@@ -217,10 +217,10 @@ The app's minimum macOS is tied to the Rust toolchain: Homebrew's `rustc`
 ships its standard library built for macOS 26, and the Swift target must not
 claim anything older or `ld` warns about every std object.
 
-The crate `beam_core` builds as an rlib (for the CLI and tests) and a static
-library. The Swift package links `target/release/libbeam_core.a` through the
-`CBeamCore` module, which wraps `include/beam_core.h`. The header exists twice
-(`include/` and `swift/Sources/CBeamCore/include/`); a test checks that the
+The crate `fringe_core` builds as an rlib (for the CLI and tests) and a static
+library. The Swift package links `target/release/libfringe_core.a` through the
+`CFringeCore` module, which wraps `include/fringe_core.h`. The header exists twice
+(`include/` and `swift/Sources/CFringeCore/include/`); a test checks that the
 copies are identical, so change both.
 
 ## Layout
@@ -242,9 +242,9 @@ src/types.rs        complex numbers, 2D vectors, rectangles
 src/linalg.rs       dense and sparse LU (faer)
 src/job.rs, ffi.rs  background jobs and the C ABI
 src/lib.rs          crate root and re-exports
-src/bin/beam_cli.rs beam-cli
+src/bin/fringe_cli.rs fringe-cli
 include/            C header for the ABI
-swift/              SwiftUI app (Swift package "Beam")
+swift/              SwiftUI app (Swift package "Fringe")
 scripts/            build, bundle and schema-check scripts
 tests/              integration tests; tests/fixtures holds example scenes and Bessel references
 ```

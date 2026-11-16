@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use beam_core::linalg::{gemm, DenseLu, DenseMatrix, SparseBuilder, SparseLu, C64};
+use fringe_core::linalg::{gemm, DenseLu, DenseMatrix, SparseBuilder, SparseLu, C64};
 
 /// Deterministic xorshift values in [-1, 1).
 struct Rng(u64);
@@ -171,8 +171,8 @@ fn linalg_gemm_matches_naive() {
 }
 
 mod bessel {
-    use beam_core::special::bessel::*;
-    use beam_core::types::{C64, J};
+    use fringe_core::special::bessel::*;
+    use fringe_core::types::{C64, J};
     use std::f64::consts::PI;
 
 
@@ -341,8 +341,8 @@ mod bessel {
 }
 
 mod greens {
-    use beam_core::special::greens::*;
-    use beam_core::types::{Vec2, C64};
+    use fringe_core::special::greens::*;
+    use fringe_core::types::{Vec2, C64};
     use std::f64::consts::PI;
 
     #[test]
@@ -420,7 +420,7 @@ mod greens {
 }
 
 mod quadrature {
-    use beam_core::special::{gauss_legendre, triangle_rule};
+    use fringe_core::special::{gauss_legendre, triangle_rule};
 
     #[test]
     fn gauss_legendre_exact_to_degree_2n_minus_1() {

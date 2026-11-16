@@ -1,6 +1,6 @@
 //! The solver validation cases: scenes, references, evaluation
 //! regions and the single tolerance table, plus a runner shared by the solver
-//! tests and `beam-cli validate`.
+//! tests and `fringe-cli validate`.
 //!
 //! The error metric is `‖E_num − E_ref‖₂ / ‖E_ref‖₂` of the total field over the
 //! case region, intersected with the solver's grid and with PEC interiors left

@@ -1,4 +1,0 @@
-module CBeamCore [system] {
-    header "beam_core.h"
-    export *
-}

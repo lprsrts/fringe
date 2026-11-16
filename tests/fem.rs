@@ -1,16 +1,16 @@
 //! FEM solver validation and mesh quality.
 //!
 //! Fast cases run in `cargo test`; slow ones with `cargo test --release -- --ignored`.
-//! The performance test asserts only with `BEAM_PERF=1` (release build).
+//! The performance test asserts only with `FRINGE_PERF=1` (release build).
 
 mod common;
 
 use std::time::Instant;
 
-use beam_core::analytic::cases::{self, case_scene, Status};
-use beam_core::problem::compile;
-use beam_core::scene::examples;
-use beam_core::solver::{solve, solver_for, Method, Part, Quality, SolveContext, SolveError, Stage};
+use fringe_core::analytic::cases::{self, case_scene, Status};
+use fringe_core::problem::compile;
+use fringe_core::scene::examples;
+use fringe_core::solver::{solve, solver_for, Method, Part, Quality, SolveContext, SolveError, Stage};
 use common::assert_case;
 
 const FEM: Method = Method::Fem;
@@ -209,18 +209,18 @@ fn fem_preview_fits_memory_limit() {
     let p = compile(&s, Quality::Preview).unwrap();
     let default = p.settings.ppw_lowered_from.expect("preview should be lowered");
     assert!(p.settings.ppw < default && p.settings.ppw >= 0.6 * default, "{}", p.settings.ppw);
-    assert!(beam_core::solver::estimate(&p).memory_mb <= p.settings.memory_limit_mb);
-    let report = beam_core::check::check(&s);
+    assert!(fringe_core::solver::estimate(&p).memory_mb <= p.settings.memory_limit_mb);
+    let report = fringe_core::check::check(&s);
     assert!(report.ok, "{:?}", report.issues);
     assert!(report.issues.iter().any(|i| i.code == "preview_coarsened" && i.quality == Some(Quality::Preview)));
 
     s.solver.fem.preview_ppw = Some(default);
     let p = compile(&s, Quality::Preview).unwrap();
     assert_eq!((p.settings.ppw, p.settings.ppw_lowered_from), (default, None));
-    assert!(!beam_core::check::check(&s).ok);
+    assert!(!fringe_core::check::check(&s).ok);
 }
 
-/// Peak memory in MB of `beam-cli solve` on the default scene with FEM at quality
+/// Peak memory in MB of `fringe-cli solve` on the default scene with FEM at quality
 /// `q`: the larger of the maximum resident set size and the peak memory footprint
 /// that macOS `/usr/bin/time -l` reports (under memory pressure the resident size
 /// drops as pages are compressed, while the footprint still counts them).
@@ -229,10 +229,10 @@ fn cli_peak_memory_mb(q: Quality) -> f64 {
     let scene = format!("{}/tests/fixtures/scenes/default.json", env!("CARGO_MANIFEST_DIR"));
     let png = format!("{}/fem-perf-{}.png", env!("CARGO_TARGET_TMPDIR"), q.name());
     let out = std::process::Command::new("/usr/bin/time")
-        .args(["-l", env!("CARGO_BIN_EXE_beam-cli"), "solve", &scene, "-o", &png, "--solver", "fem", "--quality", q.name(), "--quiet"])
+        .args(["-l", env!("CARGO_BIN_EXE_fringe-cli"), "solve", &scene, "-o", &png, "--solver", "fem", "--quality", q.name(), "--quiet"])
         .output()
         .unwrap();
-    assert!(out.status.success(), "beam-cli failed: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(out.status.success(), "fringe-cli failed: {}", String::from_utf8_lossy(&out.stderr));
     let err = String::from_utf8_lossy(&out.stderr);
     let bytes = |key: &str| -> Option<f64> {
         err.lines().find(|l| l.contains(key)).and_then(|l| l.split_whitespace().next()?.parse().ok())
@@ -243,13 +243,13 @@ fn cli_peak_memory_mb(q: Quality) -> f64 {
 
 /// Default scene: preview ≤ 1.5 s, final ≤ 12 s, the time estimate within
 /// 2×, and (macOS) peak memory ≤ 2 GB with the memory estimate within 2×.
-/// Asserted with BEAM_PERF=1 in a release build. Each quality runs three times
+/// Asserted with FRINGE_PERF=1 in a release build. Each quality runs three times
 /// and the fastest run is compared, so that a busy machine measures the solver
 /// rather than the contention.
 #[test]
 #[ignore]
 fn fem_perf_default_scene() {
-    let assert_perf = std::env::var("BEAM_PERF").as_deref() == Ok("1");
+    let assert_perf = std::env::var("FRINGE_PERF").as_deref() == Ok("1");
     let mut s = examples::default();
     s.solver.method = FEM;
     // Warm up the thread pool and allocator.
@@ -295,9 +295,9 @@ fn fem_perf_default_scene() {
 #[test]
 #[ignore]
 fn fem_pml_hygiene_detects_a_weak_pml() {
-    use beam_core::analytic::metrics::{rel_l2, resample};
-    use beam_core::scene::Domain;
-    use beam_core::types::C64;
+    use fringe_core::analytic::metrics::{rel_l2, resample};
+    use fringe_core::scene::Domain;
+    use fringe_core::types::C64;
     let mut small = case_scene("pml_hygiene").unwrap();
     small.solver.method = FEM;
     small.solver.fem.final_ppw = Some(cases::PML_HYGIENE_FEM_PPW);
@@ -318,7 +318,7 @@ fn fem_pml_hygiene_detects_a_weak_pml() {
 /// output grid as memory.
 #[test]
 fn fem_estimate_counts_vertices_and_output() {
-    use beam_core::scene::Shape;
+    use fringe_core::scene::Shape;
     let mut s = case_scene("mie_diel").unwrap();
     s.solver.method = FEM;
     let n = 2000;
@@ -329,13 +329,13 @@ fn fem_estimate_counts_vertices_and_output() {
             .collect(),
     };
     let p = compile(&s, Quality::Preview).unwrap();
-    let est = beam_core::solver::estimate(&p);
+    let est = fringe_core::solver::estimate(&p);
     let f = solve(&s, Quality::Preview, &SolveContext::new()).unwrap();
     let ratio = est.unknowns as f64 / f.meta.solver.unknowns as f64;
     assert!((0.7..=1.5).contains(&ratio), "estimate {} vs {} unknowns", est.unknowns, f.meta.solver.unknowns);
     s.solver.output.preview_ppw = Some(80.0);
     let p = compile(&s, Quality::Preview).unwrap();
-    let est_fine = beam_core::solver::estimate(&p);
+    let est_fine = fringe_core::solver::estimate(&p);
     let points = p.output_grid().len() as f64;
     assert!(est_fine.memory_mb - est.memory_mb > 60.0 * points / 1e6, "{} vs {} MB", est_fine.memory_mb, est.memory_mb);
 }

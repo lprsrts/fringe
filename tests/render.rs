@@ -2,12 +2,12 @@ mod common;
 
 use std::collections::HashMap;
 
-use beam_core::analytic::cases;
-use beam_core::render::view::{scale, NormMode, Normalization, PartName, ViewRect};
-use beam_core::render::{render_rgba, write_npy_c128, Colormap, ColormapKind, Quantity, View};
-use beam_core::scene::examples;
-use beam_core::solver::{solve, FieldGrid, Part, Quality, SolveContext};
-use beam_core::types::C64;
+use fringe_core::analytic::cases;
+use fringe_core::render::view::{scale, NormMode, Normalization, PartName, ViewRect};
+use fringe_core::render::{render_rgba, write_npy_c128, Colormap, ColormapKind, Quantity, View};
+use fringe_core::scene::examples;
+use fringe_core::solver::{solve, FieldGrid, Part, Quality, SolveContext};
+use fringe_core::types::C64;
 
 fn field(name: &str) -> FieldGrid {
     solve(&examples::example(name).unwrap(), Quality::Preview, &SolveContext::new()).unwrap()
@@ -166,7 +166,7 @@ fn render_speed() {
 #[test]
 fn npy_layout() {
     let f = field("lens");
-    let dir = std::env::temp_dir().join("beam_render_npy_test");
+    let dir = std::env::temp_dir().join("fringe_render_npy_test");
     let path = dir.join("field.npy");
     write_npy_c128(&path, &f, Part::Total).unwrap();
     let bytes = std::fs::read(&path).unwrap();

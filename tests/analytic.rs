@@ -1,9 +1,9 @@
 use std::f64::consts::PI;
 
-use beam_core::analytic::{pec_plane_image, AirySlab, MieCylinder};
-use beam_core::geometry::BodyMaterial;
-use beam_core::source::Incident;
-use beam_core::types::{Rect, Vec2, C64};
+use fringe_core::analytic::{pec_plane_image, AirySlab, MieCylinder};
+use fringe_core::geometry::BodyMaterial;
+use fringe_core::source::Incident;
+use fringe_core::types::{Rect, Vec2, C64};
 
 const K0: f64 = 2.0 * PI;
 
@@ -172,7 +172,7 @@ fn image_vanishes_on_the_plane() {
 
 #[test]
 fn fitted_order_recovers_a_power_law() {
-    use beam_core::analytic::metrics::fitted_order;
+    use fringe_core::analytic::metrics::fitted_order;
     let h = [1.0 / 12.0, 1.0 / 16.0, 1.0 / 20.0, 1.0 / 24.0, 1.0 / 30.0];
     let e: Vec<f64> = h.iter().map(|h: &f64| 3.0 * h.powf(2.2)).collect();
     assert!((fitted_order(&h, &e) - 2.2).abs() < 1e-12);

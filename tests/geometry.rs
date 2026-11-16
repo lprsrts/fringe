@@ -1,8 +1,8 @@
 mod common;
 
-use beam_core::geometry::{element_bodies, min_gap, signed_area, Body, Contour, Segment};
-use beam_core::scene::{Element, Material, Shape};
-use beam_core::types::Vec2;
+use fringe_core::geometry::{element_bodies, min_gap, signed_area, Body, Contour, Segment};
+use fringe_core::scene::{Element, Material, Shape};
+use fringe_core::types::Vec2;
 use spade::{AngleLimit, ConstrainedDelaunayTriangulation, Point2, RefinementParameters, Triangulation};
 
 use common::Rng;
@@ -168,7 +168,7 @@ fn gaps_between_bodies() {
         Segment::Arc { center: Vec2::new(x, 0.0), radius: r, start: std::f64::consts::PI, sweep: std::f64::consts::PI },
     ]);
     let square = |x0: f64| Contour::polygon(&[Vec2::new(x0, -1.0), Vec2::new(x0 + 2.0, -1.0), Vec2::new(x0 + 2.0, 1.0), Vec2::new(x0, 1.0)]);
-    let gap = beam_core::geometry::contour_gap;
+    let gap = fringe_core::geometry::contour_gap;
     assert!((gap(&circle(0.0, 1.0), &circle(3.0, 1.0)) - 1.0).abs() < 1e-12);
     assert!((gap(&circle(0.0, 1.0), &square(1.5)) - 0.5).abs() < 1e-12);
     assert_eq!(gap(&circle(0.0, 1.0), &square(0.5)), 0.0);
@@ -308,7 +308,7 @@ fn ray_hits_lines_and_arcs() {
 
 #[test]
 fn polygon_width() {
-    use beam_core::geometry::polygon_min_width;
+    use fringe_core::geometry::polygon_min_width;
     let rect = [Vec2::new(0.0, 0.0), Vec2::new(3.0, 0.0), Vec2::new(3.0, 0.2), Vec2::new(0.0, 0.2)];
     assert!((polygon_min_width(&rect) - 0.2).abs() < 1e-12);
     let mut cw = rect;

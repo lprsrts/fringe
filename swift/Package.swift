@@ -2,25 +2,25 @@
 import PackageDescription
 
 let package = Package(
-    name: "Beam",
+    name: "Fringe",
     platforms: [
         .macOS("26.0")
     ],
     products: [
-        .executable(name: "Beam", targets: ["Beam"])
+        .executable(name: "Fringe", targets: ["Fringe"])
     ],
     targets: [
         .target(
-            name: "CBeamCore",
-            path: "Sources/CBeamCore",
+            name: "CFringeCore",
+            path: "Sources/CFringeCore",
             publicHeadersPath: "include"
         ),
         .executableTarget(
-            name: "Beam",
-            dependencies: ["CBeamCore"],
-            path: "Sources/Beam",
+            name: "Fringe",
+            dependencies: ["CFringeCore"],
+            path: "Sources/Fringe",
             linkerSettings: [
-                .unsafeFlags(["-L../target/release", "-lbeam_core"]),
+                .unsafeFlags(["-L../target/release", "-lfringe_core"]),
                 // faer's thread pool (spindle, via atomic-wait) calls libc++'s atomic
                 // wait/notify; `cargo rustc -- --print native-static-libs` lists it.
                 .linkedLibrary("c++")

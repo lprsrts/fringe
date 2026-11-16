@@ -55,7 +55,7 @@ public enum ImageExportService {
             height: height,
             bitsPerComponent: 8,
             bytesPerRow: 0,
-            space: BeamBridge.colorSpace,
+            space: FringeBridge.colorSpace,
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else {
             throw ExportError.contextCreationFailed

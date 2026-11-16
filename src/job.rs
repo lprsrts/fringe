@@ -15,7 +15,7 @@ pub fn solve_pool() -> &'static rayon::ThreadPool {
         let n = std::thread::available_parallelism().map_or(1, |n| n.get());
         rayon::ThreadPoolBuilder::new()
             .num_threads(n.saturating_sub(1).max(1))
-            .thread_name(|i| format!("beam-solve-{i}"))
+            .thread_name(|i| format!("fringe-solve-{i}"))
             .build()
             .expect("solver thread pool")
     })
@@ -36,7 +36,7 @@ impl Job {
         let shared = Arc::new(JobShared { ctx: SolveContext::new(), result: Mutex::new(None) });
         let worker = shared.clone();
         std::thread::Builder::new()
-            .name("beam-job".into())
+            .name("fringe-job".into())
             .spawn(move || {
                 let ctx = worker.ctx.clone();
                 let outcome = solve_pool().install(|| {

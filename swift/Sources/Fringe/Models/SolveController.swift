@@ -1,4 +1,4 @@
-import CBeamCore
+import CFringeCore
 import Foundation
 import Observation
 import os
@@ -77,7 +77,7 @@ public final class SolveController {
     public private(set) var failure: SolveFailure?
 
     public private(set) var runningQuality: QualityName?
-    public private(set) var progress = BeamProgress()
+    public private(set) var progress = FringeProgress()
 
     /// Called on the main actor when the shown result changes.
     @ObservationIgnored public var onResult: () -> Void = {}
@@ -101,7 +101,7 @@ public final class SolveController {
     /// Shown result id, to tell `onResult` apart from no-op updates.
     @ObservationIgnored private var shownID: ObjectIdentifier?
 
-    private static let log = Logger(subsystem: "com.asympton.beam-bg", category: "solve")
+    private static let log = Logger(subsystem: "com.asympton.fringe", category: "solve")
     public static let debounceInterval: Duration = .milliseconds(250)
     public static let pollInterval: Duration = .milliseconds(50)
 
@@ -244,7 +244,7 @@ public final class SolveController {
         let scene = self.scene
         let revision = self.revision
         Task {
-            let report = await Task.detached(priority: .userInitiated) { BeamBridge.check(scene) }.value
+            let report = await Task.detached(priority: .userInitiated) { FringeBridge.check(scene) }.value
             self.checkInFlight = false
             self.report = report
             self.reportRevision = revision
@@ -308,11 +308,11 @@ public final class SolveController {
         let job: JobHandle
         do {
             job = try JobHandle(scene: scene, quality: quality)
-        } catch let error as BeamError {
+        } catch let error as FringeError {
             recordFailure(error, quality: quality, revision: revision)
             return
         } catch {
-            recordFailure(BeamError(code: "internal", message: error.localizedDescription), quality: quality, revision: revision)
+            recordFailure(FringeError(code: "internal", message: error.localizedDescription), quality: quality, revision: revision)
             return
         }
         self.job = job
@@ -320,7 +320,7 @@ public final class SolveController {
         jobScene = scene
         runningQuality = quality
         userCancelled = false
-        progress = BeamProgress()
+        progress = FringeProgress()
         Self.log.debug("Started \(quality.rawValue) \(scene.solver.method.rawValue)")
         poller = Task { [weak self] in
             while !Task.isCancelled {
@@ -328,7 +328,7 @@ public final class SolveController {
                 guard let self, self.job === job else { return }
                 let progress = job.poll()
                 self.progress = progress
-                if progress.state != BEAM_JOB_RUNNING {
+                if progress.state != FRINGE_JOB_RUNNING {
                     self.finish(job, quality: quality)
                     return
                 }
@@ -346,24 +346,24 @@ public final class SolveController {
         userCancelled = false
         do {
             guard let field = try job.takeResult() else {
-                throw BeamError(code: "internal", message: "The solver stopped without a result.")
+                throw FringeError(code: "internal", message: "The solver stopped without a result.")
             }
             guard let info = field.info else {
                 Self.log.error("Unreadable field info: \(field.infoJSON, privacy: .public)")
-                throw BeamError(code: "internal", message: "Could not read the solved field's info.")
+                throw FringeError(code: "internal", message: "Could not read the solved field's info.")
             }
             let result = SolveResult(field: field, info: info, revision: revision, scene: scene, quality: quality, finishedAt: Date())
             if quality == .final { lastFinal = result } else { lastPreview = result }
             if failure?.revision == revision || failure?.quality == quality { failure = nil }
             Self.log.debug("Finished \(quality.rawValue) in \(info.meta.wallS) s")
-        } catch let error as BeamError {
+        } catch let error as FringeError {
             if error.code == "cancelled" {
                 if wasUserCancel { onNotice("\(quality.title) solve cancelled") }
             } else {
                 recordFailure(error, quality: quality, revision: revision)
             }
         } catch {
-            recordFailure(BeamError(code: "internal", message: error.localizedDescription), quality: quality, revision: revision)
+            recordFailure(FringeError(code: "internal", message: error.localizedDescription), quality: quality, revision: revision)
         }
         publishShown(force: true)
         if previewDue { maybeStartPreview() }
@@ -379,10 +379,10 @@ public final class SolveController {
         // Freed here; the worker thread finishes on its own.
     }
 
-    private func recordFailure(_ error: BeamError, quality: QualityName, revision: Data) {
+    private func recordFailure(_ error: FringeError, quality: QualityName, revision: Data) {
         // An invalid scene is already on screen through the check report.
         if error.code == "invalid" || error.code == "parse" { return }
-        let details = (try? BeamBridge.encode(["code": error.code, "message": error.message]))
+        let details = (try? FringeBridge.encode(["code": error.code, "message": error.message]))
             ?? "\(error.code): \(error.message)"
         failure = SolveFailure(code: error.code, message: error.message, details: details, quality: quality, revision: revision)
         Self.log.error("\(quality.rawValue) solve failed: \(error.code) \(error.message)")

@@ -5,12 +5,12 @@ mod common;
 
 use std::time::{Duration, Instant};
 
-use beam_core::analytic::cases::case_scene;
-use beam_core::job::Job;
-use beam_core::problem::compile;
-use beam_core::scene::{examples, Material, Shape};
-use beam_core::solver::context::STATE_CANCELLED;
-use beam_core::solver::{fdtd, solve, solver_for, FdtdSolver, Method, Quality, SolveContext, Solver, Stage};
+use fringe_core::analytic::cases::case_scene;
+use fringe_core::job::Job;
+use fringe_core::problem::compile;
+use fringe_core::scene::{examples, Material, Shape};
+use fringe_core::solver::context::STATE_CANCELLED;
+use fringe_core::solver::{fdtd, solve, solver_for, FdtdSolver, Method, Quality, SolveContext, Solver, Stage};
 
 use common::assert_case;
 
@@ -216,11 +216,11 @@ fn cancel_latency() {
 }
 
 fn perf() -> bool {
-    std::env::var("BEAM_PERF").is_ok_and(|v| v == "1")
+    std::env::var("FRINGE_PERF").is_ok_and(|v| v == "1")
 }
 
 /// Default scene timings against the estimate (release build; asserted with
-/// BEAM_PERF=1). Each quality runs three times and the fastest counts, so other
+/// FRINGE_PERF=1). Each quality runs three times and the fastest counts, so other
 /// load on the machine does not decide the result; run with --test-threads=1.
 #[test]
 #[ignore]
@@ -265,7 +265,7 @@ fn materials_are_dielectric_or_pec() {
 }
 
 /// `estimate()` against the measured time (best of three) on every example at
-/// both qualities, forced to FDTD; asserted within 2× with BEAM_PERF=1.
+/// both qualities, forced to FDTD; asserted within 2× with FRINGE_PERF=1.
 #[test]
 #[ignore]
 fn estimate_calibration() {
@@ -279,7 +279,7 @@ fn estimate_calibration() {
                 eprintln!("{:16} {:7}: rejected by check()", info.name, q.name());
                 continue;
             }
-            let est = beam_core::solver::estimate(&p);
+            let est = fringe_core::solver::estimate(&p);
             let mut secs = f64::INFINITY;
             let mut periods = None;
             for _ in 0..3 {
@@ -312,9 +312,9 @@ fn estimate_calibration() {
 /// free, and its H edge to the PEC node is shortened to the true surface.
 #[test]
 fn pec_surface_snaps_to_the_nearest_node_line() {
-    use beam_core::solver::fdtd::grid::Layout;
-    use beam_core::solver::fdtd::materials::{body_eps, pec_edges, rasterize, NodeMat};
-    use beam_core::types::C64;
+    use fringe_core::solver::fdtd::grid::Layout;
+    use fringe_core::solver::fdtd::materials::{body_eps, pec_edges, rasterize, NodeMat};
+    use fringe_core::types::C64;
     use std::sync::atomic::AtomicBool;
     let mut s = case_scene("mirror_0").unwrap();
     s.solver.method = Method::Fdtd;
@@ -340,9 +340,9 @@ fn pec_surface_snaps_to_the_nearest_node_line() {
 /// keeps amplitudes below 1e30; this bypasses it.
 #[test]
 fn non_finite_field_is_an_error() {
-    use beam_core::problem::compile_unchecked;
-    use beam_core::scene::Source;
-    use beam_core::solver::SolveError;
+    use fringe_core::problem::compile_unchecked;
+    use fringe_core::scene::Source;
+    use fringe_core::solver::SolveError;
     let mut s = case_scene("mie_pec").unwrap();
     s.solver.method = Method::Fdtd;
     if let Source::PlaneWave { amplitude, .. } = &mut s.source {

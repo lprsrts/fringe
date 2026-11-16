@@ -6,7 +6,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 cargo build --release --lib --manifest-path "$root/Cargo.toml"
 
-# Package.swift links ../target/release/libbeam_core.a.
+# Package.swift links ../target/release/libfringe_core.a.
 #
 # The app's minimum macOS has to be at least what the Rust standard library
 # was compiled for: Homebrew's rustc ships std and compiler_builtins built

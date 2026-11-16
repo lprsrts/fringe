@@ -1,13 +1,13 @@
 import AppKit
 import SwiftUI
 
-struct BeamApp: App {
+struct FringeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @UIState private var model = AppState()
 
     var body: some Scene {
-        Window("Beam", id: "main") {
-            BeamWindow()
+        Window("Fringe", id: "main") {
+            FringeWindow()
                 .environment(model)
         }
         .defaultSize(width: 1440, height: 860)
@@ -15,7 +15,7 @@ struct BeamApp: App {
         .windowToolbarStyle(.unified)
         .commands {
             ToolbarCommands()
-            BeamCommands(model: model)
+            FringeCommands(model: model)
             SidebarCommands()
             InspectorCommands()
         }

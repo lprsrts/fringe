@@ -9,11 +9,11 @@
 
 use std::sync::OnceLock;
 
-use beam_core::analytic::metrics::{flux_balance, focal_peak, interface_band, rel_l2, resample};
-use beam_core::geometry::bodies_from_scene;
-use beam_core::scene::{examples, Scene};
-use beam_core::solver::{solve, FieldGrid, Method, Part, Quality, SolveContext};
-use beam_core::types::C64;
+use fringe_core::analytic::metrics::{flux_balance, focal_peak, interface_band, rel_l2, resample};
+use fringe_core::geometry::bodies_from_scene;
+use fringe_core::scene::{examples, Scene};
+use fringe_core::solver::{solve, FieldGrid, Method, Part, Quality, SolveContext};
+use fringe_core::types::C64;
 
 const ALL: [Method; 3] = [Method::Mom, Method::Fem, Method::Fdtd];
 

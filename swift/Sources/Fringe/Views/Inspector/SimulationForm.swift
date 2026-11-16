@@ -218,7 +218,7 @@ private struct AdvancedSection: View {
     }
 
     @ViewBuilder
-    private func ppwFields(_ preview: WritableKeyPath<BeamDocument, Double?>, _ final: WritableKeyPath<BeamDocument, Double?>) -> some View {
+    private func ppwFields(_ preview: WritableKeyPath<FringeDocument, Double?>, _ final: WritableKeyPath<FringeDocument, Double?>) -> some View {
         OptionalNumberField(
             title: "Preview Resolution",
             value: model.binding("Change Resolution", preview),

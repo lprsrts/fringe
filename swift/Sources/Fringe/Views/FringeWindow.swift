@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct BeamWindow: View {
+struct FringeWindow: View {
     @Environment(AppState.self) private var model
     @Environment(\.undoManager) private var undoManager
     @UIState private var columns: NavigationSplitViewVisibility = .all
@@ -18,7 +18,7 @@ struct BeamWindow: View {
                         .inspectorColumnWidth(min: 280, ideal: 310, max: 400)
                 }
         }
-        .navigationTitle("Beam")
+        .navigationTitle("Fringe")
         .navigationSubtitle(model.outputSummary)
         .toolbar(id: "main") { MainToolbar(model: model) }
         .toolbarRole(.editor)

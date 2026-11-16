@@ -2,7 +2,7 @@ import Foundation
 
 /// Everything the user edits. Undo snapshots this whole value, and it is what is saved
 /// between launches.
-public struct BeamDocument: Codable, Equatable, Sendable {
+public struct FringeDocument: Codable, Equatable, Sendable {
     public var scene: SimScene
     public var display: DisplaySettings
     public var output: OutputFormat

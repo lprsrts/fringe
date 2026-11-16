@@ -1,11 +1,11 @@
 use std::f64::consts::PI;
 
-use beam_core::analytic::paraxial_gaussian;
-use beam_core::scene::examples;
-use beam_core::solver::GridSpec;
-use beam_core::source::yee::{dispersion_factor, yee_wavenumber};
-use beam_core::source::Incident;
-use beam_core::types::{Rect, Vec2, C64};
+use fringe_core::analytic::paraxial_gaussian;
+use fringe_core::scene::examples;
+use fringe_core::solver::GridSpec;
+use fringe_core::source::yee::{dispersion_factor, yee_wavenumber};
+use fringe_core::source::Incident;
+use fringe_core::types::{Rect, Vec2, C64};
 
 const K: f64 = 2.0 * PI; // λ = 1 µm, n_b = 1
 
@@ -225,7 +225,7 @@ fn default_scene_incident_is_accurate() {
 /// quadrature without bound.
 #[test]
 fn far_waist_is_capped() {
-    use beam_core::source::gaussian::MAX_COMPONENTS;
+    use fringe_core::source::gaussian::MAX_COMPONENTS;
     let t = std::time::Instant::now();
     let inc = beam(0.1, Vec2::new(-10000.0, 0.0), 0.0, Rect::new(-6.0, 10.0, -4.5, 4.5));
     assert!(inc.comps.len() <= MAX_COMPONENTS, "{} components", inc.comps.len());

@@ -1,5 +1,5 @@
 [package]
-name = "beam_core"
+name = "fringe_core"
 version = "0.2.0"
 edition = "2021"
 description = "Full-wave 2D (Ez) optics solvers (FDTD, FEM, MoM) with a C ABI and a CLI"
@@ -11,7 +11,7 @@ rust-version = "1.88"
 autobins = false
 
 [lib]
-name = "beam_core"
+name = "fringe_core"
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
@@ -25,8 +25,8 @@ spade = "=2.15.1"
 ctrlc = "3"
 
 [[bin]]
-name = "beam-cli"
-path = "src/bin/beam_cli.rs"
+name = "fringe-cli"
+path = "src/bin/fringe_cli.rs"
 
 [profile.dev.package."*"]
 opt-level = 3

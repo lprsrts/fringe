@@ -9,7 +9,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 "$root/scripts/build.sh"
 
 bin_dir="$(cd "$root/swift" && swift build -c release --show-bin-path)"
-bin="$bin_dir/Beam"
+bin="$bin_dir/Fringe"
 if [[ ! -x "$bin" ]]; then
     echo "check-schema: no app binary at $bin" >&2
     exit 1

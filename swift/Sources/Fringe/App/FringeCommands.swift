@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-struct BeamCommands: Commands {
+struct FringeCommands: Commands {
     let model: AppState
 
     var body: some Commands {

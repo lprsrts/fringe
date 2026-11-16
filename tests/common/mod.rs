@@ -1,9 +1,9 @@
 //! Helpers shared by the integration tests.
 #![allow(dead_code)]
 
-use beam_core::analytic::cases::{self, CaseResult, Status};
-use beam_core::solver::{Method, Quality};
-use beam_core::types::{Rect, Vec2};
+use fringe_core::analytic::cases::{self, CaseResult, Status};
+use fringe_core::solver::{Method, Quality};
+use fringe_core::types::{Rect, Vec2};
 
 /// Deterministic xorshift generator.
 pub struct Rng(pub u64);

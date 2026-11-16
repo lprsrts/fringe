@@ -1,4 +1,4 @@
-//! `beam-cli`: solve Beam scenes, render them to PNG and run the validation cases.
+//! `fringe-cli`: solve Fringe scenes, render them to PNG and run the validation cases.
 //!
 //! Argument parsing is hand-rolled to keep the crate free of a CLI dependency.
 
@@ -9,34 +9,34 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use beam_core::analytic::cases::{self, Status};
-use beam_core::analytic::metrics::{focal_peak, rel_l2, resample};
-use beam_core::check::check;
-use beam_core::job::Job;
-use beam_core::render::view::{NormMode, Normalization, PartName, ViewRect};
-use beam_core::render::{export_png_file, render_rgba, write_npy_c128, Colormap, Quantity, View};
-use beam_core::scene::validate::fmt;
-use beam_core::scene::{examples, parse_scene, to_json, Scene, Severity};
-use beam_core::solver::context::{STATE_CANCELLED, STATE_RUNNING};
-use beam_core::solver::{FieldGrid, Method, Part, Quality, SolveError};
-use beam_core::types::C64;
+use fringe_core::analytic::cases::{self, Status};
+use fringe_core::analytic::metrics::{focal_peak, rel_l2, resample};
+use fringe_core::check::check;
+use fringe_core::job::Job;
+use fringe_core::render::view::{NormMode, Normalization, PartName, ViewRect};
+use fringe_core::render::{export_png_file, render_rgba, write_npy_c128, Colormap, Quantity, View};
+use fringe_core::scene::validate::fmt;
+use fringe_core::scene::{examples, parse_scene, to_json, Scene, Severity};
+use fringe_core::solver::context::{STATE_CANCELLED, STATE_RUNNING};
+use fringe_core::solver::{FieldGrid, Method, Part, Quality, SolveError};
+use fringe_core::types::C64;
 
 const HELP: &str = "\
-beam-cli: full-wave 2D (Ez) optics scenes
+fringe-cli: full-wave 2D (Ez) optics scenes
 
 Usage:
-  beam-cli example [NAME] [-o FILE]       print an example scene (no NAME: list them)
-  beam-cli check SCENE [--json]           validation issues, cost estimates and derived values
-  beam-cli solve SCENE -o OUT.png [options]
-  beam-cli frames SCENE -o DIR [--frames N] [options]
+  fringe-cli example [NAME] [-o FILE]       print an example scene (no NAME: list them)
+  fringe-cli check SCENE [--json]           validation issues, cost estimates and derived values
+  fringe-cli solve SCENE -o OUT.png [options]
+  fringe-cli frames SCENE -o DIR [--frames N] [options]
                                           one solve, N images over phase 0..360°
-  beam-cli validate [--case ID[,ID…]|all] [--solver fdtd,fem,mom|all]
+  fringe-cli validate [--case ID[,ID…]|all] [--solver fdtd,fem,mom|all]
                     [--quality preview|final] [--slow] [--json]
-  beam-cli compare SCENE [--solvers fem,mom,fdtd] [--quality final] [--json]
+  fringe-cli compare SCENE [--solvers fem,mom,fdtd] [--quality final] [--json]
                                           solve with each solver; time, peak on
                                           the source axis past the last element,
                                           and the difference between each pair
-  beam-cli --help | --version
+  fringe-cli --help | --version
 
 SCENE is a scene JSON file, or - for standard input.
 
@@ -77,17 +77,17 @@ fn main() -> ExitCode {
     match run(args) {
         Ok(()) => ExitCode::SUCCESS,
         Err(Fail::Usage(m)) => {
-            eprintln!("beam-cli: {m}");
-            eprintln!("Run beam-cli --help for usage.");
+            eprintln!("fringe-cli: {m}");
+            eprintln!("Run fringe-cli --help for usage.");
             ExitCode::from(2)
         }
         Err(Fail::Check) => ExitCode::from(1),
         Err(Fail::Solve(m)) => {
-            eprintln!("beam-cli: {m}");
+            eprintln!("fringe-cli: {m}");
             ExitCode::from(3)
         }
         Err(Fail::Cancelled) => {
-            eprintln!("beam-cli: cancelled");
+            eprintln!("fringe-cli: cancelled");
             ExitCode::from(130)
         }
     }
@@ -105,7 +105,7 @@ fn run(args: Vec<String>) -> Result<()> {
             Ok(())
         }
         "--version" | "-V" => {
-            println!("beam-cli {}", env!("CARGO_PKG_VERSION"));
+            println!("fringe-cli {}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
         "example" => cmd_example(&mut a),
@@ -115,7 +115,7 @@ fn run(args: Vec<String>) -> Result<()> {
         "validate" => cmd_validate(&mut a),
         "compare" => cmd_compare(&mut a),
         "info" | "export" => Err(Fail::Usage(
-            "removed in v2; use `beam-cli example lens | beam-cli solve - -o out.png`".into(),
+            "removed in v2; use `fringe-cli example lens | fringe-cli solve - -o out.png`".into(),
         )),
         other => Err(Fail::Usage(format!("unknown command '{other}'"))),
     }
@@ -192,7 +192,7 @@ fn read_scene(src: &str) -> Result<Scene> {
         std::fs::read_to_string(src).map_err(|e| Fail::Solve(format!("reading {src}: {e}")))?
     };
     parse_scene(&text).map_err(|e| {
-        eprintln!("beam-cli: {}: {}", if src == "-" { "stdin" } else { src }, e.message);
+        eprintln!("fringe-cli: {}: {}", if src == "-" { "stdin" } else { src }, e.message);
         Fail::Check
     })
 }
@@ -420,8 +420,8 @@ fn solve_opts(a: &mut Args, default_quantity: Quantity) -> Result<SolveOpts> {
     let width = a.parsed::<u32>(&["--width"])?;
     let height = a.parsed::<u32>(&["--height"])?;
     for v in [width, height].into_iter().flatten() {
-        if v == 0 || v > beam_core::render::MAX_DIMENSION {
-            return Err(Fail::Usage(format!("image sizes must be 1–{}", beam_core::render::MAX_DIMENSION)));
+        if v == 0 || v > fringe_core::render::MAX_DIMENSION {
+            return Err(Fail::Usage(format!("image sizes must be 1–{}", fringe_core::render::MAX_DIMENSION)));
         }
     }
     Ok(SolveOpts { method, quality, ppw, width, height, view, quiet: a.flag(&["--quiet", "-q"]) })
@@ -433,7 +433,7 @@ fn image_size(scene: &Scene, width: Option<u32>, height: Option<u32>) -> (u32, u
     let d = &scene.domain;
     let (dw, dh) = (d.x_max_um - d.x_min_um, d.y_max_um - d.y_min_um);
     let aspect = dw / dh;
-    let clamp = |v: f64| (v.round() as u32).clamp(1, beam_core::render::MAX_DIMENSION);
+    let clamp = |v: f64| (v.round() as u32).clamp(1, fringe_core::render::MAX_DIMENSION);
     match (width, height) {
         (Some(w), Some(h)) => {
             let pix = w as f64 / h as f64;
@@ -692,8 +692,8 @@ fn cmd_compare(a: &mut Args) -> Result<()> {
     a.finish()?;
     let scene = read_scene(&src)?;
     let axis_y = match scene.source {
-        beam_core::scene::Source::GaussianBeam { waist_y_um, .. } => waist_y_um,
-        beam_core::scene::Source::PlaneWave { .. } => 0.5 * (scene.domain.y_min_um + scene.domain.y_max_um),
+        fringe_core::scene::Source::GaussianBeam { waist_y_um, .. } => waist_y_um,
+        fringe_core::scene::Source::PlaneWave { .. } => 0.5 * (scene.domain.y_min_um + scene.domain.y_max_um),
     };
     let mut fields = Vec::new();
     for &m in &methods {
@@ -705,7 +705,7 @@ fn cmd_compare(a: &mut Args) -> Result<()> {
     // The intensity peak on the source axis past the last enabled element (the
     // whole axis when there is none): the focus of a lens, the first maximum
     // behind a slit.
-    let bodies = beam_core::geometry::bodies_from_scene(&scene);
+    let bodies = fringe_core::geometry::bodies_from_scene(&scene);
     let x_from = bodies.iter().map(|b| b.bbox.x_max).fold(scene.domain.x_min_um, f64::max);
     let mut per_solver = Vec::new();
     for (m, f) in &fields {

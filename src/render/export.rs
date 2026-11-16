@@ -159,7 +159,7 @@ mod tests {
 
     #[test]
     fn export_png_file_creates_dirs_and_leaves_no_temp_file() {
-        let dir = std::env::temp_dir().join("beam_bg_test_export");
+        let dir = std::env::temp_dir().join("fringe_test_export");
         let path = dir.join("test_atomic.png");
         let buffer = vec![128u8; 16];
         export_png_file(&path, &buffer, 2, 2).unwrap();

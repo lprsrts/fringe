@@ -1,6 +1,6 @@
 import Foundation
 
-/// `Beam --self-test-schema`: checks that the Swift scene model and the core agree on the
+/// `Fringe --self-test-schema`: checks that the Swift scene model and the core agree on the
 /// JSON schema, without opening a window.
 ///
 /// For the default scene and every example it decodes the core's JSON into `SimScene`,
@@ -16,13 +16,13 @@ public enum SchemaSelfTest {
     /// Runs the test and returns the failures; empty means it passed.
     public static func run(log: (String) -> Void = { print($0) }) -> [Failure] {
         var failures: [Failure] = []
-        var cases: [(String, String?)] = [("default", BeamBridge.defaultSceneJSON())]
-        let examples = BeamBridge.examples()
+        var cases: [(String, String?)] = [("default", FringeBridge.defaultSceneJSON())]
+        let examples = FringeBridge.examples()
         if examples.isEmpty {
             failures.append(Failure(scene: "examples", message: "the core lists no examples"))
         }
         for example in examples {
-            cases.append((example.name, BeamBridge.exampleSceneJSON(example.name)))
+            cases.append((example.name, FringeBridge.exampleSceneJSON(example.name)))
         }
 
         for (name, json) in cases {
@@ -56,7 +56,7 @@ public enum SchemaSelfTest {
         if !original.isEqual(again) {
             return "re-encoding changed the JSON:\n  core:  \(json)\n  swift: \(encoded)"
         }
-        let report = BeamBridge.check(json: encoded)
+        let report = FringeBridge.check(json: encoded)
         if !report.ok {
             let messages = report.errors.map { "\($0.path): \($0.message)" }.joined(separator: "; ")
             return "the core rejected the re-encoded scene: \(messages)"
@@ -72,7 +72,7 @@ public enum SchemaSelfTest {
         }
         // The overlay geometry decodes too, and its enabled bodies belong to exactly
         // the enabled elements (disabled ones are listed as well, flagged).
-        guard let outlines = try? BeamBridge.decode(SceneOutlines.self, from: BeamBridge.outlinesJSON(encoded)) else {
+        guard let outlines = try? FringeBridge.decode(SceneOutlines.self, from: FringeBridge.outlinesJSON(encoded)) else {
             return "the core's outlines JSON does not decode"
         }
         let enabledIDs = Set(first.elements.filter(\.enabled).map(\.id))

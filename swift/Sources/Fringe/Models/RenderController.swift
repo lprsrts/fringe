@@ -39,7 +39,7 @@ public final class RenderController {
     @ObservationIgnored private var pending: RenderRequest?
     @ObservationIgnored private var last: RenderRequest?
 
-    nonisolated private static let log = Logger(subsystem: "com.asympton.beam-bg", category: "render")
+    nonisolated private static let log = Logger(subsystem: "com.asympton.fringe", category: "render")
 
     public init() {}
 

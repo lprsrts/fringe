@@ -47,7 +47,7 @@ pub fn parse_scene(json: &str) -> Result<Scene, SceneError> {
         _ => {
             return Err(SceneError {
                 code: "schema_version",
-                message: "scene from Beam v1; not supported (expected \"version\": 2)".into(),
+                message: "v1 scenes, from the old paraxial model, are not supported (expected \"version\": 2)".into(),
             })
         }
     }

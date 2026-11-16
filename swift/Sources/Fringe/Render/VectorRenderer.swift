@@ -442,7 +442,7 @@ private struct OverlayPainter {
               let provider = CGDataProvider(data: Data(legend.lut) as CFData),
               let strip = CGImage(
                 width: 256, height: 1, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 1024,
-                space: BeamBridge.colorSpace, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
+                space: FringeBridge.colorSpace, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
                 provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent
               ) else { return nil }
         let labelHeight = textSize("0", size: 9).height

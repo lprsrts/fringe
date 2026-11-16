@@ -1,21 +1,21 @@
 //! MoM solver validation (the MoM column of the case table) and solver-specific checks.
 //!
 //! Fast cases run in `cargo test`; slow ones with `cargo test --release -- --ignored`.
-//! Performance assertions run only with `BEAM_PERF=1`.
+//! Performance assertions run only with `FRINGE_PERF=1`.
 
 mod common;
 
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
-use beam_core::analytic::cases::{self, case_scene, field_error, reference, Status};
-use beam_core::analytic::metrics::flux_balance;
-use beam_core::problem::compile;
-use beam_core::scene::examples::{example, EXAMPLES};
-use beam_core::scene::{Material, PecFormulation, Scene, Shape};
-use beam_core::solver::mom::panels::{panelize, pec_rows, PecRows};
-use beam_core::solver::{solve, solver_for, FieldGrid, Method, Part, Quality, SolveContext};
-use beam_core::types::C64;
+use fringe_core::analytic::cases::{self, case_scene, field_error, reference, Status};
+use fringe_core::analytic::metrics::flux_balance;
+use fringe_core::problem::compile;
+use fringe_core::scene::examples::{example, EXAMPLES};
+use fringe_core::scene::{Material, PecFormulation, Scene, Shape};
+use fringe_core::solver::mom::panels::{panelize, pec_rows, PecRows};
+use fringe_core::solver::{solve, solver_for, FieldGrid, Method, Part, Quality, SolveContext};
+use fringe_core::types::C64;
 
 use common::assert_case;
 
@@ -27,7 +27,7 @@ fn mom_scene(id: &str, ppw: Option<f64>) -> Scene {
 }
 
 fn perf() -> bool {
-    std::env::var("BEAM_PERF").is_ok_and(|v| v == "1")
+    std::env::var("FRINGE_PERF").is_ok_and(|v| v == "1")
 }
 
 // Validation cases, fast.
@@ -281,8 +281,8 @@ fn cancel_latency() {
 /// The far-field Bessel fast path agrees with the shared implementation.
 #[test]
 fn fast_bessel_matches_shared() {
-    use beam_core::solver::mom::evaluate::j_y_01_fast;
-    use beam_core::special::j_y_01_real;
+    use fringe_core::solver::mom::evaluate::j_y_01_fast;
+    use fringe_core::special::j_y_01_real;
     let mut x = 1e-3;
     while x < 2000.0 {
         let a = j_y_01_fast(x);
@@ -298,8 +298,8 @@ fn fast_bessel_matches_shared() {
 /// The interruptible blocked LU agrees with the shared faer LU.
 #[test]
 fn block_lu_matches_dense_lu() {
-    use beam_core::linalg::{DenseLu, DenseMatrix};
-    use beam_core::solver::mom::lu::{norm1, BlockLu};
+    use fringe_core::linalg::{DenseLu, DenseMatrix};
+    use fringe_core::solver::mom::lu::{norm1, BlockLu};
     let mut rng = common::Rng(0x9e37_79b9_7f4a_7c15);
     for n in [1usize, 7, 64, 65, 200, 517] {
         let mut a = DenseMatrix::zeros(n);
@@ -357,7 +357,7 @@ fn timed_solve(s: &Scene, q: Quality) -> (FieldGrid, f64) {
 
 /// Default scene: preview ≤ 1.5 s and final ≤ 12 s, with the
 /// estimate within 2× of the measured time (best of three; asserted with
-/// BEAM_PERF=1).
+/// FRINGE_PERF=1).
 #[test]
 #[ignore]
 fn performance_default_scene() {
@@ -384,7 +384,7 @@ fn performance_default_scene() {
     }
 }
 
-/// Every MoM case of the tolerance table in one run (what `beam-cli validate
+/// Every MoM case of the tolerance table in one run (what `fringe-cli validate
 /// --solver mom --slow` prints).
 #[test]
 #[ignore]
@@ -401,7 +401,7 @@ fn all_cases_report() {
 #[test]
 #[ignore]
 fn shapes_converge() {
-    use beam_core::analytic::metrics::{rel_l2, resample};
+    use fringe_core::analytic::metrics::{rel_l2, resample};
     let base = example("prism").unwrap();
     let mk = |shape: Shape, material: Material, rot: f64| {
         let mut s = base.clone();
@@ -424,7 +424,7 @@ fn shapes_converge() {
         ("pec lens", mk(Shape::Lens { r1_um: Some(6.0), r2_um: Some(-6.0), center_thickness_um: 2.0, aperture_um: 6.0 }, Material::Pec, 0.0)),
     ];
     for (name, s) in scenes {
-        let issues: Vec<_> = beam_core::scene::validate(&s).into_iter().filter(|i| i.is_error()).collect();
+        let issues: Vec<_> = fringe_core::scene::validate(&s).into_iter().filter(|i| i.is_error()).collect();
         assert!(issues.is_empty(), "{name}: {issues:?}");
         let run = |ppw: f64| {
             let mut s = s.clone();
@@ -448,7 +448,7 @@ fn shapes_converge() {
 }
 
 /// `estimate()` within 2× of the measured time on every example at
-/// both qualities (best of three; asserted with BEAM_PERF=1).
+/// both qualities (best of three; asserted with FRINGE_PERF=1).
 #[test]
 #[ignore]
 fn estimate_calibration() {
