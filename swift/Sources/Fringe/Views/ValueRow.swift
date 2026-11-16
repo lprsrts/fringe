@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// A labelled number with its unit, edited with a slider or typed in.
+/// A labelled number with its unit, edited with a slider or typed in. The title and unit
+/// may contain `$…$` math.
 /// `value` is in display units; the caller converts from the model's units.
 struct ValueRow: View {
     let title: String
@@ -19,21 +20,26 @@ struct ValueRow: View {
     var logarithmic = false
     var onEditingChanged: (Bool) -> Void = { _ in }
 
+    /// The title without math markup, for the field's and slider's accessibility labels.
+    private var plainTitle: String { MathTypesetter.plain(title) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            LabeledContent(title) {
+            LabeledContent {
                 HStack(spacing: 4) {
-                    TextField(title, value: fieldValue, format: .number.precision(.fractionLength(digits)).grouping(.never))
+                    TextField(plainTitle, value: fieldValue, format: .number.precision(.fractionLength(digits)).grouping(.never))
                         .labelsHidden()
                         .monospacedDigit()
                         .multilineTextAlignment(.trailing)
                         .frame(width: 72)
                     if !unit.isEmpty {
-                        Text(unit)
+                        MathText(unit)
                             .foregroundStyle(.secondary)
                             .frame(minWidth: 20, alignment: .leading)
                     }
                 }
+            } label: {
+                MathText(title)
             }
             slider
                 .labelsHidden()
@@ -47,7 +53,7 @@ struct ValueRow: View {
                 value: sliderValue,
                 in: sliderRange,
                 neutralValue: neutral.map(toSlider),
-                label: { Text(title) },
+                label: { Text(plainTitle) },
                 onEditingChanged: onEditingChanged
             )
         } else {
@@ -55,7 +61,7 @@ struct ValueRow: View {
                 value: sliderValue,
                 in: sliderRange,
                 neutralValue: neutral.map(toSlider),
-                label: { Text(title) },
+                label: { Text(plainTitle) },
                 ticks: { SliderTickContentForEach(ticks.map(toSlider), id: \.self) { SliderTick($0) } },
                 onEditingChanged: onEditingChanged
             )

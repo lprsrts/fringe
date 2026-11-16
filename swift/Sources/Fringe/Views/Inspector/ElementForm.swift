@@ -15,7 +15,7 @@ struct ElementForm: View {
                     .toggleStyle(.switch)
                 IssueLines(issues: model.elementIssues(index, key: nil))
                 LengthField(
-                    title: "Position x",
+                    title: "Position $x$",
                     value: model.elementBinding(id, "Move Element", \.xUm, fallback: 0),
                     lambda: lambda,
                     range: domain.xMinUm...domain.xMaxUm,
@@ -23,7 +23,7 @@ struct ElementForm: View {
                     onEditingChanged: model.editingChanged("Move Element")
                 )
                 LengthField(
-                    title: "Position y",
+                    title: "Position $y$",
                     value: model.elementBinding(id, "Move Element", \.yUm, fallback: 0),
                     lambda: lambda,
                     range: domain.yMinUm...domain.yMaxUm,
@@ -97,7 +97,7 @@ private struct MaterialSection: View {
                     .fixedSize()
                 }
                 ValueRow(
-                    title: "Refractive Index n",
+                    title: "Refractive Index $n$",
                     value: model.elementBinding(id, "Change Refractive Index", \.material.n, fallback: 1.5),
                     range: 1...4,
                     limits: 1...6,
@@ -106,7 +106,7 @@ private struct MaterialSection: View {
                 )
                 IssueLines(issues: model.elementIssues(index, key: "n"))
                 ValueRow(
-                    title: "Extinction k",
+                    title: "Extinction $k$",
                     value: model.elementBinding(id, "Change Extinction", \.material.k, fallback: 0),
                     range: 0...0.2,
                     limits: 0...1,
@@ -126,7 +126,7 @@ private struct MaterialSection: View {
                 Text("A perfect electric conductor: the field is zero inside.")
                     .foregroundStyle(.secondary)
             } else {
-                Text("Indices are approximate, near 633 nm. k > 0 absorbs.")
+                MathText.footer("Indices are approximate, near 633 nm. $k > 0$ absorbs.")
                     .foregroundStyle(.secondary)
             }
         }
@@ -174,11 +174,11 @@ private struct ShapeFields: View {
         case .lens(let lens):
             LensPresetRow(model: model, id: id, lens: lens)
             OptionalRadiusField(
-                model: model, id: id, title: "Front Radius R₁", flatTitle: "Flat front surface", path: \Element.shape.lens.r1Um, flatDefault: 12,
+                model: model, id: id, title: "Front Radius $R_1$", flatTitle: "Flat front surface", path: \Element.shape.lens.r1Um, flatDefault: 12,
                 issues: model.elementIssues(index, key: "r1_um")
             )
             OptionalRadiusField(
-                model: model, id: id, title: "Back Radius R₂", flatTitle: "Flat back surface", path: \Element.shape.lens.r2Um, flatDefault: -12,
+                model: model, id: id, title: "Back Radius $R_2$", flatTitle: "Flat back surface", path: \Element.shape.lens.r2Um, flatDefault: -12,
                 issues: model.elementIssues(index, key: "r2_um")
             )
             length("Center Thickness", \.lens, \.centerThicknessUm, key: "center_thickness_um", range: 0.1...max(10, span / 4))
@@ -206,7 +206,7 @@ private struct ShapeFields: View {
             length("Aperture", \.mirror, \.apertureUm, key: "aperture_um", range: 0.5...max(10, span))
             length("Thickness", \.mirror, \.thicknessUm, key: "thickness_um", range: 0.05...5)
             OptionalRadiusField(
-                model: model, id: id, title: "Radius R", flatTitle: "Flat mirror", path: \Element.shape.mirror.radiusUm, flatDefault: 20,
+                model: model, id: id, title: "Radius $R$", flatTitle: "Flat mirror", path: \Element.shape.mirror.radiusUm, flatDefault: 20,
                 issues: model.elementIssues(index, key: "radius_um")
             )
         case .slits(let slits):
@@ -271,7 +271,7 @@ private struct OptionalRadiusField: View {
     var issues: [Issue] = []
 
     var body: some View {
-        let radius = model.elementBinding(id, "Change \(title)", path, fallback: nil)
+        let radius = model.elementBinding(id, "Change \(MathTypesetter.plain(title))", path, fallback: nil)
         let isFlat = radius.wrappedValue == nil
         VStack(alignment: .leading, spacing: 4) {
                 Toggle(flatTitle, isOn: Binding(
@@ -286,7 +286,7 @@ private struct OptionalRadiusField: View {
                         limits: -1e5...1e5,
                         issues: issues
                     )
-                    Text("Positive: center of curvature on the +x side of the element.")
+                    MathText("Positive: center of curvature on the $+x$ side of the element.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
@@ -421,8 +421,10 @@ private struct DerivedSection: View {
             if !rows.isEmpty {
                 Section("Derived") {
                     ForEach(rows, id: \.title) { row in
-                        LabeledContent(row.title) {
+                        LabeledContent {
                             Text(row.value).foregroundStyle(row.isInvalid ? .red : .secondary)
+                        } label: {
+                            MathText(row.title)
                         }
                     }
                 }
@@ -465,10 +467,10 @@ private struct DerivedSection: View {
             }
         }
         if let cylinder = info.cylinder {
-            rows.append(Row(title: "Size Parameter k·r", value: Format.number(cylinder.sizeParameter, digits: 2...2)))
+            rows.append(Row(title: "Size Parameter $kr$", value: Format.number(cylinder.sizeParameter, digits: 2...2)))
         }
         if let waveguide = info.waveguide {
-            rows.append(Row(title: "V Number", value: Format.number(waveguide.vNumber, digits: 2...2)))
+            rows.append(Row(title: "$V$ Number", value: Format.number(waveguide.vNumber, digits: 2...2)))
             rows.append(Row(title: "Guided Modes", value: "\(waveguide.guidedModes)"))
         }
         if let prism = info.prism {

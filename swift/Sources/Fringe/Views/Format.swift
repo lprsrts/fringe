@@ -24,9 +24,9 @@ enum Format {
         "\(number(value, digits: 0...digits))°"
     }
 
-    /// "3.20 λ".
+    /// "3.20 $\lambda$", for `MathText`.
     static func waves(_ um: Double, lambda: Double) -> String {
         guard lambda > 0 else { return "" }
-        return "\(number(um / lambda, digits: 2...2)) λ"
+        return "\(number(um / lambda, digits: 2...2))" + #" $\lambda$"#
     }
 }

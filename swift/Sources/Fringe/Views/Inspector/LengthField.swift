@@ -19,9 +19,9 @@ struct LengthField: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            LabeledContent(title) {
+            LabeledContent {
                 HStack(spacing: 4) {
-                    TextField(title, text: $text)
+                    TextField(MathTypesetter.plain(title), text: $text)
                         .labelsHidden()
                         .monospacedDigit()
                         .multilineTextAlignment(.trailing)
@@ -32,19 +32,21 @@ struct LengthField: View {
                         .foregroundStyle(.secondary)
                         .frame(minWidth: 20, alignment: .leading)
                 }
+            } label: {
+                MathText(title)
             }
             if let range {
                 Slider(
                     value: Binding(get: { value.wrappedValue }, set: { value.wrappedValue = clamp($0) }),
                     in: range,
-                    label: { Text(title) },
+                    label: { Text(MathTypesetter.plain(title)) },
                     onEditingChanged: onEditingChanged
                 )
                 .labelsHidden()
             }
             HStack {
                 Spacer()
-                Text("= \(Format.waves(value.wrappedValue, lambda: lambda))")
+                MathText("= \(Format.waves(value.wrappedValue, lambda: lambda))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()

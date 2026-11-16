@@ -519,14 +519,15 @@ public final class AppState {
         return points
     }
 
-    /// "FDTD · λ 1.00 µm · 24/λ · final · 3.1 s", with "not converged" when it applies.
+    /// "FDTD · $\lambda$ 1.00 µm · 24/$\lambda$ · final · 3.1 s", with "not converged" when it
+    /// applies. The math is typeset on the canvas; `MathTypesetter.plain` gives the plain form.
     public var caption: String? {
         guard let shown = solver.shown else { return nil }
         let info = shown.info
         var parts = [
             info.method.title,
-            "λ \(SceneFormat.fixed(info.wavelengthUm, 2)) µm",
-            "\(Format.number(info.meta.ppw, digits: 0...1))/λ",
+            #"$\lambda$ "# + "\(SceneFormat.fixed(info.wavelengthUm, 2)) µm",
+            "\(Format.number(info.meta.ppw, digits: 0...1))/" + #"$\lambda$"#,
             info.quality.rawValue,
         ]
         if info.quality == .final { parts.append(SceneFormat.seconds(info.meta.wallS)) }
@@ -990,7 +991,7 @@ public final class AppState {
         }
         if let id = hitTestElement(x: plane.x, y: plane.y, tolerancePoints: 0, includeDisabled: false),
            let element = scene[element: id] {
-            readout.body = "\(element.displayName) (\(element.material.badge))"
+            readout.body = "\(MathTypesetter.escaped(element.displayName)) (\(element.material.badge))"
         }
         hover = readout
     }

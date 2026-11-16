@@ -2,7 +2,7 @@ import AppKit
 import CoreGraphics
 import Foundation
 
-/// The colour legend: the colormap and what its ends mean.
+/// The colour legend: the colormap and what its ends mean. The labels may contain `$…$` math.
 public struct Legend: Sendable {
     public var lut: [UInt8]
     public var title: String
@@ -19,29 +19,29 @@ public struct Legend: Sendable {
         switch q {
         case .intensity, .magnitude:
             if let db = display.logDb, display.usesLogScale {
-                title = "\(q.symbol), dB"
+                title = "\(q.mathSymbol), dB"
                 low = "−\(SceneFormat.fixed(db, 0))"
                 high = "0"
             } else {
-                title = q.symbol + (incident ? (q == .intensity ? " / A²" : " / A") : "")
+                title = q.mathSymbol + (incident ? (q == .intensity ? " / $A^2$" : " / $A$") : "")
                 low = "0"
                 if incident {
                     high = "1"
                 } else if fixed {
-                    high = q == .intensity ? "\(s)² A²" : "\(s) A"
+                    high = q == .intensity ? "\(s)$^2\\,A^2$" : "\(s) $A$"
                 } else {
                     high = "max"
                 }
             }
             middle = nil
         case .real:
-            title = "Re E" + (incident ? " / A" : "")
-            let edge = incident ? "1" : (fixed ? "\(s) A" : "max")
+            title = q.mathSymbol + (incident ? " / $A$" : "")
+            let edge = incident ? "1" : (fixed ? "\(s) $A$" : "max")
             low = "−" + edge
             middle = "0"
             high = "+" + edge
         case .phase:
-            title = "∠E"
+            title = q.mathSymbol
             low = "−180°"
             middle = "0°"
             high = "180°"
@@ -214,11 +214,20 @@ private struct OverlayPainter {
         ]
     }
 
-    private func textSize(_ string: String, size: CGFloat, weight: NSFont.Weight = .regular) -> CGSize {
-        (string as NSString).size(withAttributes: attributes(size: size, weight: weight, color: .white))
+    /// `string` with its `$…$` math typeset, in the overlay font and shadow.
+    private func styled(_ string: String, size: CGFloat, weight: NSFont.Weight, color: NSColor) -> NSAttributedString {
+        let attrs = attributes(size: size, weight: weight, color: color)
+        let out = NSMutableAttributedString(attributedString: MathTypesetter.attributed(string, font: attrs[.font] as! NSFont, color: color))
+        out.addAttribute(.shadow, value: attrs[.shadow]!, range: NSRange(location: 0, length: out.length))
+        return out
     }
 
-    /// Draws `string` with its top-left corner at `point`, or anchored by `alignment`.
+    private func textSize(_ string: String, size: CGFloat, weight: NSFont.Weight = .regular) -> CGSize {
+        styled(string, size: size, weight: weight, color: .white).size()
+    }
+
+    /// Draws `string`, with its `$…$` math typeset, with its top-left corner at `point`, or
+    /// anchored by `alignment`.
     private func text(
         _ string: String,
         at point: CGPoint,
@@ -227,10 +236,10 @@ private struct OverlayPainter {
         color: NSColor = NSColor(calibratedWhite: 1, alpha: 0.9),
         alignment: (x: CGFloat, y: CGFloat) = (0, 0)
     ) {
-        let attrs = attributes(size: size, weight: weight, color: color)
-        let measured = (string as NSString).size(withAttributes: attrs)
+        let text = styled(string, size: size, weight: weight, color: color)
+        let measured = text.size()
         let origin = CGPoint(x: point.x - alignment.x * measured.width, y: point.y - alignment.y * measured.height)
-        (string as NSString).draw(at: origin, withAttributes: attrs)
+        text.draw(at: origin)
     }
 
     /// A soft dark backing so labels stay legible over light colormaps.
@@ -320,7 +329,7 @@ private struct OverlayPainter {
             cross.move(to: CGPoint(x: p.x, y: p.y - r))
             cross.addLine(to: CGPoint(x: p.x, y: p.y + r))
             stroke(cross, color: color, width: 1.2, dash: [2, 2])
-            text("f", at: CGPoint(x: p.x + r + 2 * scale, y: p.y - r - 2 * scale), size: 9, weight: .semibold,
+            text("$f$", at: CGPoint(x: p.x + r + 2 * scale, y: p.y - r - 2 * scale), size: 9, weight: .semibold,
                  color: NSColor(calibratedWhite: 1, alpha: 0.75), alignment: (0, 0.5))
         }
     }
@@ -363,7 +372,7 @@ private struct OverlayPainter {
                 fill(h, color: CGColor(gray: 0.1, alpha: 0.8))
                 stroke(h, color: color, width: 1.5, fixedWidth: true)
             }
-            text("w₀", at: CGPoint(x: top.x + 6 * scale, y: top.y), size: 9, weight: .semibold,
+            text("$w_0$", at: CGPoint(x: top.x + 6 * scale, y: top.y), size: 9, weight: .semibold,
                  color: NSColor(cgColor: color) ?? .cyan, alignment: (0, 1))
 
         case .planeWave:
@@ -380,7 +389,7 @@ private struct OverlayPainter {
                 let e = map.point(x: start.x + normal.x * offset + dir.x * length, y: start.y + normal.y * offset + dir.y * length)
                 drawArrow(from: s, to: e, color: offset == 0 ? color : color.copy(alpha: 0.5) ?? color)
                 if offset == 0 {
-                    text("k", at: CGPoint(x: e.x + 4 * scale, y: e.y), size: 10, weight: .semibold,
+                    text("$k$", at: CGPoint(x: e.x + 4 * scale, y: e.y), size: 10, weight: .semibold,
                          color: NSColor(cgColor: color) ?? .cyan, alignment: (0, 1))
                 }
             }

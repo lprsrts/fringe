@@ -315,14 +315,15 @@ public struct Material: Codable, Equatable, Sendable {
         a.kind == b.kind && (a.kind == .pec || (a.n == b.n && a.k == b.k))
     }
 
-    /// "n 1.50", "n 1.50 + 0.05i" or "PEC".
+    /// "$n$ 1.50", "$n$ 1.50 + 0.050$\mathrm{i}$" or "PEC", for `MathText`: the index as it is
+    /// entered, n + ik.
     public var badge: String {
         switch kind {
         case .pec:
             return "PEC"
         case .dielectric:
-            let n = SceneFormat.fixed(self.n, 2)
-            return k > 0 ? "n \(n) + \(SceneFormat.fixed(k, 3))i" : "n \(n)"
+            let n = "$n$ " + SceneFormat.fixed(self.n, 2)
+            return k > 0 ? n + " + \(SceneFormat.fixed(k, 3))" + #"$\mathrm{i}$"# : n
         }
     }
 }

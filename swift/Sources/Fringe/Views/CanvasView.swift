@@ -23,7 +23,7 @@ struct CanvasView: View {
                     .offset(x: rect.minX, y: rect.minY)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Field image")
-                    .accessibilityValue(model.caption ?? model.solver.status.title)
+                    .accessibilityValue(model.caption.map(MathTypesetter.plain) ?? model.solver.status.title)
                     .accessibilityAddTraits(.isImage)
             }
             .overlay(alignment: .bottom) {
@@ -412,7 +412,7 @@ private struct StatusBar: View {
                     .transition(.opacity)
             }
             if let hover = model.hover {
-                Text(readout(hover))
+                MathText(readout(hover))
                     .font(.caption.monospacedDigit())
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
@@ -424,12 +424,12 @@ private struct StatusBar: View {
     }
 
     private func readout(_ hover: HoverReadout) -> String {
-        var parts = ["x \(Format.number(hover.xUm, digits: 2...2)) µm  y \(Format.number(hover.yUm, digits: 2...2)) µm"]
+        var parts = ["$x$ \(Format.number(hover.xUm, digits: 2...2)) µm  $y$ \(Format.number(hover.yUm, digits: 2...2)) µm"]
         if let intensity = hover.intensity {
-            parts.append("|E|² \(Format.number(intensity, digits: 2...2))")
+            parts.append("$|E|^2$ \(Format.number(intensity, digits: 2...2))")
         }
         if let phase = hover.phaseDeg {
-            parts.append("∠E \(Format.degrees(phase, digits: 0))")
+            parts.append(#"$\angle E$ "# + Format.degrees(phase, digits: 0))
         }
         if let body = hover.body {
             parts.append(body)

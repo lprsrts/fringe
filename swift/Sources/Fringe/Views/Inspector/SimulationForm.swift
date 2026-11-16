@@ -24,12 +24,12 @@ struct SimulationForm: View {
 
         Section {
             LengthField(
-                title: "Center x",
+                title: "Center $x$",
                 value: Binding(get: { domain.centerX }, set: { model.setDomainCenter(x: $0) }),
                 lambda: lambda
             )
             LengthField(
-                title: "Center y",
+                title: "Center $y$",
                 value: Binding(get: { domain.centerY }, set: { model.setDomainCenter(y: $0) }),
                 lambda: lambda
             )
@@ -59,7 +59,7 @@ struct SimulationForm: View {
                 value: model.binding("Change PML Thickness", \.scene.domain.pmlWl),
                 range: 0.5...4,
                 limits: 0.5...4,
-                unit: "λ",
+                unit: #"$\lambda$"#,
                 digits: 2,
                 onEditingChanged: model.editingChanged("Change PML Thickness")
             )
@@ -103,7 +103,7 @@ private struct EstimateSection: View {
             LabeledContent(title) {
                 VStack(alignment: .trailing, spacing: 1) {
                     Text("≈ \(estimate.summary) · \(SceneFormat.megabytes(estimate.memoryMb))")
-                    Text("\(SceneFormat.fixed(estimate.ppw, 0)) \(estimate.method.ppwNoun) per λ · \(estimate.detail)")
+                    MathText("\(Format.number(estimate.ppw, digits: 0...1)) \(estimate.method.ppwNoun) per " + #"$\lambda$"# + " · \(estimate.detail)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -174,7 +174,7 @@ private struct AdvancedSection: View {
                         ForEach(PecFormulation.allCases, id: \.self) { Text($0.title).tag($0) }
                     }
                     ValueRow(
-                        title: "CFIE β Scale",
+                        title: #"CFIE $\beta$ Scale"#,
                         value: model.binding("Change CFIE Scale", \.scene.solver.mom.cfieBetaScale),
                         range: 0.1...4,
                         limits: 0.01...10,
@@ -189,14 +189,14 @@ private struct AdvancedSection: View {
                         title: "Preview Output Samples",
                         value: model.binding("Change Output Sampling", \.scene.solver.output.previewPpw),
                         placeholder: "6",
-                        unit: "/λ",
+                        unit: #"/$\lambda$"#,
                         limits: 4...80
                     )
                     OptionalNumberField(
                         title: "Final Output Samples",
                         value: model.binding("Change Output Sampling", \.scene.solver.output.finalPpw),
                         placeholder: "12",
-                        unit: "/λ",
+                        unit: #"/$\lambda$"#,
                         limits: 4...80
                     )
                 }
@@ -223,14 +223,14 @@ private struct AdvancedSection: View {
             title: "Preview Resolution",
             value: model.binding("Change Resolution", preview),
             placeholder: SceneFormat.fixed(method.defaultPPW(final: false), 0),
-            unit: "/λ",
+            unit: #"/$\lambda$"#,
             limits: 4...80
         )
         OptionalNumberField(
             title: "Final Resolution",
             value: model.binding("Change Resolution", final),
             placeholder: SceneFormat.fixed(method.defaultPPW(final: true), 0),
-            unit: "/λ",
+            unit: #"/$\lambda$"#,
             limits: 4...80
         )
     }
@@ -244,7 +244,7 @@ private struct ResultSection: View {
             let meta = shown.info.meta
             Section("Last Result") {
                 LabeledContent("Status", value: model.solver.status.title)
-                LabeledContent("Solver", value: "\(meta.method.title) · \(meta.quality.title) · \(SceneFormat.fixed(meta.ppw, 0))/λ")
+                LabeledContent { MathText("\(meta.method.title) · \(meta.quality.title) · \(Format.number(meta.ppw, digits: 0...1))/" + #"$\lambda$"#) } label: { Text("Solver") }
                 LabeledContent(meta.method.unknownsNoun.capitalizedFirst, value: SceneFormat.count(meta.unknowns))
                 if let periods = meta.periods {
                     LabeledContent("Periods", value: SceneFormat.fixed(periods, 0))

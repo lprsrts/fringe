@@ -55,7 +55,7 @@ struct SourceForm: View {
         if source.kind == .gaussianBeam {
             Section("Gaussian Beam") {
                 LengthField(
-                    title: "Waist Radius w₀",
+                    title: "Waist Radius $w_0$",
                     value: model.binding("Change Waist Radius", \.scene.source.waistUm),
                     lambda: lambda,
                     range: 0.1 * lambda...max(10 * lambda, min(domain.width, domain.height) / 2),
@@ -64,7 +64,7 @@ struct SourceForm: View {
                     onEditingChanged: model.editingChanged("Change Waist Radius")
                 )
                 LengthField(
-                    title: "Waist x",
+                    title: "Waist $x$",
                     value: model.binding("Move Waist", \.scene.source.waistXUm),
                     lambda: lambda,
                     range: domain.xMinUm...domain.xMaxUm,
@@ -72,7 +72,7 @@ struct SourceForm: View {
                     onEditingChanged: model.editingChanged("Move Waist")
                 )
                 LengthField(
-                    title: "Waist y",
+                    title: "Waist $y$",
                     value: model.binding("Move Waist", \.scene.source.waistYUm),
                     lambda: lambda,
                     range: domain.yMinUm...domain.yMaxUm,
@@ -108,17 +108,17 @@ struct SourceForm: View {
             )
             IssueLines(issues: model.issues(at: "source.amplitude") + model.issues(at: "source"))
         } footer: {
-            Text("Defined in the background as if no elements were present. Ez polarization (out of plane, s). 2D: elements are infinite extrusions.")
+            MathText.footer("Defined in the background as if no elements were present. $E_z$ polarization (out of plane, s). 2D: elements are infinite extrusions.")
                 .foregroundStyle(.secondary)
         }
 
         if source.kind == .gaussianBeam, let derived = model.checkReport?.derived?.source {
             Section {
                 if let zR = derived.rayleighRangeUm {
-                    LabeledContent("Rayleigh Range", value: Format.micrometres(zR))
+                    LabeledContent { Text(Format.micrometres(zR)) } label: { MathText("Rayleigh Range $z_R$") }
                 }
                 if let theta = derived.divergenceDeg {
-                    LabeledContent("Divergence", value: Format.degrees(theta, digits: 2))
+                    LabeledContent { Text(Format.degrees(theta, digits: 2)) } label: { MathText(#"Divergence $\theta_0$"#) }
                 }
             } header: {
                 Text("Derived")

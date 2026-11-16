@@ -58,9 +58,9 @@ struct OptionalNumberField: View {
     @FocusState private var isFocused: Bool
 
     var body: some View {
-        LabeledContent(title) {
+        LabeledContent {
             HStack(spacing: 4) {
-                TextField(title, text: $text, prompt: Text(placeholder))
+                TextField(MathTypesetter.plain(title), text: $text, prompt: Text(placeholder))
                     .labelsHidden()
                     .monospacedDigit()
                     .multilineTextAlignment(.trailing)
@@ -68,11 +68,13 @@ struct OptionalNumberField: View {
                     .focused($isFocused)
                     .onSubmit(commit)
                 if !unit.isEmpty {
-                    Text(unit)
+                    MathText(unit)
                         .foregroundStyle(.secondary)
                         .frame(minWidth: 20, alignment: .leading)
                 }
             }
+        } label: {
+            MathText(title)
         }
         .onAppear { text = Self.format(value.wrappedValue) }
         .onChange(of: value.wrappedValue) { _, newValue in

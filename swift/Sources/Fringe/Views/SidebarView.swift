@@ -35,10 +35,10 @@ struct SidebarView: View {
 
             Section("Image") {
                 Label("Display", systemImage: "paintpalette")
-                    .badge(Text(model.display.quantity.symbol))
+                    .badge(Text(MathTypesetter.styled(model.display.quantity.mathSymbol, pointSize: NSFont.preferredFont(forTextStyle: .caption1).pointSize)).font(.caption))
                     .tag(SidebarItem.display)
                 Label("Output", systemImage: "aspectratio")
-                    .badge(Text(model.outputSummary).monospacedDigit())
+                    .badge(Text(model.outputSummary).font(.caption).monospacedDigit())
                     .tag(SidebarItem.output)
             }
         }
@@ -59,14 +59,14 @@ private struct SourceRow: View {
 
     var body: some View {
         let source = scene.source
-        let lambda = "λ \(Format.number(scene.wavelengthUm, digits: 2...2)) µm"
+        let lambda = #"$\lambda$ "# + "\(Format.number(scene.wavelengthUm, digits: 2...2)) µm"
         let summary = source.kind == .gaussianBeam
-            ? "Gaussian · \(lambda) · w₀ \(Format.number(source.waistUm, digits: 1...1)) µm"
+            ? "Gaussian · \(lambda) · $w_0$ \(Format.number(source.waistUm, digits: 1...1)) µm"
             : "Plane wave · \(lambda) · \(Format.degrees(source.angleDeg, digits: 0))"
         Label {
             VStack(alignment: .leading, spacing: 1) {
-                Text(summary)
-                Text("Background n \(Format.number(scene.background.n, digits: 3...3))")
+                MathText(summary)
+                MathText("Background $n$ \(Format.number(scene.background.n, digits: 3...3))")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -96,7 +96,7 @@ private struct ElementRow: View {
                     .foregroundStyle(.red)
                     .help("This element has problems; select it to see them")
             }
-            Text(element.material.badge)
+            MathText(element.material.badge)
                 .font(.caption)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
@@ -121,7 +121,7 @@ private struct SimulationRow: View {
         let status = model.solver.status
         Label {
             VStack(alignment: .leading, spacing: 1) {
-                Text("\(solver.method.title) · final \(SceneFormat.fixed(solver.ppw(final: true), 0))/λ")
+                MathText("\(solver.method.title) · final \(Format.number(solver.ppw(final: true), digits: 0...1))/" + #"$\lambda$"#)
                 HStack(spacing: 4) {
                     if model.solver.isRunning {
                         ProgressView().controlSize(.mini)

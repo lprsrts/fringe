@@ -44,7 +44,7 @@ struct DisplayForm: View {
                         value: model.binding("Change Full Scale", \.display.normalizationValue),
                         range: 0.1...5,
                         limits: 1e-6...1e6,
-                        unit: "× A",
+                        unit: #"$\times A$"#,
                         digits: 2,
                         onEditingChanged: model.editingChanged("Change Full Scale")
                     )
@@ -79,7 +79,7 @@ struct DisplayForm: View {
 
         Section {
             ValueRow(
-                title: "Phase φ",
+                title: #"Phase $\varphi$"#,
                 value: model.binding("Change Phase", \.display.phaseDeg),
                 range: 0...360,
                 limits: -3600...3600,
@@ -110,9 +110,9 @@ struct DisplayForm: View {
         } header: {
             Text("Phase")
         } footer: {
-            Text(quantity.dependsOnPhase
-                 ? "Shows Re(E·exp(jφ)) or arg(E·exp(jφ)); increasing φ moves wavefronts forward."
-                 : "Intensity and magnitude don't change with φ. Play switches to the real part.")
+            MathText.footer(quantity.dependsOnPhase
+                 ? #"Shows $\operatorname{Re}(E\,\mathrm{e}^{\mathrm{j}\varphi})$ or $\arg(E\,\mathrm{e}^{\mathrm{j}\varphi})$; increasing $\varphi$ moves wavefronts forward."#
+                 : #"Intensity and magnitude don't change with $\varphi$. Play switches to the real part."#)
                 .foregroundStyle(.secondary)
         }
 

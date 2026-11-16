@@ -22,15 +22,18 @@ public enum Quantity: String, Codable, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// Short label for the toolbar picker and captions.
-    public var symbol: String {
+    /// The symbol as math for `MathText` and the legend: "$|E|^2$".
+    public var mathSymbol: String {
         switch self {
-        case .intensity: return "|E|²"
-        case .magnitude: return "|E|"
-        case .real: return "Re E"
-        case .phase: return "∠E"
+        case .intensity: return "$|E|^2$"
+        case .magnitude: return "$|E|$"
+        case .real: return #"$\operatorname{Re} E$"#
+        case .phase: return #"$\angle E$"#
         }
     }
+
+    /// The symbol in plain Unicode, for menus: "|E|²".
+    public var symbol: String { MathTypesetter.plain(mathSymbol) }
 
     public var systemImage: String {
         switch self {

@@ -59,7 +59,7 @@ struct OutputForm: View {
         Section("Field Data") {
             Button("Export Field Data (.npy)…") { model.exportFieldData() }
                 .disabled(model.solver.shown == nil)
-            Text("Complex Ez of the \(model.display.part.title.lowercased()) field on the solver's grid, with a .json file describing the grid.")
+            MathText("Complex $E_z$ of the \(model.display.part.title.lowercased()) field on the solver's grid, with a .json file describing the grid.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
