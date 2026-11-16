@@ -141,7 +141,7 @@ fn body_counts() {
 }
 
 #[test]
-fn shapes_sit_where_the_spec_puts_them() {
+fn shapes_sit_on_their_anchors() {
     // Lens: vertices at ±t/2 on the axis about the anchor.
     let (_, lens, m) = shapes().remove(0);
     let b = &bodies(&lens, m, 0.0)[0];
