@@ -265,3 +265,27 @@ fn fem_perf_default_scene() {
         }
     }
 }
+
+/// `pml_hygiene` must see a PML a thousand times weaker than the default:
+/// with R0 = 1e−3 the two domains differ by more than the case's bound.
+#[test]
+#[ignore]
+fn fem_pml_hygiene_detects_a_weak_pml() {
+    use beam_core::analytic::metrics::{rel_l2, resample};
+    use beam_core::scene::Domain;
+    use beam_core::types::C64;
+    let mut small = case_scene("pml_hygiene").unwrap();
+    small.solver.method = FEM;
+    small.solver.fem.final_ppw = Some(cases::PML_HYGIENE_FEM_PPW);
+    small.solver.fem.pml_reflection = 1e-3;
+    let mut big = small.clone();
+    big.domain = Domain { x_min_um: -8.0, x_max_um: 8.0, y_min_um: -8.0, y_max_um: 8.0, pml_wl: 1.0 };
+    let a = solve(&small, Quality::Final, &SolveContext::new()).unwrap();
+    let b = solve(&big, Quality::Final, &SolveContext::new()).unwrap();
+    let b_on_a: Vec<C64> =
+        resample(&b, Part::Total, &a.grid).into_iter().map(|v| v.unwrap_or(C64::new(f64::NAN, 0.0))).collect();
+    let mask: Vec<bool> = (0..a.grid.len()).map(|i| !a.is_pec(i)).collect();
+    let e = rel_l2(&a.total, &b_on_a, Some(&mask));
+    let bound = cases::spec("pml_hygiene").unwrap().fem.unwrap();
+    assert!(e > 2.0 * bound, "R0 = 1e-3 gives {e:.2e}, bound {bound:.1e}");
+}

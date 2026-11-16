@@ -102,7 +102,7 @@ two cells of an interface. Measured on the release build:
 | `mirror_25` (25°) | 1.1e-5 | 4.7e-4 | 1.1e-2 |
 | `mirror_off_grid` (`mirror_0` with the face Δ/4 off the FDTD grid) | 1.8e-6 | 5.4e-4 | 4.1e-3 |
 | `mom_self` (12 against 16 panels/λ) | 2.5e-4 | – | – |
-| `pml_hygiene` (domain 8 µm against 16 µm) | – | 4.9e-4 | 9.4e-7 |
+| `pml_hygiene` (domain 8 µm against 16 µm; FEM at 25 per λ) | – | 5.2e-5 | 9.4e-7 |
 | `balance` (energy balance, lossy cylinder) | 1.1e-4 | 8.0e-5 | 1.0e-3 |
 | `free_beam`, `transparent` (no scattering) | 0 | 0 | 0 |
 

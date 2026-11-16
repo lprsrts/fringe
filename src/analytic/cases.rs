@@ -101,7 +101,15 @@ pub const CASES: [CaseSpec; 19] = [
     ),
     case("fem_order", true, None, Some(3.0), None, None, "observed order of mie_diel with P3 at 9 and 15 ppw (≥ bound)"),
     case("mom_self", false, Some(5e-4), None, None, None, "mie_diel at 12 against 16 panels per wavelength"),
-    case("pml_hygiene", true, None, Some(9.9e-4), Some(1.9e-6), None, "mie_pec against the same with the domain 4 µm larger"),
+    case(
+        "pml_hygiene",
+        true,
+        None,
+        Some(1.1e-4),
+        Some(1.9e-6),
+        None,
+        "mie_pec against the same with the domain 4 µm larger (FEM at 25 per λ)",
+    ),
     case("balance", false, Some(2.2e-4), Some(1.7e-4), Some(2e-3), None, "energy balance of mie_lossy"),
     case("free_beam", false, Some(0.0), Some(0.0), Some(0.0), None, "no elements: the scattered field is exactly zero"),
     case("transparent", false, Some(1e-6), Some(0.0), Some(0.0), None, "cylinder with n = n_b: no scattering"),
@@ -230,6 +238,10 @@ pub fn case_scene(id: &str) -> Option<Scene> {
         _ => return None,
     })
 }
+
+/// FEM resolution of `pml_hygiene`, high enough that the mesh difference
+/// between the two domains is well below the PML reflection being measured.
+pub const PML_HYGIENE_FEM_PPW: f64 = 25.0;
 
 /// FDTD resolutions of the `fdtd_subpixel_order` fit.
 pub const SUBPIXEL_PPW: [f64; 5] = [12.0, 16.0, 20.0, 24.0, 30.0];
@@ -405,6 +417,12 @@ pub fn run_case(id: &str, method: Method, quality: Quality) -> Result<CaseResult
             pass = e <= tol;
         }
         "pml_hygiene" => {
+            // The two FEM domains get different meshes, so at the default 15
+            // per λ their difference is the mesh noise (≈ 5e-4), as large as a
+            // PML a thousand times worse would cause. At 25 per λ the noise is
+            // ≈ 5e-5 and R0 = 1e-3 shows as 6e-4. FDTD shares its grid nodes
+            // between the two domains and needs no such care.
+            let ppw = if method == Method::Fem { Some(PML_HYGIENE_FEM_PPW) } else { ppw };
             let small = run(&with_method(scene0.clone(), method, ppw), quality)?;
             let mut big_scene = scene0;
             big_scene.domain = Domain { x_min_um: -8.0, x_max_um: 8.0, y_min_um: -8.0, y_max_um: 8.0, pml_wl: 1.0 };
@@ -416,7 +434,10 @@ pub fn run_case(id: &str, method: Method, quality: Quality) -> Result<CaseResult
                 .collect();
             let e = rel_l2(&small.field.total, &big_on_small, Some(&mask));
             result.error = Some(e);
-            result.detail = "domain [−4, 4]² against [−8, 8]²".into();
+            result.detail = match method {
+                Method::Fem => format!("domain [−4, 4]² against [−8, 8]², {PML_HYGIENE_FEM_PPW} per λ"),
+                _ => "domain [−4, 4]² against [−8, 8]²".into(),
+            };
             result.unknowns = big.field.meta.solver.unknowns;
             result.seconds = small.seconds + big.seconds;
             pass = e <= tol;
