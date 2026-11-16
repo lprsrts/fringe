@@ -267,7 +267,7 @@ pub fn render_rgba(field: &FieldGrid, view: &View, width: u32, height: u32, out:
         let wy = catmull_rom(fy - j0 as f64);
         let rows: [usize; 4] = std::array::from_fn(|b| (j0 as isize + b as isize - 1).clamp(0, g.ny as isize - 1) as usize);
         let jn = fy.round() as usize;
-        for (col, pxl) in columns.iter().zip(line.chunks_exact_mut(4)) {
+        for (col, pxl) in columns.iter().zip(line.as_chunks_mut::<4>().0) {
             let Some((i0, wx, fx)) = *col else {
                 pxl.copy_from_slice(&view.outside_rgba);
                 continue;
@@ -352,7 +352,7 @@ fn draw_outlines(field: &FieldGrid, rect: &ViewRect, w: usize, h: usize, out: &m
             }
         }
     }
-    for (c, px) in cover.iter().zip(out.chunks_exact_mut(4)) {
+    for (c, px) in cover.iter().zip(out.as_chunks_mut::<4>().0) {
         if *c <= 0.0 {
             continue;
         }

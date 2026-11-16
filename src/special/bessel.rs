@@ -374,9 +374,9 @@ fn hankel_sums(z: C64, sign: C64) -> (C64, C64) {
         let mut sum = term;
         let mut prev = f64::INFINITY;
         let step = sign * 0.125 / z;
-        for k in 1..=30 {
+        for (k, inv_k) in INV.iter().enumerate().take(31).skip(1) {
             let odd = (2 * k - 1) as f64;
-            let next = term * step * ((mu - odd * odd) * INV[k]);
+            let next = term * step * ((mu - odd * odd) * inv_k);
             let size = next.norm();
             if size >= prev || size < 1e-17 * sum.norm() {
                 if size < prev {
@@ -434,9 +434,9 @@ pub fn asymptotic_real(x: f64) -> (f64, f64, f64, f64) {
         let mut term = 1.0; // a_k / x^k with the sign pattern folded in below
         let mut prev = f64::INFINITY;
         let inv8x = 0.125 / x;
-        for k in 1..=30 {
+        for (k, inv_k) in INV.iter().enumerate().take(31).skip(1) {
             let odd = (2 * k - 1) as f64;
-            let next = term * (mu - odd * odd) * INV[k] * inv8x;
+            let next = term * (mu - odd * odd) * inv_k * inv8x;
             if next.abs() >= prev || next.abs() < 1e-17 {
                 if next.abs() < prev {
                     add_pq(&mut p, &mut q, k, next);

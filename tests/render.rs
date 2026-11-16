@@ -68,9 +68,7 @@ fn real_part_flips_colour_at_half_a_period() {
     for (i, c) in lut.iter().enumerate() {
         index.entry(*c).or_default().push(i);
     }
-    for (ca, cb) in a.chunks_exact(4).zip(b.chunks_exact(4)) {
-        let ca: [u8; 4] = ca.try_into().unwrap();
-        let cb: [u8; 4] = cb.try_into().unwrap();
+    for (&ca, &cb) in a.as_chunks::<4>().0.iter().zip(b.as_chunks::<4>().0) {
         let ok = index[&ca].iter().any(|&i| {
             let j = 1023 - i;
             [j.saturating_sub(1), j, (j + 1).min(1023)].iter().any(|&k| lut[k] == cb)
@@ -139,11 +137,11 @@ fn parts_and_errors() {
     // With no elements the scattered field is exactly zero: one flat colour.
     let free = solve(&cases::case_scene("free_beam").unwrap(), Quality::Preview, &SolveContext::new()).unwrap();
     let buf = render(&free, &scattered, 40, 20);
-    assert!(buf.chunks_exact(4).all(|c| c == [0, 0, 4, 255]));
+    assert!(buf.as_chunks::<4>().0.iter().all(|c| *c == [0, 0, 4, 255]));
     // The lens scatters, so its scattered part is not flat.
     let f = field("lens");
     let buf = render(&f, &scattered, 40, 20);
-    assert!(buf.chunks_exact(4).any(|c| c != [0, 0, 4, 255]));
+    assert!(buf.as_chunks::<4>().0.iter().any(|c| *c != [0, 0, 4, 255]));
     assert!((0..f.grid.len()).any(|i| f.value(Part::Scattered, i).norm() > 0.05));
     let mut small = vec![0u8; 10];
     assert!(render_rgba(&f, &View::default(), 4, 4, &mut small).is_err());

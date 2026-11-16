@@ -119,9 +119,9 @@ fn linalg_dense_lu_2000() {
     // Transpose solve: Aᵀ y = rhs.
     let y = lu.solve_transpose(&rhs);
     let mut aty = vec![C64::new(0.0, 0.0); n];
-    for j in 0..n {
-        for i in 0..n {
-            aty[j] += a_copy.get(i, j) * y[i];
+    for (j, v) in aty.iter_mut().enumerate() {
+        for (i, yi) in y.iter().enumerate() {
+            *v += a_copy.get(i, j) * yi;
         }
     }
     let res_t: f64 = aty

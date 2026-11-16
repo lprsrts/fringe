@@ -120,9 +120,9 @@ impl MieCylinder {
         let h = hankel2_array(n_max, self.k_b * rho);
         let mut sum = C64::new(0.0, 0.0);
         let mut mj = C64::new(1.0, 0.0); // (−j)ⁿ
-        for n in 0..=n_max {
+        for (n, (c, h)) in self.c.iter().zip(&h).enumerate() {
             let w = if n == 0 { 1.0 } else { 2.0 * (n as f64 * psi).cos() };
-            sum += mj * self.c[n] * h[n] * w;
+            sum += mj * c * h * w;
             mj *= C64::new(0.0, -1.0);
         }
         self.prefactor() * sum
@@ -142,9 +142,9 @@ impl MieCylinder {
         let jn = bessel_j_array(n_max, m * self.k_b * rho);
         let mut sum = C64::new(0.0, 0.0);
         let mut mj = C64::new(1.0, 0.0);
-        for n in 0..=n_max {
+        for (n, (b, j)) in self.b.iter().zip(&jn).enumerate() {
             let w = if n == 0 { 1.0 } else { 2.0 * (n as f64 * psi).cos() };
-            sum += mj * self.b[n] * jn[n] * w;
+            sum += mj * b * j * w;
             mj *= C64::new(0.0, -1.0);
         }
         self.prefactor() * sum
