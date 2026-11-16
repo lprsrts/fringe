@@ -2,7 +2,7 @@
 
 use rayon::prelude::*;
 
-use crate::geometry::Body;
+use crate::geometry::{bodies_from_scene, Body, BodyMaterial};
 use crate::solver::{FieldGrid, GridSpec, Part};
 use crate::types::{Rect, Vec2, C64};
 
@@ -106,8 +106,9 @@ impl FluxBalance {
 }
 
 /// See [`FluxBalance`]. ∂_n E uses 4th-order central differences, the contour
-/// integral composite Simpson along each edge and the area integral the 2D
-/// trapezoidal rule.
+/// integral composite Simpson along each edge, and the area integral the 2D
+/// trapezoidal rule on node dual cells weighted by the area fraction of each
+/// lossy body.
 pub fn flux_balance(field: &FieldGrid, rect: Rect) -> FluxBalance {
     let g = &field.grid;
     let h = g.dx;
@@ -143,22 +144,47 @@ pub fn flux_balance(field: &FieldGrid, rect: Rect) -> FluxBalance {
     edge((j0..=j1).map(|j| (i0, j)).collect(), (-1, 0));
     edge((j0..=j1).map(|j| (i1, j)).collect(), (1, 0));
 
-    let mut absorbed = 0.0;
-    for j in j0..=j1 {
-        for i in i0..=i1 {
-            let idx = g.index(i, j);
-            let r = field.region[idx] as usize;
-            if r == 0 {
-                continue;
+    // Absorption: each node's dual cell is weighted by the area fraction of
+    // every lossy body inside it (16 × 16 sampling near the boundary), so a
+    // curved body is not reduced to the staircase of nodes inside it.
+    let lossy: Vec<(Body, f64)> = bodies_from_scene(&field.scene)
+        .into_iter()
+        .filter_map(|b| match b.material {
+            BodyMaterial::Dielectric { eps, .. } if eps.im != 0.0 => Some((b, -eps.im)),
+            _ => None,
+        })
+        .collect();
+    let absorbed: f64 = (j0..=j1)
+        .into_par_iter()
+        .map(|j| {
+            let mut row = 0.0;
+            for i in i0..=i1 {
+                let c = g.point(i, j);
+                let cell = Rect { x_min: c.x - 0.5 * h, x_max: c.x + 0.5 * h, y_min: c.y - 0.5 * h, y_max: c.y + 0.5 * h };
+                let mut eps_im = 0.0;
+                for (b, e) in &lossy {
+                    if !b.bbox.intersects(&cell) {
+                        continue;
+                    }
+                    let frac = if b.signed_distance(c).abs() > h {
+                        if b.inside(c) {
+                            1.0
+                        } else {
+                            0.0
+                        }
+                    } else {
+                        b.area_fraction(cell, 16)
+                    };
+                    eps_im += e * frac;
+                }
+                if eps_im != 0.0 {
+                    let w = if i == i0 || i == i1 { 0.5 } else { 1.0 } * if j == j0 || j == j1 { 0.5 } else { 1.0 };
+                    row += w * eps_im * field.total[g.index(i, j)].norm_sqr();
+                }
             }
-            let eps_im = field.bodies[r - 1].eps_imag();
-            if eps_im == 0.0 {
-                continue;
-            }
-            let w = if i == i0 || i == i1 { 0.5 } else { 1.0 } * if j == j0 || j == j1 { 0.5 } else { 1.0 };
-            absorbed += w * eps_im * field.total[idx].norm_sqr();
-        }
-    }
+            row
+        })
+        .sum();
     FluxBalance { inflow, absorbed: k0 * k0 * absorbed * h * h, scattered_flux: scat }
 }
 

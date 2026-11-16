@@ -10,13 +10,12 @@ use std::time::{Duration, Instant};
 
 use beam_core::analytic::cases::{self, case_scene, field_error, reference, Status};
 use beam_core::analytic::metrics::flux_balance;
-use beam_core::geometry::bodies_from_scene;
 use beam_core::problem::compile;
 use beam_core::scene::examples::{example, EXAMPLES};
 use beam_core::scene::{Material, PecFormulation, Scene, Shape};
 use beam_core::solver::mom::panels::{panelize, pec_rows, PecRows};
 use beam_core::solver::{solve, solver_for, FieldGrid, Method, Part, Quality, SolveContext};
-use beam_core::types::{Rect, C64};
+use beam_core::types::C64;
 
 use common::assert_case;
 
@@ -85,65 +84,21 @@ fn transparent() {
     assert_eq!(r.error, Some(0.0));
 }
 
-/// What the shared `balance` case measures for MoM. While the shared metric
-/// is staircased this test does NOT assert that the case passes (it FAILs at
-/// 1.75e-2 > 1e-2): its area integral of ε″|E|² sums the grid nodes inside the
-/// body, which on the final output grid is off by 1.7 % even for the exact Mie
-/// field. So it asserts that the MoM field scores the same as the exact field
-/// under that metric, and that it passes 1e-2 when boundary cells are
-/// area-weighted ([`balance_area_weighted`]). Once the shared metric passes the
-/// exact field, it also asserts that the case itself passes.
+/// The `balance` case, and the shared metric itself on the exact Mie field
+/// sampled on the same grid (what the solver error is measured against).
 #[test]
-fn balance_metric_vs_exact() {
-    let r = cases::run_case("balance", Method::Mom, Quality::Final).unwrap();
+fn balance() {
+    assert_case("balance", Method::Mom, Quality::Final);
     let mut f = solve(&mom_scene("balance", None), Quality::Final, &SolveContext::new()).unwrap();
     let rect = f.scene.domain.rect().expand(-0.5);
-    let ours = balance_area_weighted(&f, rect);
-    let shared = flux_balance(&f, rect).residual();
     let exact_field = reference("balance", &f.scene).unwrap();
     let g = f.grid;
     for idx in 0..g.len() {
         f.total[idx] = exact_field(g.point(idx % g.nx, idx / g.nx));
     }
-    let shared_exact = flux_balance(&f, rect).residual();
-    let ours_exact = balance_area_weighted(&f, rect);
-    eprintln!(
-        "balance: shared metric {shared:.3e} (exact field {shared_exact:.3e}, case status {:?}); \
-         area-weighted {ours:.3e} (exact field {ours_exact:.3e})",
-        r.status
-    );
-    assert!((shared - shared_exact).abs() < 1e-3, "MoM {shared} vs exact {shared_exact} under the shared metric");
-    assert!(ours <= 1e-2, "area-weighted balance residual {ours}");
-    if shared_exact <= 1e-2 {
-        assert_eq!(r.status, Status::Pass, "balance case with a metric the exact field passes");
-    }
-}
-
-/// `flux_balance` with the absorbed power integrated with the area fraction of
-/// each node's dual cell inside the body instead of a node count.
-fn balance_area_weighted(f: &FieldGrid, rect: Rect) -> f64 {
-    let fb = flux_balance(f, rect);
-    let g = &f.grid;
-    let h = g.dx;
-    let k0 = 2.0 * std::f64::consts::PI / f.scene.wavelength_um;
-    let bodies = bodies_from_scene(&f.scene);
-    let mut absorbed = 0.0;
-    for (b, body) in bodies.iter().enumerate() {
-        let eps_im = f.bodies[b].eps_imag();
-        if eps_im == 0.0 {
-            continue;
-        }
-        for idx in 0..g.len() {
-            let p = g.point(idx % g.nx, idx / g.nx);
-            let cell = Rect::new(p.x - 0.5 * h, p.x + 0.5 * h, p.y - 0.5 * h, p.y + 0.5 * h);
-            let frac = body.area_fraction(cell, 16);
-            if frac > 0.0 {
-                absorbed += frac * eps_im * f.total[idx].norm_sqr();
-            }
-        }
-    }
-    let absorbed = k0 * k0 * absorbed * h * h;
-    (fb.inflow - absorbed).abs() / absorbed
+    let exact = flux_balance(&f, rect).residual();
+    eprintln!("balance of the exact field: {exact:.3e}");
+    assert!(exact <= 1e-3, "flux_balance of the exact Mie field {exact}");
 }
 
 // §9.2 cases, slow.
@@ -425,17 +380,14 @@ fn performance_default_scene() {
 }
 
 /// Every MoM case of the tolerance table in one run (what `beam-cli validate
-/// --solver mom --slow` prints). `balance` is excluded: see
-/// [`balance_metric_vs_exact`]; it fails only through the shared metric.
+/// --solver mom --slow` prints).
 #[test]
 #[ignore]
 fn all_cases_report() {
     for c in cases::CASES.iter().filter(|c| c.mom.is_some()) {
         let r = cases::run_case(c.id, Method::Mom, Quality::Final).unwrap();
         eprintln!("{:20} {:?} error {:?} tol {:?} {}", c.id, r.status, r.error, r.tolerance, r.detail);
-        if c.id != "balance" {
-            assert_eq!(r.status, Status::Pass, "{}", c.id);
-        }
+        assert_eq!(r.status, Status::Pass, "{}", c.id);
     }
 }
 

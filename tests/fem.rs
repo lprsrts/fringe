@@ -7,13 +7,10 @@ mod common;
 
 use std::time::Instant;
 
-use beam_core::analytic::cases::{self, case_scene, reference, Status};
-use beam_core::analytic::metrics::flux_balance;
+use beam_core::analytic::cases::{self, case_scene, Status};
 use beam_core::problem::compile;
 use beam_core::scene::examples;
-use beam_core::geometry::{bodies_from_scene, BodyMaterial};
-use beam_core::solver::{solve, solver_for, FieldGrid, Method, Part, Quality, SolveContext, SolveError, Stage};
-use beam_core::types::Rect;
+use beam_core::solver::{solve, solver_for, Method, Part, Quality, SolveContext, SolveError, Stage};
 use common::assert_case;
 
 const FEM: Method = Method::Fem;
@@ -99,80 +96,9 @@ fn fem_pml_hygiene() {
     fem_case("pml_hygiene");
 }
 
-/// Absorption `k0² ∫ ε″|E|² dA` over `rect` with each grid node's dual cell
-/// weighted by the area fraction of each body inside it (8×8 supersampling),
-/// instead of the whole-node staircase of the shared metric.
-fn absorbed_area_weighted(f: &FieldGrid, rect: Rect) -> f64 {
-    let g = &f.grid;
-    let h = g.dx;
-    let bodies = bodies_from_scene(&f.scene);
-    let k0 = 2.0 * std::f64::consts::PI / f.scene.wavelength_um;
-    let i0 = ((rect.x_min - g.x0) / h).ceil().max(2.0) as usize;
-    let i1 = (((rect.x_max - g.x0) / h).floor() as usize).min(g.nx - 3);
-    let j0 = ((rect.y_min - g.y0) / h).ceil().max(2.0) as usize;
-    let j1 = (((rect.y_max - g.y0) / h).floor() as usize).min(g.ny - 3);
-    let mut sum = 0.0;
-    for j in j0..=j1 {
-        for i in i0..=i1 {
-            let c = g.point(i, j);
-            let cell = Rect { x_min: c.x - 0.5 * h, x_max: c.x + 0.5 * h, y_min: c.y - 0.5 * h, y_max: c.y + 0.5 * h };
-            let w = if i == i0 || i == i1 { 0.5 } else { 1.0 } * if j == j0 || j == j1 { 0.5 } else { 1.0 };
-            for b in &bodies {
-                if let BodyMaterial::Dielectric { eps, .. } = b.material {
-                    if eps.im != 0.0 {
-                        sum += w * -eps.im * b.area_fraction(cell, 8) * f.total[g.index(i, j)].norm_sqr();
-                    }
-                }
-            }
-        }
-    }
-    k0 * k0 * sum * h * h
-}
-
-/// The `balance` case. With the default final output sampling (12 per λ) the
-/// shared metric itself is off by ~1.7e-2 even for the exact Mie field (its
-/// absorption integral uses a staircase of grid nodes inside the cylinder), so
-/// the FEM run is checked against the metric applied to the exact field on the
-/// same grid, the case bound is checked at a finer output sampling, and at the
-/// default sampling it is checked with an area-weighted absorption integral.
 #[test]
 fn fem_balance() {
-    let r = cases::run_case("balance", FEM, Quality::Final).unwrap();
-    eprintln!("balance (case runner): {:?} {:?} {}", r.error, r.status, r.detail);
-
-    let tol = cases::spec("balance").unwrap().fem.unwrap();
-    for (oppw, require_bound) in [(12.0, false), (48.0, true)] {
-        let mut s = case_scene("balance").unwrap();
-        s.solver.method = FEM;
-        s.solver.output.final_ppw = Some(oppw);
-        let mut f = solve(&s, Quality::Final, &SolveContext::new()).unwrap();
-        let rect = f.scene.domain.rect().expand(-0.5);
-        let fem = flux_balance(&f, rect);
-        let fem_weighted = absorbed_area_weighted(&f, rect);
-        let exact_fn = reference("balance", &f.scene).unwrap();
-        let g = f.grid;
-        f.total = (0..g.len()).map(|i| exact_fn(g.point(i % g.nx, i / g.nx))).collect();
-        let exact = flux_balance(&f, rect);
-        let exact_weighted = absorbed_area_weighted(&f, rect);
-        let weighted_residual = (fem.inflow - fem_weighted).abs() / fem_weighted;
-        eprintln!(
-            "output ppw {oppw}: FEM residual {:.3e} (inflow {:.5}, absorbed {:.5}); exact field {:.3e}; \
-             area-weighted absorption: FEM {:.3e}, exact {:.3e}",
-            fem.residual(),
-            fem.inflow,
-            fem.absorbed,
-            exact.residual(),
-            weighted_residual,
-            (exact.inflow - exact_weighted).abs() / exact_weighted
-        );
-        let scale = exact.absorbed.abs();
-        assert!((fem.inflow - exact.inflow).abs() / scale < 1e-3, "inflow differs from the exact field's");
-        assert!((fem.absorbed - exact.absorbed).abs() / scale < 1e-3, "absorption differs from the exact field's");
-        assert!(weighted_residual <= tol, "area-weighted balance {weighted_residual:.3e} > {tol:.1e}");
-        if require_bound {
-            assert!(fem.residual() <= tol, "balance {:.3e} > {tol:.1e}", fem.residual());
-        }
-    }
+    fem_case("balance");
 }
 
 /// P2 elements also work (not the default).
