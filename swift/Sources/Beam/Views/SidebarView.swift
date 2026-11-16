@@ -108,6 +108,7 @@ private struct ElementRow: View {
             .toggleStyle(.checkbox)
             .controlSize(.small)
             .help(element.enabled ? "Disable this element" : "Enable this element")
+            .accessibilityLabel("Enable \(element.displayName)")
         }
     }
 }

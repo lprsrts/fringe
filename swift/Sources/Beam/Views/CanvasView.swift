@@ -21,6 +21,10 @@ struct CanvasView: View {
                 ImageLayer(model: model, geometry: geometry, fillsWindow: isWindowAspect)
                     .frame(width: rect.width, height: rect.height)
                     .offset(x: rect.minX, y: rect.minY)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Field image")
+                    .accessibilityValue(model.caption ?? model.solver.status.title)
+                    .accessibilityAddTraits(.isImage)
             }
             .overlay(alignment: .bottom) {
                 StatusBar(model: model)
