@@ -17,7 +17,12 @@
 //! - self panels use a τ³-graded Gauss–Legendre rule on each half instead of
 //!   analytic log subtraction (it also covers the log-singular N_b − N_i);
 //! - the dense LU is a blocked right-looking LU here (trailing updates through
-//!   `linalg::gemm`) so that cancelling takes effect within a few ms.
+//!   `linalg::gemm`) so that cancelling takes effect within a few ms;
+//! - the far-field sampling loop uses a private Hankel asymptotic for J0, Y0,
+//!   J1, Y1 at x ≥ 64 ([`evaluate`]; tested to 1e-11 against
+//!   `special::bessel::j_y_01_real`);
+//! - the memory estimate is `7 MB + 1.5 · 16 N² B + 70 B per output point`
+//!   instead of `16 N² B · 1.2`, fitted to peak RSS (within about 20 %).
 
 pub mod evaluate;
 pub mod lu;

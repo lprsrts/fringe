@@ -85,14 +85,16 @@ fn transparent() {
     assert_eq!(r.error, Some(0.0));
 }
 
-/// The shared `balance` case. Its area integral of ε″|E|² sums the grid nodes
-/// inside the body (a staircase), which on the final output grid is off by
-/// 1.7 % even for the exact Mie field, above the 1e-2 bound. So this test
-/// asserts that the MoM field scores the same as the exact field under that
-/// metric, and that it passes 1e-2 when boundary cells are area-weighted
-/// ([`balance_area_weighted`]).
+/// What the shared `balance` case measures for MoM. While the shared metric
+/// is staircased this test does NOT assert that the case passes (it FAILs at
+/// 1.75e-2 > 1e-2): its area integral of ε″|E|² sums the grid nodes inside the
+/// body, which on the final output grid is off by 1.7 % even for the exact Mie
+/// field. So it asserts that the MoM field scores the same as the exact field
+/// under that metric, and that it passes 1e-2 when boundary cells are
+/// area-weighted ([`balance_area_weighted`]). Once the shared metric passes the
+/// exact field, it also asserts that the case itself passes.
 #[test]
-fn balance() {
+fn balance_metric_vs_exact() {
     let r = cases::run_case("balance", Method::Mom, Quality::Final).unwrap();
     let mut f = solve(&mom_scene("balance", None), Quality::Final, &SolveContext::new()).unwrap();
     let rect = f.scene.domain.rect().expand(-0.5);
@@ -112,6 +114,9 @@ fn balance() {
     );
     assert!((shared - shared_exact).abs() < 1e-3, "MoM {shared} vs exact {shared_exact} under the shared metric");
     assert!(ours <= 1e-2, "area-weighted balance residual {ours}");
+    if shared_exact <= 1e-2 {
+        assert_eq!(r.status, Status::Pass, "balance case with a metric the exact field passes");
+    }
 }
 
 /// `flux_balance` with the absorbed power integrated with the area fraction of
@@ -402,7 +407,8 @@ fn performance_default_scene() {
 }
 
 /// Every MoM case of the tolerance table in one run (what `beam-cli validate
-/// --solver mom --slow` prints). `balance` is excluded: see [`balance`].
+/// --solver mom --slow` prints). `balance` is excluded: see
+/// [`balance_metric_vs_exact`]; it fails only through the shared metric.
 #[test]
 #[ignore]
 fn all_cases_report() {
