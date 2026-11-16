@@ -138,7 +138,7 @@ struct OverlayToggles: View {
     var showsShortcut = false
 
     var body: some View {
-        Toggle(title("Show Overlays", "Show overlays"), isOn: model.binding("Show Overlays", \.display.showOverlays))
+        Toggle(title("Show Overlays", "Show overlays"), isOn: showHide("Overlays", \.display.showOverlays))
             .keyboardShortcut(showsShortcut ? KeyboardShortcut("o", modifiers: [.command, .shift]) : nil)
 
         if inMenu {
@@ -158,7 +158,15 @@ struct OverlayToggles: View {
         if inMenu {
             Divider()
         }
-        Toggle(title("Show PML", "Show absorbing layer (PML)"), isOn: model.binding("Show PML", \.display.showPML))
+        Toggle(title("Show PML", "Show absorbing layer (PML)"), isOn: showHide("PML", \.display.showPML))
+    }
+
+    /// A binding whose undo name says what the change did: "Show PML" or "Hide PML".
+    private func showHide(_ what: String, _ keyPath: WritableKeyPath<BeamDocument, Bool>) -> Binding<Bool> {
+        Binding(
+            get: { model.binding("Show \(what)", keyPath).wrappedValue },
+            set: { newValue in model.binding(newValue ? "Show \(what)" : "Hide \(what)", keyPath).wrappedValue = newValue }
+        )
     }
 
     private func title(_ menuTitle: String, _ checkboxTitle: String) -> String {
