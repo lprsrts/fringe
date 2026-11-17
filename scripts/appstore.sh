@@ -191,23 +191,31 @@ mkdir -p "$out"
 ditto --noextattr --noqtn "$source_app" "$app"
 # productbuild stores extended attributes as AppleDouble (._*) files in the payload;
 # App Store Connect rejects quarantined files (ITMS-91109), and an app package should
-# carry none. com.apple.provenance can't be removed from inside a process the system
-# tracks (some terminals and agents), so only quarantine is fatal.
-xattr -cr "$app" 2>/dev/null || true
-attrs="$(xattr -r "$app")"
-if grep -q ': com\.apple\.quarantine$' <<<"$attrs"; then
-    echo "error: files in $app are quarantined" >&2
-    exit 1
-fi
-if [[ -n "$attrs" ]]; then
-    echo "warning: $(grep -c . <<<"$attrs") extended attributes left on $app ($(sed 's/.*: //' <<<"$attrs" | sort -u | paste -sd, -)); they become ._* files in the package" >&2
-fi
+# carry none. Run after everything is in the bundle: macOS can quarantine a file as it
+# is copied, even with cp -X (the downloaded profile was). com.apple.provenance can't
+# be removed from inside a process the system tracks (some terminals and agents), so
+# only quarantine is fatal.
+clean_attributes() {
+    xattr -cr "$app" 2>/dev/null || true
+    local attrs
+    attrs="$(xattr -r "$app")"
+    if grep -q ': com\.apple\.quarantine$' <<<"$attrs"; then
+        echo "error: files in $app are still quarantined:" >&2
+        grep ': com\.apple\.quarantine$' <<<"$attrs" >&2
+        exit 1
+    fi
+    if [[ -n "$attrs" ]]; then
+        echo "warning: $(grep -c . <<<"$attrs") extended attributes left on $app ($(sed 's/.*: //' <<<"$attrs" | sort -u | paste -sd, -)); they become ._* files in the package" >&2
+    fi
+}
 
 if [[ "$dry" == 1 ]]; then
+    clean_attributes
     codesign --force --options runtime --entitlements "$entitlements" --sign - "$app"
 else
-    # -X: a downloaded profile is quarantined, and that would end up in the package.
+    # A downloaded profile is quarantined; clean_attributes strips that from the copy.
     cp -X "$profile" "$app/Contents/embedded.provisionprofile"
+    clean_attributes
     # The base entitlements plus the two the profile authorizes; without them a build
     # with an embedded profile can't go to TestFlight. They name the team, so they're
     # added here rather than kept in appstore/.
@@ -246,6 +254,18 @@ else
     productbuild --component "$app" /Applications --sign "$installer_identity" "$pkg"
     pkgutil --check-signature "$pkg"
 fi
+
+# Check what was actually packed: expanding the payload turns its ._* files back into
+# attributes, and a quarantined one means ITMS-91109 after the upload.
+expanded="$(mktemp -d)/pkg"
+pkgutil --expand-full "$pkg" "$expanded" >/dev/null
+if xattr -r "$expanded" 2>/dev/null | grep -q ': com\.apple\.quarantine$'; then
+    echo "error: the package payload has quarantined files:" >&2
+    xattr -r "$expanded" | grep ': com\.apple\.quarantine$' | sed "s|$expanded/||" >&2
+    rm -rf "$(dirname "$expanded")"
+    exit 1
+fi
+rm -rf "$(dirname "$expanded")"
 echo
 echo "built: $app"
 echo "       $pkg"
