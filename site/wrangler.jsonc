@@ -1,0 +1,10 @@
+// The site is a Worker that only serves public/ (static files, no code), like
+// pi-voice.lprsrts.com. Deploy: npx wrangler@4 deploy (from this folder).
+{
+  "name": "fringe",
+  "account_id": "ec2b62f1cfa6f470e81a948bff6191a9",
+  "compatibility_date": "2026-11-01",
+  "assets": { "directory": "./public" },
+  "workers_dev": false,
+  "routes": [{ "pattern": "fringe.lprsrts.com", "custom_domain": true }]
+}

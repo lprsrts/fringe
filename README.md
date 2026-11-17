@@ -1,6 +1,6 @@
 # Fringe
 
-![Fringe: a Gaussian beam focused down a chain of glass beads, solved with FDTD](art/banner/banner.png)
+![Interference fringes behind a double slit, solved with Fringe](art/hero/hero.png)
 
 Fringe solves 2D optics scenes with full-wave electromagnetics and draws the
 field. You place lenses, slabs, prisms, mirrors, slits, gratings, cylinders
@@ -253,7 +253,12 @@ icon with `actool` into `icon/compiled` and renders `icon/preview.png`; it needs
 Xcode, or open the `.icon` in Icon Composer. The compiled files are checked in,
 so `scripts/bundle.sh` works with the command-line tools alone.
 
-The cover banner, `art/banner/banner.png` (1584 × 396, with a 2× copy), is a
+The header image, `art/hero/hero.png` (2560 × 1280, with a 1280 × 640 copy for
+GitHub's social preview), is Fringe's own FDTD solution of a Gaussian beam through two
+slits; `art/hero/build.sh` solves `art/hero/scene.json` and colours it with
+`art/hero/compose.py`.
+
+The LinkedIn cover, `art/banner/banner.png` (1584 × 396, with a 2× copy), is a
 solved field: a Gaussian beam through five glass beads that pass a nanojet down
 the chain, next to the icon, the wordmark and the equation the solvers answer,
 `∇²Ez + k0² n(x, y)² Ez = 0`. `art/banner/build.sh` solves `art/banner/scene.json`
@@ -317,7 +322,9 @@ swift/              SwiftUI app (Swift package "Fringe")
 scripts/            build, bundle, release, App Store, tap and schema-check scripts
 appstore/           App Sandbox entitlements for the Mac App Store build
 icon/               app icon: the Icon Composer document, its layer generator and the compiled icon
-art/banner/         cover banner: its scene, compose script and the rendered banner
+art/hero/           README and social-preview header: its scene, compose script and the image
+art/banner/         LinkedIn cover (4:1): its scene, compose script and the rendered banner
+site/               fringe.lprsrts.com: the app page, privacy and support (a static Worker)
 tests/              integration tests; tests/fixtures holds example scenes and Bessel references
 ```
 

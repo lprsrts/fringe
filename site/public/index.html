@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fringe</title>
+<meta name="description" content="a wave optics simulator for the mac. place optical elements in a beam and fringe solves maxwell's equations for the field.">
+<meta property="og:title" content="fringe">
+<meta property="og:description" content="a wave optics simulator for the mac. place optical elements in a beam and fringe solves maxwell's equations for the field.">
+<meta property="og:image" content="https://fringe.lprsrts.com/assets/social.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="interference fringes behind a double slit, solved by fringe">
+<meta property="og:url" content="https://fringe.lprsrts.com/">
+<link rel="canonical" href="https://fringe.lprsrts.com/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://fringe.lprsrts.com/assets/social.png">
+<meta name="theme-color" content="#0b0d0f">
+<link rel="icon" href="assets/favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main>
+
+<p class="top"><b>fringe</b> &nbsp;·&nbsp; <a href="https://github.com/lprsrts/fringe">github</a> &nbsp;·&nbsp; <a href="https://github.com/lprsrts/fringe/releases/latest">download</a></p>
+
+<h1>wave optics simulator for the mac</h1>
+
+<p>you place lenses, prisms, mirrors, slits, gratings or waveguides in a gaussian beam or a plane wave. fringe solves maxwell's equations on the 2d scene and shows the field.</p>
+
+<canvas class="field" aria-label="a plane wave passing through two slits"></canvas>
+<p class="small">^ a double slit, computed in your browser as a sum of huygens wavelets. it's a rough approximation; the app uses a full solver.</p>
+
+<img class="shot" src="assets/screenshot.jpg" alt="the fringe window with a lens focusing a gaussian beam" width="1600" height="1000" loading="lazy">
+
+<h2>what's in it</h2>
+<ul>
+  <li>three solvers: fdtd, fem and mom. you can run the same scene with each and compare.</li>
+  <li>sources: a gaussian beam or a plane wave, at any wavelength and angle.</li>
+  <li>materials: a refractive index with absorption, or a perfect conductor.</li>
+  <li>views: intensity, magnitude, real part and phase, and an animation over one optical cycle.</li>
+  <li>export: png at any size, animation frames, and the complex field as numpy data.</li>
+  <li>ten example scenes, including a nanojet, a talbot carpet and a slab waveguide.</li>
+</ul>
+
+<h2>why i made it</h2>
+<p>i use it to make cover images, so a few of the colormaps are picked for looks as much as for reading values.</p>
+
+<h2>install</h2>
+<pre><code>brew install --cask lprsrts/tap/fringe</code></pre>
+<p>or get the dmg from <a href="https://github.com/lprsrts/fringe/releases/latest">github releases</a>. it's signed and notarized. a mac app store version isn't out yet.</p>
+
+<p class="small">needs macos 26 or later on apple silicon. free, open source (mit or apache 2.0), runs offline, collects no data (<a href="privacy/">privacy</a>). the command-line version: <code>brew install lprsrts/tap/fringe-cli</code>.</p>
+
+<h2>bugs</h2>
+<p>if something breaks or a result looks wrong, <a href="support/">let me know</a>.</p>
+
+<p class="sig">— alper (<a href="https://github.com/lprsrts">@lprsrts</a>)</p>
+
+</main>
+<script src="wave.js" defer></script>
+</body>
+</html>

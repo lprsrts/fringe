@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fringe · support</title>
+<meta name="description" content="how to get help with fringe, report a bug or ask a question.">
+<link rel="canonical" href="https://fringe.lprsrts.com/support/">
+<meta name="theme-color" content="#0b0d0f">
+<link rel="icon" href="../assets/favicon.png" type="image/png">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+<main>
+
+<p class="top"><a href="../"><b>fringe</b></a> &nbsp;·&nbsp; support</p>
+
+<h1>Fringe Support</h1>
+<p>Fringe is made by Alper Saritas. For help, bug reports and suggestions, email
+<a href="&#109;&#97;&#105;&#108;&#116;&#111;&#58;&#97;&#108;&#112;&#101;&#114;&#64;&#115;&#97;&#114;&#105;&#116;&#97;&#115;&#46;&#105;&#111;">&#97;&#108;&#112;&#101;&#114;&#64;&#115;&#97;&#114;&#105;&#116;&#97;&#115;&#46;&#105;&#111;</a>, or open an issue at <a href="https://github.com/lprsrts/fringe/issues">https://github.com/lprsrts/fringe/issues</a>
+(that needs a free GitHub account).</p>
+<p>When you report a problem, please include:</p>
+<ul>
+<li>your macOS version and Mac model (Apple menu &gt; About This Mac),</li>
+<li>the Fringe version (Fringe &gt; About Fringe),</li>
+<li>the scene, if it is about a solve or an image: File &gt; Save Scene… writes it as a
+  JSON file you can attach to the issue,</li>
+<li>what you expected and what happened instead.</li>
+</ul>
+<h2>Common questions</h2>
+<p><strong>What does Fringe need?</strong> macOS 26 or later on a Mac with Apple silicon.</p>
+<p><strong>Why is a lens drawn as a flat shape, and why are there no 3D effects?</strong> Fringe
+works in two dimensions. Every element extends without end along z, so a lens is a
+cylindrical lens, and the electric field points along z (s-polarized, TMz). There is
+no Brewster angle in this polarization, and a slit in a metal screen narrower than
+half a wavelength lets almost no light through, as it should.</p>
+<p><strong>What is the difference between the preview and Run Final?</strong> The preview is a
+coarse solve that follows your edits. Run Final (Simulation &gt; Run Final, ⌘R)
+solves at full resolution; use it before you export.</p>
+<p><strong>A solve is slow or refused as too large.</strong> Fringe estimates time and memory before
+it solves and shows them in the Simulation inspector. Make the domain smaller, lower
+the resolution, or switch to another solver and compare its estimates. MoM is
+usually fastest for a few small bodies.</p>
+<p><strong>FDTD says "not fully settled".</strong> The scene has a strong resonance that rings for
+longer than FDTD runs. The field is often still close; FEM or MoM give the
+steady-state answer directly.</p>
+<p><strong>Which solver should I trust?</strong> All three are checked against exact solutions
+(Mie scattering, the Airy formula for a slab, the image method for a mirror). Where
+it applies, MoM is the most accurate; the measured errors are in the
+<a href="https://github.com/lprsrts/fringe#validation">README</a>.</p>
+<p><strong>How do I read exported field data?</strong> File &gt; Export Field Data writes a NumPy
+<code>.npz</code> archive:</p>
+<pre><code class="language-python">import json, numpy as np
+f = np.load(&quot;fringe-fdtd-total.npz&quot;)
+field, x, y = f[&quot;field&quot;], f[&quot;x&quot;], f[&quot;y&quot;]   # (ny, nx) complex128; x and y in µm, y[0] = top row
+info = json.loads(f[&quot;info&quot;].item())        # grid, solver and run info
+</code></pre>
+<p><strong>Where are my settings kept?</strong> In the app's own preferences on your Mac. Fringe
+collects no data and never connects to the internet; see the
+<a href="../privacy/">privacy policy</a>.</p>
+
+<p class="sig">— alper (<a href="https://github.com/lprsrts">@lprsrts</a>)</p>
+
+</main>
+</body>
+</html>
