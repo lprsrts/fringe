@@ -231,6 +231,7 @@ scripts/build.sh                           # static library, then the Swift app
 scripts/bundle.sh                          # the above, then target/Fringe.app, signed ad hoc
                                            # (or with FRINGE_SIGN_IDENTITY="Developer ID Application: …")
 scripts/release.sh                         # signed, notarized DMG + CLI tarball + SHA256SUMS in dist/
+scripts/bump-tap.sh                        # after gh release create: point lprsrts/homebrew-tap at it
 scripts/check-schema.sh                    # build, then check that the app and the core agree on the scene JSON
 ```
 
@@ -252,7 +253,10 @@ with the release `fringe-cli` and composes the banner with
 (`FRINGE_RELEASE=1`), signs the app and `fringe-cli` with the Developer ID
 identity in the keychain (hardened runtime, secure timestamp), packs the DMG,
 notarizes and staples it, and writes `SHA256SUMS`; tagging and `gh release` are
-left to you. Notarization needs a stored `notarytool` profile, once:
+left to you. After the release is public, `scripts/bump-tap.sh` sets the cask's
+version and DMG checksum and the formula's source tarball and checksum in
+`lprsrts/homebrew-tap`, taking both checksums from GitHub, and pushes
+(`FRINGE_TAP_PUSH=0` only shows the change). Notarization needs a stored `notarytool` profile, once:
 `xcrun notarytool store-credentials fringe-notary --apple-id … --team-id …`.
 `FRINGE_NOTARIZE=0` does a dry run without it, `FRINGE_SIGN_IDENTITY` and
 `FRINGE_NOTARY_PROFILE` override the defaults, and `FRINGE_ALLOW_DIRTY=1` allows

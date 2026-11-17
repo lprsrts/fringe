@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Build a release into dist/: Fringe-<version>-macos-arm64.dmg (Developer ID signed,
 # notarized, stapled), fringe-cli-<version>-aarch64-apple-darwin.tar.gz (signed and
-# notarized) and SHA256SUMS. Publishing (git tag, gh release, the Homebrew tap) is
-# left to you; the script prints the commands.
+# notarized) and SHA256SUMS. Publishing (git tag, gh release, then scripts/bump-tap.sh
+# for the Homebrew tap) is left to you; the script prints the commands.
 #
 #   FRINGE_SIGN_IDENTITY   signing identity; default: the one Developer ID Application
 #                          identity in the keychain
@@ -114,4 +114,5 @@ cat <<NEXT
 To publish:
   git tag -a v$version -m "Fringe $version" && git push origin v$version
   gh release create v$version "$dmg" "$cli_tar" "$dist/SHA256SUMS" --title "Fringe $version"
+  scripts/bump-tap.sh $version
 NEXT
