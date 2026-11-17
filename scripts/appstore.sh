@@ -262,8 +262,8 @@ elif [[ "$dry" != 1 ]]; then
     cat <<NEXT
 
 To upload (or set FRINGE_APPSTORE_UPLOAD=1), with an app-specific password from
-account.apple.com stored once by
-  xcrun altool --store-password-in-keychain-item $keychain_item -u $apple_id
+account.apple.com stored once by (altool 27 needs --item, whatever its help says)
+  xcrun altool --store-password-in-keychain-item --item $keychain_item -u $apple_id -p '<password>'
 run
   xcrun altool --validate-app "$pkg" -u $apple_id -p @keychain:$keychain_item
   xcrun altool --upload-package "$pkg" -u $apple_id -p @keychain:$keychain_item
