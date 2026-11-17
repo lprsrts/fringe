@@ -253,8 +253,17 @@ echo "       $pkg"
 # altool authenticates with an app-specific password kept in the keychain, or with an
 # App Store Connect API key (AuthKey_<id>.p8 in ~/.appstoreconnect/private_keys).
 apple_id="${FRINGE_APPSTORE_APPLE_ID:-<Apple ID>}"
-auth=(-u "$apple_id" -p "@keychain:$keychain_item")
 if [[ "$upload" == 1 ]]; then
+    # altool 27 stores the item under a label but its @keychain: lookup doesn't find
+    # it, so read the password here and hand it over through the environment: it
+    # never appears on a command line.
+    FRINGE_ALTOOL_PASSWORD="$(security find-generic-password -l "$keychain_item" -a "$apple_id" -w)" || {
+        echo "error: no keychain item \"$keychain_item\" for $apple_id; store it with" >&2
+        echo "  xcrun altool --store-password-in-keychain-item --item $keychain_item -u $apple_id -p '<password>'" >&2
+        exit 1
+    }
+    export FRINGE_ALTOOL_PASSWORD
+    auth=(-u "$apple_id" -p @env:FRINGE_ALTOOL_PASSWORD)
     xcrun altool --validate-app "$pkg" "${auth[@]}"
     xcrun altool --upload-package "$pkg" "${auth[@]}" --show-progress
     echo "uploaded; it shows up in App Store Connect > TestFlight once processed"
@@ -264,10 +273,9 @@ elif [[ "$dry" != 1 ]]; then
 To upload (or set FRINGE_APPSTORE_UPLOAD=1), with an app-specific password from
 account.apple.com stored once by (altool 27 needs --item, whatever its help says)
   xcrun altool --store-password-in-keychain-item --item $keychain_item -u $apple_id -p '<password>'
-run
-  xcrun altool --validate-app "$pkg" -u $apple_id -p @keychain:$keychain_item
-  xcrun altool --upload-package "$pkg" -u $apple_id -p @keychain:$keychain_item
-or, with an App Store Connect API key, replace the -u/-p arguments with
-  --api-key <key id> --api-issuer <issuer id>
+rerun with FRINGE_APPSTORE_UPLOAD=1 FRINGE_APPSTORE_APPLE_ID=$apple_id (it reads the
+password from that item and passes it to altool --validate-app and --upload-package),
+or, with an App Store Connect API key (AuthKey_<key id>.p8 in ~/.appstoreconnect/private_keys),
+  xcrun altool --upload-package "$pkg" --api-key <key id> --api-issuer <issuer id>
 NEXT
 fi
