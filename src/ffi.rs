@@ -1,5 +1,6 @@
 //! C ABI (`include/fringe_core.h`). Every entry point catches panics; strings
-//! returned to the caller are released with `fringe_string_free`.
+//! returned to the caller are released with `fringe_string_free`, byte buffers
+//! with `fringe_bytes_free`.
 
 use std::ffi::{c_char, CStr, CString};
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -11,7 +12,7 @@ use serde_json::{json, Value};
 use crate::check::check_json;
 use crate::geometry::{element_bodies, BodyMaterial, MAX_POLYGON_VERTICES};
 use crate::job::Job;
-use crate::render::{export_png_file, render_rgba, write_npy_c128, Colormap, View};
+use crate::render::{export_png_file, npz_c128, render_rgba, write_npy_c128, Colormap, View};
 use crate::scene::validate::{MAX_GRATING_BARS, MAX_SLITS};
 use crate::scene::{examples, parse_scene, to_json, validate, Issue, Shape, Source};
 use crate::solver::context::{STATE_CANCELLED, STATE_DONE, STATE_FAILED};
@@ -458,6 +459,50 @@ pub unsafe extern "C" fn fringe_field_export_npy(
             }
         }
     })
+}
+
+/// # Safety
+/// `field` must be NULL or live; `out_len` NULL or writable.
+#[no_mangle]
+pub unsafe extern "C" fn fringe_field_npz(
+    field: *const FringeField,
+    part: u32,
+    out_len: *mut usize,
+    error_json_out: *mut *mut c_char,
+) -> *mut u8 {
+    if field.is_null() || out_len.is_null() {
+        set_error(error_json_out, "buffer", "field or out_len is NULL", &[]);
+        return ptr::null_mut();
+    }
+    guard(ptr::null_mut(), || {
+        let Some(part) = Part::from_u32(part) else {
+            set_error(error_json_out, "view", format!("unknown part {part}"), &[]);
+            return ptr::null_mut();
+        };
+        match npz_c128(&(*field).0, part) {
+            Ok(bytes) => {
+                // A boxed slice has exactly `len` capacity, so `fringe_bytes_free`
+                // can rebuild it from the pointer and length alone.
+                let bytes = bytes.into_boxed_slice();
+                *out_len = bytes.len();
+                Box::into_raw(bytes).cast::<u8>()
+            }
+            Err(e) => {
+                set_error(error_json_out, e.code(), e.to_string(), &[]);
+                ptr::null_mut()
+            }
+        }
+    })
+}
+
+/// # Safety
+/// `bytes` must be NULL or a buffer from this library not yet freed, with the
+/// length it was returned with.
+#[no_mangle]
+pub unsafe extern "C" fn fringe_bytes_free(bytes: *mut u8, len: usize) {
+    if !bytes.is_null() {
+        guard((), || drop(Box::from_raw(ptr::slice_from_raw_parts_mut(bytes, len))));
+    }
 }
 
 /// # Safety

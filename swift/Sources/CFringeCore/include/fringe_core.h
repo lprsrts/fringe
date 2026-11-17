@@ -8,7 +8,8 @@
 // C interface to fringe_core v2 (src/ffi.rs).
 // Scenes and views are UTF-8 JSON (schema version 2; lengths in micrometres,
 // angles in degrees). Every char* returned by this library is owned by the
-// caller and must be released with fringe_string_free. Error outputs
+// caller and must be released with fringe_string_free; returned uint8_t*
+// buffers likewise with fringe_bytes_free. Error outputs
 // (char** error_json_out, may be NULL) receive {"code","message","issues":[...]}
 // or are left untouched on success. No function unwinds across the boundary.
 // All functions are thread-safe. A FringeField is immutable and may be read and
@@ -55,6 +56,7 @@ extern "C" {
 uint32_t fringe_abi_version(void);
 const char* fringe_version(void);          // static string, do not free
 void fringe_string_free(char* s);          // NULL is fine
+void fringe_bytes_free(uint8_t* bytes, size_t len);  // NULL is fine
 
 // Scenes
 char* fringe_scene_default(void);
@@ -102,6 +104,15 @@ bool fringe_field_export_png(const FringeField* field, const char* view_json,
 // complex128 .npy, shape (ny, nx), row 0 = max y, plus "<path>.json" grid sidecar.
 bool fringe_field_export_npy(const FringeField* field, uint32_t part, const char* path,
                            char** error_json_out);
+// The part as an uncompressed NumPy .npz built in memory, for callers that must
+// write the file themselves (e.g. a sandboxed app): "field" complex128 (ny, nx)
+// laid out as above, "x" float64 (nx,) and "y" float64 (ny,) node positions in
+// um of its columns and rows (y[0] = top), "info" a 0-d unicode array holding
+// the .npy sidecar JSON. Returns NULL and sets *error_json_out on failure;
+// otherwise *out_len is set and the caller owns the buffer, released with
+// fringe_bytes_free(buffer, *out_len).
+uint8_t* fringe_field_npz(const FringeField* field, uint32_t part, size_t* out_len,
+                          char** error_json_out);
 void fringe_field_free(FringeField* field);  // NULL is fine
 
 // 256 RGBA8 entries (out_len >= 1024) for a colour legend.

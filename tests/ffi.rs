@@ -191,6 +191,20 @@ fn job_lifecycle_on_the_default_scene() {
     let npy = cstr(dir.join("a.npy").to_str().unwrap());
     assert!(unsafe { fringe_field_export_npy(field, 2, npy.as_ptr(), &mut err) });
     assert!(dir.join("a.npy.json").exists());
+    let mut len = 0usize;
+    let npz = unsafe { fringe_field_npz(field, 1, &mut len, &mut err) };
+    assert!(!npz.is_null() && err.is_null());
+    let bytes = unsafe { std::slice::from_raw_parts(npz, len) };
+    assert_eq!(&bytes[..4], b"PK\x03\x04");
+    assert_eq!(&bytes[len - 22..len - 18], b"PK\x05\x06");
+    unsafe { fringe_bytes_free(npz, len) };
+    unsafe { fringe_bytes_free(ptr::null_mut(), 0) };
+    assert!(unsafe { fringe_field_npz(field, 9, &mut len, &mut err) }.is_null());
+    assert_eq!(json(err)["code"], "view");
+    err = ptr::null_mut();
+    assert!(unsafe { fringe_field_npz(ptr::null(), 0, &mut len, &mut err) }.is_null());
+    assert_eq!(json(err)["code"], "buffer");
+    assert!(unsafe { fringe_field_npz(field, 0, ptr::null_mut(), ptr::null_mut()) }.is_null());
     let _ = std::fs::remove_dir_all(dir);
     unsafe { fringe_field_free(field) };
 }

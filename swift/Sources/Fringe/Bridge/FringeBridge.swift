@@ -313,11 +313,17 @@ public final class FieldHandle: @unchecked Sendable {
         }
     }
 
-    /// complex128 .npy of one part, plus a `<path>.json` grid sidecar.
-    public func exportNPY(part: FieldPart, to url: URL) throws {
+    /// One part as a NumPy .npz (complex field, x and y node coordinates, run info),
+    /// returned rather than written so the caller can save it where the sandbox allows.
+    public func npzData(part: FieldPart) throws -> Data {
+        var length = 0
         var error: UnsafeMutablePointer<CChar>?
-        guard fringe_field_export_npy(field, part.code, url.path, &error) else {
+        guard let bytes = fringe_field_npz(field, part.code, &length, &error) else {
             throw FringeError.take(error)
         }
+        // Data takes ownership and hands the buffer back to Rust, which allocated it.
+        return Data(bytesNoCopy: bytes, count: length, deallocator: .custom { pointer, count in
+            fringe_bytes_free(pointer.assumingMemoryBound(to: UInt8.self), count)
+        })
     }
 }

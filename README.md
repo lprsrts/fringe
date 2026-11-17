@@ -218,6 +218,16 @@ error or a file that could not be read or written, 130 cancelled (Ctrl-C).
 The `.npy` file is complex128 with row 0 at the top (y_max); a `.npy.json`
 sidecar next to it records the grid.
 
+The app's Export Field Data writes the same field as one NumPy archive instead,
+which a sandboxed app can save through a single save panel:
+
+```python
+import json, numpy as np
+f = np.load("fringe-fdtd-total.npz")
+field, x, y = f["field"], f["x"], f["y"]   # (ny, nx) complex128; x[i], y[row] in µm, y[0] = top row
+info = json.loads(f["info"].item())        # grid, solver and run info
+```
+
 ## Building
 
 You need a Rust toolchain and the Xcode command-line tools (no Xcode). The
@@ -232,6 +242,7 @@ scripts/bundle.sh                          # the above, then target/Fringe.app, 
                                            # (or with FRINGE_SIGN_IDENTITY="Developer ID Application: …")
 scripts/release.sh                         # signed, notarized DMG + CLI tarball + SHA256SUMS in dist/
 scripts/bump-tap.sh                        # after gh release create: point lprsrts/homebrew-tap at it
+scripts/appstore.sh                        # sandboxed Mac App Store build + signed .pkg in dist/
 scripts/check-schema.sh                    # build, then check that the app and the core agree on the scene JSON
 ```
 
@@ -262,6 +273,15 @@ version and DMG checksum and the formula's source tarball and checksum in
 `FRINGE_NOTARY_PROFILE` override the defaults, and `FRINGE_ALLOW_DIRTY=1` allows
 uncommitted changes.
 
+`scripts/appstore.sh` builds the Mac App Store variant: the same bundle, signed
+with the App Sandbox entitlements in `appstore/Fringe.entitlements`, an Apple
+Distribution identity and the Mac App Store provisioning profile named by
+`FRINGE_PROVISIONING_PROFILE`, then packed with `productbuild` and the Mac
+Installer Distribution identity. It checks the profile against the identity and
+bundle ID first, lists anything missing, and uploads with `altool` only when
+`FRINGE_APPSTORE_UPLOAD=1`. `FRINGE_APPSTORE_DRY=1` builds an ad hoc signed
+sandboxed app without any of the Apple-side setup.
+
 The app's minimum macOS is tied to the Rust toolchain: Homebrew's `rustc`
 ships its standard library built for macOS 26, and the Swift target must not
 claim anything older or `ld` warns about every std object.
@@ -284,7 +304,7 @@ src/solver/fem/     FEM
 src/solver/mom/     MoM
 src/solver/         shared solver interface, field grid, cancellation
 src/analytic/       Mie, Airy slab, PEC image references; validation cases and metrics
-src/render/         colormaps, field to RGBA, PNG and .npy export
+src/render/         colormaps, field to RGBA, PNG, .npy and .npz export
 src/problem.rs      a scene compiled for one solve: bodies, incident field, settings per quality
 src/check.rs        the check report: issues, cost estimates, derived values
 src/types.rs        complex numbers, 2D vectors, rectangles
@@ -294,7 +314,8 @@ src/lib.rs          crate root and re-exports
 src/bin/fringe_cli.rs fringe-cli
 include/            C header for the ABI
 swift/              SwiftUI app (Swift package "Fringe")
-scripts/            build, bundle, release and schema-check scripts
+scripts/            build, bundle, release, App Store, tap and schema-check scripts
+appstore/           App Sandbox entitlements for the Mac App Store build
 icon/               app icon: the Icon Composer document, its layer generator and the compiled icon
 art/banner/         cover banner: its scene, compose script and the rendered banner
 tests/              integration tests; tests/fixtures holds example scenes and Bessel references

@@ -51,7 +51,7 @@ private struct FileMenuItems: View {
         Button("Export Again") { model.exportAgain() }
             .keyboardShortcut("e", modifiers: [.command, .option])
             .disabled(model.lastExportURL?.pathExtension.lowercased() != "png")
-        Button("Export Field Data (.npy)…") { model.exportFieldData() }
+        Button("Export Field Data (.npz)…") { model.exportFieldData() }
             .disabled(model.solver.shown == nil)
         Button("Export Animation Frames…") { model.exportAnimationFrames() }
             .disabled(model.solver.shown == nil)

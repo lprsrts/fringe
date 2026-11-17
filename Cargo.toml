@@ -25,6 +25,7 @@ num-complex = "0.4"
 faer = { version = "=0.24.4", default-features = false, features = ["std", "rayon", "sparse", "linalg"] }
 spade = "=2.15.1"
 ctrlc = "3"
+crc32fast = "1.5"
 
 [[bin]]
 name = "fringe-cli"

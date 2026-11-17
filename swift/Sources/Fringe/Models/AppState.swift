@@ -895,16 +895,17 @@ public final class AppState {
         }
     }
 
-    /// Saves the shown part as complex128 .npy plus a JSON grid sidecar.
+    /// Saves the shown part as a single .npz: the sandbox lets the app write only the
+    /// file chosen in the panel, so there is no sidecar or temporary sibling.
     public func exportFieldData() {
         guard let shown = solver.shown else {
             exportErrorMessage = "There is no solved field to export yet."
             return
         }
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [UTType(filenameExtension: "npy") ?? .data]
-        panel.nameFieldStringValue = "fringe-\(shown.info.method.rawValue)-\(display.part.rawValue).npy"
-        panel.message = "Saves the \(display.part.title.lowercased()) field as complex numbers, with a .json file describing the grid."
+        panel.allowedContentTypes = [UTType(filenameExtension: "npz") ?? .data]
+        panel.nameFieldStringValue = "fringe-\(shown.info.method.rawValue)-\(display.part.rawValue).npz"
+        panel.message = "Saves the \(display.part.title.lowercased()) field as complex numbers in a NumPy archive, with its x and y coordinates and the run info."
         let part = display.part
         let field = shown.field
         panel.begin { [weak self] response in
@@ -914,7 +915,8 @@ public final class AppState {
                 Task {
                     let error = await Task.detached(priority: .userInitiated) { () -> String? in
                         do {
-                            try field.exportNPY(part: part, to: url)
+                            // Foundation's atomic write stays inside the granted file's scope.
+                            try field.npzData(part: part).write(to: url, options: .atomic)
                             return nil
                         } catch {
                             return error.localizedDescription

@@ -20,6 +20,34 @@ version="$(awk -F'"' '/^version *=/ { print $2; exit }' "$root/Cargo.toml")"
 build="${FRINGE_BUILD_NUMBER:-$(git -C "$root" rev-list --count HEAD 2>/dev/null || echo 1)}"
 year="$(date +%Y)"
 
+# The build-environment keys Xcode writes into every app it builds. App Store Connect
+# reads them to tell which Xcode and SDK made a build and rejects bundles without them
+# (as made with a "beta version of Xcode", or ITMS-90058), so give the toolchain that
+# swift build used. With only the Command Line Tools there is no Xcode version to give;
+# the keys are left out and scripts/appstore.sh refuses the bundle.
+dt_keys=""
+if xcode="$(xcodebuild -version 2>/dev/null)"; then
+    xcode_version="$(awk '/^Xcode / { print $2; exit }' <<<"$xcode")"
+    xcode_build="$(awk '/^Build version / { print $3; exit }' <<<"$xcode")"
+    sdk_version="$(xcrun --sdk macosx --show-sdk-version)"
+    sdk_build="$(xcrun --sdk macosx --show-sdk-build-version)"
+    # Xcode 27.2 is "2720", 16.4.1 is "1641".
+    dt_xcode="$(awk -F. '{ printf "%d%d%d", $1, $2, $3 }' <<<"$xcode_version")"
+    while IFS='=' read -r key value; do
+        dt_keys+="    <key>$key</key>"$'\n'"    <string>$value</string>"$'\n'
+    done <<KEYS
+BuildMachineOSBuild=$(sw_vers -buildVersion)
+DTCompiler=com.apple.compilers.llvm.clang.1_0
+DTPlatformBuild=$sdk_build
+DTPlatformName=macosx
+DTPlatformVersion=$sdk_version
+DTSDKBuild=$sdk_build
+DTSDKName=macosx$sdk_version
+DTXcode=$dt_xcode
+DTXcodeBuild=$xcode_build
+KEYS
+fi
+
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin" "$app/Contents/MacOS/Fringe"
@@ -32,6 +60,8 @@ cp "$root/icon/compiled/Assets.car" "$root/icon/compiled/AppIcon.icns" "$app/Con
 # The licenses: Fringe's own and those of the crates it links.
 cp "$root/LICENSE-MIT" "$root/LICENSE-APACHE" "$root/THIRD-PARTY-LICENSES.txt" "$app/Contents/Resources/"
 
+# ITSAppUsesNonExemptEncryption: Fringe uses no encryption, which answers App Store
+# Connect's export-compliance question for every build.
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -59,6 +89,8 @@ cat > "$app/Contents/Info.plist" <<PLIST
     <string>${version}</string>
     <key>CFBundleVersion</key>
     <string>${build}</string>
+${dt_keys}    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.education</string>
     <key>LSMinimumSystemVersion</key>

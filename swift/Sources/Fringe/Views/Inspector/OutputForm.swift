@@ -57,9 +57,9 @@ struct OutputForm: View {
         }
 
         Section("Field Data") {
-            Button("Export Field Data (.npy)…") { model.exportFieldData() }
+            Button("Export Field Data (.npz)…") { model.exportFieldData() }
                 .disabled(model.solver.shown == nil)
-            MathText("Complex $E_z$ of the \(model.display.part.title.lowercased()) field on the solver's grid, with a .json file describing the grid.")
+            MathText("Complex $E_z$ of the \(model.display.part.title.lowercased()) field on the solver's grid, with its x and y coordinates and the run info, in one NumPy archive.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
