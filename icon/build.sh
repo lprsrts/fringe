@@ -12,8 +12,11 @@ trap 'rm -rf "$work"' EXIT
 
 python3 "$icon/layers.py"
 
+# --standalone-icon-behavior all: by default the .icns gets only sizes up to 256 px,
+# and App Store Connect takes the listing icon from it, so it needs the 1024 px one.
 xcrun actool "$icon/AppIcon.icon" --compile "$work" --platform macosx \
     --minimum-deployment-target 26.0 --target-device mac --app-icon AppIcon \
+    --standalone-icon-behavior all \
     --output-partial-info-plist "$work/partial.plist" >/dev/null
 mkdir -p "$icon/compiled"
 cp "$work/Assets.car" "$work/AppIcon.icns" "$icon/compiled/"
