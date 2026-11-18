@@ -190,3 +190,53 @@ fn solve_reports_detectors() {
     assert_eq!(d["kind"], "box");
     assert!(d["total"]["mean"].as_f64().unwrap() > 0.0);
 }
+
+#[test]
+fn puzzle_commands() {
+    let o = cli(&["puzzle", "list"], None);
+    assert_eq!(code(&o), 0);
+    let text = String::from_utf8(o.stdout).unwrap();
+    assert!(text.starts_with("Steering light\n"), "{text}");
+    assert!(text.contains("logic-xor") && text.contains("Logic with light"));
+
+    let path = tmp("logic-xor.json");
+    assert_eq!(code(&cli(&["puzzle", "show", "logic-xor", "-o", path.to_str().unwrap()], None)), 0);
+    let p: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(p["id"], "logic-xor");
+    assert_eq!(code(&cli(&["puzzle", "show", "nope"], None)), 2);
+
+    // The reference scores and passes; as JSON, with the cases.
+    let design = p["reference"].to_string();
+    let o = cli(&["puzzle", "score", "logic-xor", "-", "--json"], Some(&design));
+    assert_eq!(code(&o), 0, "{}", String::from_utf8_lossy(&o.stderr));
+    let r: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap();
+    assert_eq!(r["passed"], true);
+    assert_eq!(r["cases"].as_array().unwrap().len(), 4);
+    let scene_path = tmp("xor-scene.json");
+    let o = cli(&["puzzle", "score", "logic-xor", "-", "--scene", scene_path.to_str().unwrap()], Some(&design));
+    let scene = fringe_core::scene::parse_scene(&std::fs::read_to_string(&scene_path).unwrap()).unwrap();
+    assert_eq!(scene.elements.len(), 1);
+    assert_eq!(scene.solver.fem.preview_ppw, Some(9.0));
+    let text = String::from_utf8(o.stdout).unwrap();
+    assert!(text.contains("Case in-a=1 in-b=1") && text.contains("contrast") && text.contains("Passed"), "{text}");
+    // An empty design fails with exit code 1; a rule break is reported, not solved.
+    let o = cli(&["puzzle", "score", "logic-xor", "-"], Some("[]"));
+    assert_eq!(code(&o), 1);
+    assert!(String::from_utf8_lossy(&o.stdout).contains("Not passed"));
+    let far = r#"[{"id": "s", "material": {"type": "dielectric", "n": 2}, "x_um": 4, "y_um": 4,
+                  "shape": {"kind": "slab", "thickness_um": 0.3, "height_um": 0.5}}]"#;
+    let o = cli(&["puzzle", "score", "logic-xor", "-"], Some(far));
+    assert_eq!(code(&o), 1);
+    assert!(String::from_utf8_lossy(&o.stdout).contains("[rule_region]"));
+    assert_eq!(code(&cli(&["puzzle", "score", "logic-xor", "-"], Some("{oops"))), 1);
+    assert_eq!(code(&cli(&["puzzle", "score", "logic-xor"], None)), 2);
+    assert_eq!(code(&cli(&["puzzle", "frob"], None)), 2);
+
+    let o = cli(&["puzzle", "verify", "logic-xor"], None);
+    assert_eq!(code(&o), 0);
+    let text = String::from_utf8(o.stdout).unwrap();
+    assert!(text.lines().nth(1).unwrap().starts_with("logic-xor") && text.contains("PASS"), "{text}");
+    let o = cli(&["puzzle", "verify", "--all"], None);
+    assert_eq!(code(&o), 0, "{}", String::from_utf8_lossy(&o.stdout));
+    assert_eq!(String::from_utf8(o.stdout).unwrap().lines().count(), 1 + fringe_core::puzzle::catalog().len());
+}

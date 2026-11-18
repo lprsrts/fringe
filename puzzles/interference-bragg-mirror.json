@@ -1,0 +1,48 @@
+{
+  "id": "interference-bragg-mirror",
+  "chapter": "interference",
+  "order": 3,
+  "title": "Mirror from glass",
+  "summary": "Reflect the beam into the Up detector using only glass. One thin glass slab turned by 45 degrees reflects about a quarter of it, so several slabs have to work together. You may place up to five glass slabs (n = 1.5) in the marked region. The score is the share of the beam's power that reaches Up.",
+  "hints": [
+    "A slab turned by 45 degrees reflects part of the beam straight up and lets the rest pass. More slabs behind it can reflect more of the light that passed, but their reflections only add up if they leave in step.",
+    "Line the slabs up one behind the other, all parallel. The reflections from neighbouring slabs add up when the distance from one slab to the next, measured at right angles to the slabs, is about half a wavelength.",
+    "Four slabs 0.19 micrometres thick, 6 micrometres long and turned by -45 degrees, with air gaps of 0.31 micrometres between them measured at right angles to the slabs, reflect more than 90 percent. Centre the stack near the point where the beam axis meets the slabs."
+  ],
+  "scene": {
+    "version": 3,
+    "wavelength_um": 1.0,
+    "background": {"n": 1.0},
+    "sources": [
+      {"id": "beam", "name": "Beam", "type": "gaussian_beam", "waist_um": 1.2,
+       "waist_x_um": 0.0, "waist_y_um": 0.0, "angle_deg": 0.0}
+    ],
+    "elements": [],
+    "detectors": [
+      {"id": "up", "name": "Up",
+       "shape": {"kind": "line", "x1_um": 3.0, "y1_um": 4.0, "x2_um": -3.0, "y2_um": 4.0}}
+    ],
+    "domain": {"x_min_um": -5.0, "x_max_um": 5.0, "y_min_um": -5.0, "y_max_um": 5.0},
+    "solver": {"method": "fem"}
+  },
+  "goal": {
+    "type": "maximize",
+    "text": "Reflect as much of the beam as possible into Up",
+    "pass": 80,
+    "detector": "up"
+  },
+  "rules": {
+    "region": [-3.0, 3.0, -3.0, 3.0],
+    "palette": [{"kind": "slab", "materials": ["glass"], "max": 5}],
+    "max_elements": 5,
+    "materials": {"glass": {"name": "Glass (n = 1.5)", "type": "dielectric", "n": 1.5}}
+  },
+  "scoring": {"method": "fem", "ppw": 9},
+  "stars": [80, 88, 92],
+  "reference": [
+    {"id": "slab-1", "name": "Slab 1", "material": {"type": "dielectric", "n": 1.5}, "x_um": -0.2828, "y_um": 0.2828, "rotation_deg": -45.0, "shape": {"kind": "slab", "thickness_um": 0.19, "height_um": 6.0}},
+    {"id": "slab-2", "name": "Slab 2", "material": {"type": "dielectric", "n": 1.5}, "x_um": 0.0707, "y_um": -0.0707, "rotation_deg": -45.0, "shape": {"kind": "slab", "thickness_um": 0.19, "height_um": 6.0}},
+    {"id": "slab-3", "name": "Slab 3", "material": {"type": "dielectric", "n": 1.5}, "x_um": 0.4243, "y_um": -0.4243, "rotation_deg": -45.0, "shape": {"kind": "slab", "thickness_um": 0.19, "height_um": 6.0}},
+    {"id": "slab-4", "name": "Slab 4", "material": {"type": "dielectric", "n": 1.5}, "x_um": 0.7778, "y_um": -0.7778, "rotation_deg": -45.0, "shape": {"kind": "slab", "thickness_um": 0.19, "height_um": 6.0}}
+  ]
+}

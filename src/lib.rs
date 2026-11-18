@@ -9,6 +9,7 @@ pub mod geometry;
 pub mod job;
 pub mod linalg;
 pub mod problem;
+pub mod puzzle;
 pub mod render;
 pub mod scene;
 pub mod solver;

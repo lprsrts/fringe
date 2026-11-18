@@ -1,0 +1,67 @@
+{
+  "id": "metals-hot-spot",
+  "chapter": "metals",
+  "order": 3,
+  "title": "Bright spot",
+  "summary": "Make the light in the small Spot box as bright as you can. A plane wave comes from the left. You may place up to two pieces of gold or silver, as slabs or lens shapes, in the marked region to the right of the spot. The score is the mean intensity in Spot, as a multiple of the plane wave's intensity.",
+  "hints": [
+    "A flat metal mirror behind the spot sends the light back, and the returning wave adds to the incoming one. Where the two arrive in step, the intensity is up to four times higher. Move the mirror in small steps to find a bright position.",
+    "A curved mirror does more: it collects light from its whole width and sends it back to one point. A mirror with a radius of curvature R focuses at a distance R/2 in front of it.",
+    "Use a silver shell 0.1 micrometres thick, with its hollow side facing left, as wide as the region allows and with a radius near 3.7 micrometres. Its centre then sits about 1.7 micrometres to the right of the spot. Move it left or right in steps of 0.02 micrometres to bring the returning light in step with the incoming wave."
+  ],
+  "scene": {
+    "version": 3,
+    "wavelength_um": 0.6,
+    "background": {"n": 1.0},
+    "sources": [{"id": "wave", "name": "Plane Wave", "type": "plane_wave", "angle_deg": 0.0}],
+    "elements": [],
+    "detectors": [
+      {
+        "id": "spot",
+        "name": "Spot",
+        "shape": {"kind": "box", "x_um": 0.0, "y_um": 0.0, "width_um": 0.1, "height_um": 0.1}
+      }
+    ],
+    "domain": {"x_min_um": -2.0, "x_max_um": 3.5, "y_min_um": -3.0, "y_max_um": 3.0},
+    "solver": {"method": "mom"}
+  },
+  "goal": {
+    "type": "maximize",
+    "text": "Make Spot as bright as possible",
+    "pass": 2,
+    "detector": "spot"
+  },
+  "rules": {
+    "region": [0.4, 3.0, -2.6, 2.6],
+    "palette": [
+      {"kind": "slab", "materials": ["gold", "silver"], "max": 2},
+      {"kind": "lens", "materials": ["gold", "silver"], "max": 2}
+    ],
+    "max_elements": 2
+  },
+  "scoring": {"method": "mom", "ppw": 8},
+  "stars": [2, 10, 25],
+  "reference": [
+    {
+      "id": "mirror",
+      "name": "Mirror",
+      "material": {
+        "type": "dispersive",
+        "preset": "silver",
+        "eps_inf": 1.0,
+        "poles": [
+          {"type": "drude", "gamma_ev": 0.048, "plasma_ev": 8.28234},
+          {"type": "lorentz", "gamma_ev": 3.886, "resonance_ev": 0.816, "strength": 7.9247},
+          {"type": "lorentz", "gamma_ev": 0.452, "resonance_ev": 4.481, "strength": 0.501327},
+          {"type": "lorentz", "gamma_ev": 0.065, "resonance_ev": 8.185, "strength": 0.0133292},
+          {"type": "lorentz", "gamma_ev": 0.916, "resonance_ev": 9.083, "strength": 0.826552},
+          {"type": "lorentz", "gamma_ev": 2.419, "resonance_ev": 20.29, "strength": 1.11334}
+        ]
+      },
+      "x_um": 1.7,
+      "y_um": 0.0,
+      "rotation_deg": 0.0,
+      "shape": {"kind": "lens", "r1_um": -3.7, "r2_um": -3.8, "center_thickness_um": 0.1, "aperture_um": 5.2}
+    }
+  ]
+}

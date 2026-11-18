@@ -13,6 +13,7 @@ use fringe_core::analytic::cases::{self, Status};
 use fringe_core::analytic::metrics::{focal_peak, rel_l2, resample};
 use fringe_core::check::check;
 use fringe_core::job::Job;
+use fringe_core::puzzle;
 use fringe_core::render::view::{NormMode, Normalization, PartName, ViewRect};
 use fringe_core::render::{export_png_file, render_rgba, write_npy_c128, Colormap, Quantity, View};
 use fringe_core::scene::validate::fmt;
@@ -40,6 +41,15 @@ Usage:
                                           the dispersive material presets and their
                                           n + ik (default at 0.55 µm); with ID, the
                                           material JSON for a scene
+  fringe-cli puzzle list                  the bundled puzzles, by chapter
+  fringe-cli puzzle show ID [-o FILE]     a puzzle's JSON
+  fringe-cli puzzle score ID DESIGN [--json] [--scene FILE]
+                                          score a design: a JSON array of elements
+                                          or a whole scene (- for standard input);
+                                          --scene writes the scene it is scored in,
+                                          every source on, for `solve`
+  fringe-cli puzzle verify [--all|ID]     score every reference solution and the
+                                          empty design of each puzzle
   fringe-cli --help | --version
 
 SCENE is a scene JSON file, or - for standard input.
@@ -119,6 +129,7 @@ fn run(args: Vec<String>) -> Result<()> {
         "validate" => cmd_validate(&mut a),
         "compare" => cmd_compare(&mut a),
         "materials" => cmd_materials(&mut a),
+        "puzzle" => cmd_puzzle(&mut a),
         "info" | "export" => Err(Fail::Usage(
             "removed in v2; use `fringe-cli example lens | fringe-cli solve - -o out.png`".into(),
         )),
@@ -521,8 +532,16 @@ const STAGES: [&str; 6] = ["setup", "geometry", "assembly", "solve", "sampling",
 /// Runs a solve on a job thread, showing progress on a terminal and cancelling
 /// on Ctrl-C.
 fn solve_scene(scene: &Scene, quality: Quality, quiet: bool) -> Result<Arc<FieldGrid>> {
+    match wait_job(Job::spawn(scene.clone(), quality), quiet) {
+        Err(Fail::Solve(m)) if m.is_empty() => Err(Fail::Solve("the scene is invalid".into())),
+        other => other,
+    }
+}
+
+/// Waits for a job, showing progress on a terminal and cancelling on Ctrl-C.
+/// An invalid scene prints its issues and gives `Fail::Solve("")`.
+fn wait_job<T: Send + 'static>(job: Job<T>, quiet: bool) -> Result<T> {
     let cancel = cancel_flag();
-    let job = Job::spawn(scene.clone(), quality);
     let tty = !quiet && std::io::stderr().is_terminal();
     let mut cancelled = false;
     loop {
@@ -554,10 +573,10 @@ fn solve_scene(scene: &Scene, quality: Quality, quiet: bool) -> Result<Arc<Field
             for i in &issues {
                 eprintln!("error: {}: {} [{}]", i.path, i.message, i.code);
             }
-            Err(Fail::Solve("the scene is invalid".into()))
+            Err(Fail::Solve(String::new()))
         }
         Some(Err(e)) => Err(Fail::Solve(format!("{}: {e}", e.code()))),
-        None => Err(Fail::Solve("the solve ended without a result".into())),
+        None => Err(Fail::Solve("the job ended without a result".into())),
     }
 }
 
@@ -833,4 +852,214 @@ fn cmd_compare(a: &mut Args) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn cmd_puzzle(a: &mut Args) -> Result<()> {
+    let Some(sub) = a.positional() else {
+        return Err(Fail::Usage("puzzle needs list, show, score or verify".into()));
+    };
+    match sub.as_str() {
+        "list" => {
+            a.finish()?;
+            for e in puzzle::catalog_errors() {
+                eprintln!("fringe-cli: {e}");
+            }
+            let mut chapter = "";
+            for p in puzzle::catalog() {
+                if p.chapter != chapter {
+                    chapter = &p.chapter;
+                    println!("{}", p.chapter_title());
+                }
+                let stars: Vec<String> = p.stars.iter().map(|t| fmt(*t)).collect();
+                println!("  {:<28} {:<12} {}  (stars at {})", p.id, p.goal.kind.type_name(), p.title, stars.join(", "));
+            }
+            Ok(())
+        }
+        "show" => {
+            let out = a.value(&["-o", "--output"])?;
+            let id = a.positional().ok_or_else(|| Fail::Usage("puzzle show needs an ID".into()))?;
+            a.finish()?;
+            let p = find_puzzle(&id)?;
+            let json = p.to_json() + "\n";
+            match out {
+                Some(path) => std::fs::write(&path, json).map_err(|e| Fail::Solve(format!("writing {path}: {e}"))),
+                None => {
+                    print!("{json}");
+                    Ok(())
+                }
+            }
+        }
+        "score" => {
+            let as_json = a.flag(&["--json"]);
+            let scene_out = a.value(&["--scene"])?;
+            let id = a.positional().ok_or_else(|| Fail::Usage("puzzle score needs an ID and a DESIGN".into()))?;
+            let src = a.positional().ok_or_else(|| Fail::Usage("puzzle score needs a DESIGN".into()))?;
+            a.finish()?;
+            let p = find_puzzle(&id)?;
+            let text = if src == "-" {
+                let mut s = String::new();
+                std::io::stdin().read_to_string(&mut s).map_err(|e| Fail::Solve(format!("reading stdin: {e}")))?;
+                s
+            } else {
+                std::fs::read_to_string(&src).map_err(|e| Fail::Solve(format!("reading {src}: {e}")))?
+            };
+            let design = puzzle::parse_design(&text).map_err(|m| {
+                eprintln!("fringe-cli: {src}: {m}");
+                Fail::Check
+            })?;
+            if let Some(path) = scene_out {
+                let scene = puzzle::compose(p, &design).scene;
+                std::fs::write(&path, to_json(&scene) + "\n").map_err(|e| Fail::Solve(format!("writing {path}: {e}")))?;
+            }
+            let p2 = p.clone();
+            let eval = wait_job(Job::run(move |ctx| puzzle::evaluate(&p2, &design, ctx)), as_json)?;
+            if as_json {
+                println!("{}", serde_json::to_string_pretty(&eval.json).unwrap_or_default());
+            } else {
+                for line in result_lines(&eval.json) {
+                    println!("{line}");
+                }
+            }
+            if eval.passed() {
+                Ok(())
+            } else {
+                Err(Fail::Check)
+            }
+        }
+        "verify" => {
+            let all = a.flag(&["--all"]);
+            let id = a.positional();
+            a.finish()?;
+            let puzzles: Vec<&puzzle::Puzzle> = match id {
+                Some(id) if !all => vec![find_puzzle(&id)?],
+                Some(_) => return Err(Fail::Usage("give either --all or an ID".into())),
+                None => puzzle::catalog().iter().collect(),
+            };
+            let mut failed = false;
+            for e in puzzle::catalog_errors() {
+                println!("{e}");
+                failed = true;
+            }
+            println!("{:<28} | {:>10} | {:>5} | {:>10} | {:>7} | result", "puzzle", "reference", "stars", "empty", "seconds");
+            for p in puzzles {
+                let p2 = p.clone();
+                let r = wait_job(Job::run(move |ctx| puzzle::verify(&p2, ctx)), true)?;
+                let score = |v: &std::result::Result<serde_json::Value, String>| match v {
+                    Ok(j) if j["valid"] == true => {
+                        let unit = j["metric"]["unit"].as_str().unwrap_or("");
+                        j["score"].as_f64().map_or("-".into(), |s| format!("{} {unit}", puzzle::eval::fixed(s, 1)))
+                    }
+                    Ok(_) => "invalid".into(),
+                    Err(_) => "error".into(),
+                };
+                let stars = r.reference.as_ref().ok().and_then(|j| j["stars"].as_u64()).map_or("-".into(), |s| s.to_string());
+                println!(
+                    "{:<28} | {:>10} | {:>5} | {:>10} | {:>7.2} | {}",
+                    r.id,
+                    score(&r.reference),
+                    stars,
+                    score(&r.empty),
+                    r.wall_s,
+                    if r.ok() { "PASS" } else { "FAIL" }
+                );
+                if !r.ok() {
+                    failed = true;
+                    for m in &r.problems {
+                        println!("    {m}");
+                    }
+                    for (what, v) in [("reference", &r.reference), ("empty design", &r.empty)] {
+                        match v {
+                            Err(e) => println!("    {what}: {e}"),
+                            Ok(j) => {
+                                for i in j["issues"].as_array().into_iter().flatten().filter(|i| i["severity"] == "error") {
+                                    println!("    {what}: {}: {} [{}]", i["path"].as_str().unwrap_or(""), i["message"].as_str().unwrap_or(""), i["code"].as_str().unwrap_or(""));
+                                }
+                                if j["valid"] == true {
+                                    println!("    {what}: {}", j["metric"]["text"].as_str().unwrap_or(""));
+                                }
+                            }
+                        }
+                    }
+                    if r.reference.as_ref().is_ok_and(|j| j["passed"] != true) {
+                        println!("    the reference solution does not pass");
+                    } else if r.reference.as_ref().is_ok_and(|j| j["stars"] == 0) {
+                        println!("    the reference solution earns no star");
+                    }
+                    if r.empty.as_ref().is_ok_and(|j| j["passed"] == true) {
+                        println!("    the empty design passes");
+                    }
+                }
+            }
+            if failed {
+                Err(Fail::Check)
+            } else {
+                Ok(())
+            }
+        }
+        other => Err(Fail::Usage(format!("unknown puzzle command '{other}'"))),
+    }
+}
+
+fn find_puzzle(id: &str) -> Result<&'static puzzle::Puzzle> {
+    puzzle::get(id).ok_or_else(|| Fail::Usage(format!("no puzzle named '{id}' (see fringe-cli puzzle list)")))
+}
+
+/// A puzzle result as text: issues, per-case outputs, the metric and the verdict.
+fn result_lines(r: &serde_json::Value) -> Vec<String> {
+    let mut out = Vec::new();
+    for i in r["issues"].as_array().into_iter().flatten() {
+        out.push(format!(
+            "{}: {}: {} [{}]",
+            i["severity"].as_str().unwrap_or(""),
+            i["path"].as_str().unwrap_or(""),
+            i["message"].as_str().unwrap_or(""),
+            i["code"].as_str().unwrap_or("")
+        ));
+    }
+    if r["valid"] != true {
+        out.push("The design breaks the rules or is not a valid scene; it was not scored.".into());
+        return out;
+    }
+    let inputs: Vec<&str> = r["inputs"].as_array().into_iter().flatten().filter_map(|v| v.as_str()).collect();
+    for c in r["cases"].as_array().into_iter().flatten() {
+        let bits: Vec<String> = c["bits"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .zip(&inputs)
+            .map(|(b, id)| format!("{id}={}", if b == true { 1 } else { 0 }))
+            .collect();
+        let outs: Vec<String> = c["outputs"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|o| {
+                let v = o["value"].as_f64().map_or("-".into(), |v| puzzle::eval::fixed(v, 4));
+                let t = match o["target"].as_bool() {
+                    Some(t) => format!(" (want {})", u8::from(t)),
+                    None => String::new(),
+                };
+                format!("{} {v}{t}", o["detector"].as_str().unwrap_or("?"))
+            })
+            .collect();
+        let head = if bits.is_empty() { "Result".to_string() } else { format!("Case {}", bits.join(" ")) };
+        out.push(format!("{head}: {}", outs.join(", ")));
+    }
+    let m = &r["metric"];
+    out.push(format!(
+        "{}: {} {} ({})",
+        m["label"].as_str().unwrap_or("score"),
+        m["value"].as_f64().map_or("-".into(), |v| puzzle::eval::fixed(v, 2)),
+        m["unit"].as_str().unwrap_or(""),
+        m["text"].as_str().unwrap_or("")
+    ));
+    out.push(format!(
+        "{}, {} of 3 stars (pass at {}, stars at {}); {:.2} s",
+        if r["passed"] == true { "Passed" } else { "Not passed" },
+        r["stars"].as_u64().unwrap_or(0),
+        r["pass"].as_f64().map_or("-".into(), fmt),
+        r["star_thresholds"].as_array().into_iter().flatten().filter_map(|v| v.as_f64()).map(fmt).collect::<Vec<_>>().join(", "),
+        r["wall_s"].as_f64().unwrap_or(0.0)
+    ));
+    out
 }

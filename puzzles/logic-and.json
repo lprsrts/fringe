@@ -1,0 +1,135 @@
+{
+  "id": "logic-and",
+  "chapter": "logic",
+  "order": 3,
+  "title": "AND",
+  "summary": "Make the Output detector bright only when beams A and B are both on. A comes from the left and B from below. You may place one slab of dense glass in the marked region. The score is the contrast between the dimmest bright case and the brightest dark case, in decibels. Each beam alone still sends about half its power to Output, so no design gets much above 6 dB.",
+  "hints": [
+    "A thin slab turned by 45 degrees splits each beam in two. Turn it so that the reflected part of A and the transmitted part of B both go up towards Output.",
+    "With both beams on, the two parts must arrive at Output in step. Moving the slab along its own normal changes the path of the reflected light, and so its phase. Thickness alone is not enough.",
+    "Use a slab 0.36 micrometres thick at -45 degrees. Start at x = 0, y = 0 and move it to the lower right, by the same amount in x and in -y. About 0.13 micrometres each way is close to the best."
+  ],
+  "scene": {
+    "version": 3,
+    "wavelength_um": 1.0,
+    "background": {
+      "n": 1.0
+    },
+    "sources": [
+      {
+        "id": "in-a",
+        "name": "A",
+        "type": "gaussian_beam",
+        "waist_um": 1.2,
+        "waist_x_um": 0,
+        "waist_y_um": 0,
+        "angle_deg": 0
+      },
+      {
+        "id": "in-b",
+        "name": "B",
+        "type": "gaussian_beam",
+        "waist_um": 1.2,
+        "waist_x_um": 0,
+        "waist_y_um": 0,
+        "angle_deg": 90
+      }
+    ],
+    "elements": [],
+    "detectors": [
+      {
+        "id": "out",
+        "name": "Output",
+        "shape": {
+          "kind": "line",
+          "x1_um": 3,
+          "y1_um": 4,
+          "x2_um": -3,
+          "y2_um": 4
+        }
+      }
+    ],
+    "domain": {
+      "x_min_um": -5,
+      "x_max_um": 5,
+      "y_min_um": -5,
+      "y_max_um": 5
+    },
+    "solver": {
+      "method": "fem"
+    }
+  },
+  "inputs": [
+    "in-a",
+    "in-b"
+  ],
+  "goal": {
+    "type": "truth_table",
+    "text": "Output = A AND B",
+    "pass": 4,
+    "outputs": [
+      {
+        "detector": "out",
+        "bits": [
+          0,
+          0,
+          0,
+          1
+        ]
+      }
+    ]
+  },
+  "rules": {
+    "locked": [],
+    "region": [
+      -2.5,
+      2.5,
+      -2.5,
+      2.5
+    ],
+    "palette": [
+      {
+        "kind": "slab",
+        "materials": [
+          "dense-glass"
+        ],
+        "max": 1
+      }
+    ],
+    "max_elements": 1,
+    "materials": {
+      "dense-glass": {
+        "name": "Dense glass (n = 2)",
+        "type": "dielectric",
+        "n": 2.0
+      }
+    }
+  },
+  "scoring": {
+    "method": "fem",
+    "ppw": 9
+  },
+  "stars": [
+    4,
+    5,
+    5.7
+  ],
+  "reference": [
+    {
+      "id": "splitter",
+      "name": "Splitter",
+      "material": {
+        "type": "dielectric",
+        "n": 2.0
+      },
+      "x_um": 0.127,
+      "y_um": -0.127,
+      "rotation_deg": -45.0,
+      "shape": {
+        "kind": "slab",
+        "thickness_um": 0.36,
+        "height_um": 6.0
+      }
+    }
+  ]
+}

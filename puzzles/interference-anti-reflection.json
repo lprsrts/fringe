@@ -1,0 +1,56 @@
+{
+  "id": "interference-anti-reflection",
+  "chapter": "interference",
+  "order": 2,
+  "title": "Anti-reflection coating",
+  "summary": "Reduce the reflection from a thick slab of dense glass (n = 2). It reflects about a third of the beam from the left. You may place up to two coating slabs (n = 1.4) in the marked region. The score is how far the reflected power lies below the beam power, in decibels. 10 dB means 10 percent is reflected, 20 dB means 1 percent.",
+  "hints": [
+    "Each face of the glass reflects some light. A thin coating in front of a face adds a second reflection. If the two reflections come back half a wavelength out of step, they cancel.",
+    "Light crosses a coating of thickness t twice, so a coating a quarter wavelength thick inside the coating, t = 1 / (4 × 1.4) ≈ 0.18 micrometres, delays its reflection by half a wavelength. Parts may not touch, and the thin air gap between coating and glass adds to the delay. Keep the gap small and make the coating a little thinner.",
+    "One coating on the front face cannot remove the reflection from the back face, so place a second coating behind the glass. Coatings 0.13 micrometres thick, 0.06 micrometres away from the glass and as tall as the glass give about 19 dB."
+  ],
+  "scene": {
+    "version": 3,
+    "wavelength_um": 1.0,
+    "background": {"n": 1.0},
+    "sources": [
+      {"id": "beam", "name": "Beam", "type": "gaussian_beam", "waist_um": 1.5,
+       "waist_x_um": 0.0, "waist_y_um": 0.0, "angle_deg": 0.0}
+    ],
+    "elements": [
+      {"id": "glass", "name": "Glass", "material": {"type": "dielectric", "n": 2.0},
+       "x_um": 1.5, "y_um": 0.0, "rotation_deg": 0.0,
+       "shape": {"kind": "slab", "thickness_um": 1.125, "height_um": 8.0}}
+    ],
+    "detectors": [
+      {"id": "reflected", "name": "Reflected",
+       "shape": {"kind": "line", "x1_um": -3.5, "y1_um": 4.0, "x2_um": -3.5, "y2_um": -4.0}}
+    ],
+    "domain": {"x_min_um": -4.5, "x_max_um": 4.5, "y_min_um": -4.5, "y_max_um": 4.5},
+    "solver": {"method": "fem"}
+  },
+  "goal": {
+    "type": "minimize",
+    "text": "Reduce the light reflected by the glass",
+    "pass": 7,
+    "detectors": ["reflected"],
+    "quantity": "scattered"
+  },
+  "rules": {
+    "locked": ["glass"],
+    "region": [-2.5, 3.8, -4.2, 4.2],
+    "palette": [{"kind": "slab", "materials": ["coating"], "max": 2}],
+    "max_elements": 2,
+    "materials": {"coating": {"name": "Coating (n = 1.4)", "type": "dielectric", "n": 1.4}}
+  },
+  "scoring": {"method": "fem", "ppw": 9},
+  "stars": [7, 13, 17],
+  "reference": [
+    {"id": "front", "name": "Front coating", "material": {"type": "dielectric", "n": 1.4},
+     "x_um": 0.8125, "y_um": 0.0, "rotation_deg": 0.0,
+     "shape": {"kind": "slab", "thickness_um": 0.13, "height_um": 8.0}},
+    {"id": "rear", "name": "Back coating", "material": {"type": "dielectric", "n": 1.4},
+     "x_um": 2.1875, "y_um": 0.0, "rotation_deg": 0.0,
+     "shape": {"kind": "slab", "thickness_um": 0.13, "height_um": 8.0}}
+  ]
+}

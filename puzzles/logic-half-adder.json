@@ -1,0 +1,156 @@
+{
+  "id": "logic-half-adder",
+  "chapter": "logic",
+  "order": 5,
+  "title": "Half adder",
+  "summary": "Build a half adder from beam A, from the left, and beam B, from below. The Sum detector above must be bright when exactly one beam is on. The Carry detector on the right must be bright only when both are on. You may place one slab of dense glass in the marked region. The score is the lower of the two contrasts, in decibels. Carry is an AND, so the score cannot go much above 6 dB.",
+  "hints": [
+    "One 50/50 splitter at the crossing has two outputs. With both beams on, one output is dark and the other gets all the light.",
+    "In the XOR puzzle the same beams give a dark output on the right. Here the dark one has to be above. Adding half a wavelength to the path of the reflected light swaps the two outputs.",
+    "Use a slab 0.36 micrometres thick at -45 degrees, and move its centre from x = 0, y = 0 by 0.25 micrometres to the right and 0.25 micrometres down."
+  ],
+  "scene": {
+    "version": 3,
+    "wavelength_um": 1.0,
+    "background": {
+      "n": 1.0
+    },
+    "sources": [
+      {
+        "id": "in-a",
+        "name": "A",
+        "type": "gaussian_beam",
+        "waist_um": 1.2,
+        "waist_x_um": 0,
+        "waist_y_um": 0,
+        "angle_deg": 0
+      },
+      {
+        "id": "in-b",
+        "name": "B",
+        "type": "gaussian_beam",
+        "waist_um": 1.2,
+        "waist_x_um": 0,
+        "waist_y_um": 0,
+        "angle_deg": 90,
+        "phase_deg": 90
+      }
+    ],
+    "elements": [],
+    "detectors": [
+      {
+        "id": "sum",
+        "name": "Sum",
+        "shape": {
+          "kind": "line",
+          "x1_um": 3,
+          "y1_um": 4,
+          "x2_um": -3,
+          "y2_um": 4
+        }
+      },
+      {
+        "id": "carry",
+        "name": "Carry",
+        "shape": {
+          "kind": "line",
+          "x1_um": 4,
+          "y1_um": -3,
+          "x2_um": 4,
+          "y2_um": 3
+        }
+      }
+    ],
+    "domain": {
+      "x_min_um": -5,
+      "x_max_um": 5,
+      "y_min_um": -5,
+      "y_max_um": 5
+    },
+    "solver": {
+      "method": "fem"
+    }
+  },
+  "inputs": [
+    "in-a",
+    "in-b"
+  ],
+  "goal": {
+    "type": "truth_table",
+    "text": "Sum = A XOR B, Carry = A AND B",
+    "pass": 4,
+    "outputs": [
+      {
+        "detector": "sum",
+        "bits": [
+          0,
+          1,
+          1,
+          0
+        ]
+      },
+      {
+        "detector": "carry",
+        "bits": [
+          0,
+          0,
+          0,
+          1
+        ]
+      }
+    ]
+  },
+  "rules": {
+    "locked": [],
+    "region": [
+      -3,
+      3,
+      -3,
+      3
+    ],
+    "palette": [
+      {
+        "kind": "slab",
+        "materials": [
+          "dense-glass"
+        ],
+        "max": 1
+      }
+    ],
+    "max_elements": 1,
+    "materials": {
+      "dense-glass": {
+        "name": "Dense glass (n = 2)",
+        "type": "dielectric",
+        "n": 2.0
+      }
+    }
+  },
+  "scoring": {
+    "method": "fem",
+    "ppw": 9
+  },
+  "stars": [
+    4,
+    5,
+    5.6
+  ],
+  "reference": [
+    {
+      "id": "splitter",
+      "name": "Splitter",
+      "material": {
+        "type": "dielectric",
+        "n": 2.0
+      },
+      "x_um": 0.25,
+      "y_um": -0.25,
+      "rotation_deg": -45.0,
+      "shape": {
+        "kind": "slab",
+        "thickness_um": 0.36,
+        "height_um": 6.0
+      }
+    }
+  ]
+}

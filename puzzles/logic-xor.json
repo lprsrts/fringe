@@ -1,0 +1,136 @@
+{
+  "id": "logic-xor",
+  "chapter": "logic",
+  "order": 2,
+  "title": "XOR",
+  "summary": "Make the Output detector bright when exactly one of beams A and B is on, and dark when both are on. A comes from the left and B from below, with a fixed phase between them. You may place one slab of dense glass in the marked region. The score is the contrast between the dimmest bright case and the brightest dark case, in decibels.",
+  "hints": [
+    "A thin slab turned by 45 degrees sends part of each beam straight on and reflects the rest by 90 degrees.",
+    "Turn the slab so that beam A passes through towards Output and beam B is reflected towards Output. Then the two beams overlap there and interfere.",
+    "The slab's thickness sets how the light is shared and its phase. Keep its centre where the two beam axes cross, at x = 0, y = 0, and try thicknesses between 0.3 and 0.4 micrometres in steps of 0.01 micrometres."
+  ],
+  "scene": {
+    "version": 3,
+    "wavelength_um": 1.0,
+    "background": {
+      "n": 1.0
+    },
+    "sources": [
+      {
+        "id": "in-a",
+        "name": "A",
+        "type": "gaussian_beam",
+        "waist_um": 1.2,
+        "waist_x_um": 0.0,
+        "waist_y_um": 0.0,
+        "angle_deg": 0.0
+      },
+      {
+        "id": "in-b",
+        "name": "B",
+        "type": "gaussian_beam",
+        "waist_um": 1.2,
+        "waist_x_um": 0.0,
+        "waist_y_um": 0.0,
+        "angle_deg": 90.0,
+        "phase_deg": 90.0
+      }
+    ],
+    "elements": [],
+    "detectors": [
+      {
+        "id": "out",
+        "name": "Output",
+        "shape": {
+          "kind": "line",
+          "x1_um": 4.0,
+          "y1_um": -3.0,
+          "x2_um": 4.0,
+          "y2_um": 3.0
+        }
+      }
+    ],
+    "domain": {
+      "x_min_um": -5.0,
+      "x_max_um": 5.0,
+      "y_min_um": -5.0,
+      "y_max_um": 5.0
+    },
+    "solver": {
+      "method": "fem"
+    }
+  },
+  "inputs": [
+    "in-a",
+    "in-b"
+  ],
+  "goal": {
+    "type": "truth_table",
+    "text": "Output = A XOR B",
+    "pass": 6,
+    "outputs": [
+      {
+        "detector": "out",
+        "bits": [
+          0,
+          1,
+          1,
+          0
+        ]
+      }
+    ]
+  },
+  "rules": {
+    "locked": [],
+    "region": [
+      -2.5,
+      2.5,
+      -2.5,
+      2.5
+    ],
+    "palette": [
+      {
+        "kind": "slab",
+        "materials": [
+          "dense-glass"
+        ],
+        "max": 1
+      }
+    ],
+    "max_elements": 1,
+    "materials": {
+      "dense-glass": {
+        "name": "Dense glass (n = 2)",
+        "type": "dielectric",
+        "n": 2.0
+      }
+    }
+  },
+  "scoring": {
+    "method": "fem",
+    "ppw": 9
+  },
+  "stars": [
+    6,
+    10,
+    15
+  ],
+  "reference": [
+    {
+      "id": "splitter",
+      "name": "Splitter",
+      "material": {
+        "type": "dielectric",
+        "n": 2.0
+      },
+      "x_um": 0.0,
+      "y_um": 0.0,
+      "rotation_deg": -45.0,
+      "shape": {
+        "kind": "slab",
+        "thickness_um": 0.36,
+        "height_um": 6.0
+      }
+    }
+  ]
+}

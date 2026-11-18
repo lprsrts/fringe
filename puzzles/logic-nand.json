@@ -1,0 +1,159 @@
+{
+  "id": "logic-nand",
+  "chapter": "logic",
+  "order": 6,
+  "title": "NAND",
+  "summary": "Make the Output detector at the top bright unless beams A and B are both on. A comes from the left and B from below. A bias beam with twice the power of A comes from the right, higher up, and is always on. You may place up to two slabs of dense glass in the marked region. The score is the contrast between the dimmest bright case and the brightest dark case, in decibels.",
+  "hints": [
+    "First combine A and B with one slab so that, with both on, all their light goes up. Then combine that light with the bias beam on a second slab, so that the two cancel at Output.",
+    "The first slab goes where A and B cross, at x = 0, y = 0, turned by -45 degrees. The second goes where the combined beam meets the bias beam, near x = 0, y = 5, turned by +45 degrees.",
+    "Use slabs 0.36 micrometres thick and 6 micrometres long. The dark case depends on the second slab's position to a few hundredths of a micrometre: move it along its normal in steps of 0.01 micrometres."
+  ],
+  "scene": {
+    "version": 3,
+    "wavelength_um": 1.0,
+    "background": {
+      "n": 1.0
+    },
+    "sources": [
+      {
+        "id": "in-a",
+        "name": "A",
+        "type": "gaussian_beam",
+        "waist_um": 1.2,
+        "waist_x_um": 0,
+        "waist_y_um": 0,
+        "angle_deg": 0
+      },
+      {
+        "id": "in-b",
+        "name": "B",
+        "type": "gaussian_beam",
+        "waist_um": 1.2,
+        "waist_x_um": 0,
+        "waist_y_um": 0,
+        "angle_deg": 90,
+        "phase_deg": 90
+      },
+      {
+        "id": "bias",
+        "name": "Bias",
+        "type": "gaussian_beam",
+        "waist_um": 1.2,
+        "waist_x_um": 5.0,
+        "waist_y_um": 5.3,
+        "angle_deg": 180,
+        "amplitude": 1.41421356,
+        "phase_deg": 20.0
+      }
+    ],
+    "elements": [],
+    "detectors": [
+      {
+        "id": "out",
+        "name": "Output",
+        "shape": {
+          "kind": "line",
+          "x1_um": 3.5,
+          "y1_um": 9.0,
+          "x2_um": -3.5,
+          "y2_um": 9.0
+        }
+      }
+    ],
+    "domain": {
+      "x_min_um": -5.0,
+      "x_max_um": 5.0,
+      "y_min_um": -5.0,
+      "y_max_um": 10.0
+    },
+    "solver": {
+      "method": "fem"
+    }
+  },
+  "inputs": [
+    "in-a",
+    "in-b"
+  ],
+  "goal": {
+    "type": "truth_table",
+    "text": "Output = NOT (A AND B)",
+    "pass": 4,
+    "outputs": [
+      {
+        "detector": "out",
+        "bits": [
+          1,
+          1,
+          1,
+          0
+        ]
+      }
+    ]
+  },
+  "rules": {
+    "locked": [],
+    "region": [
+      -3.0,
+      3.0,
+      -3.0,
+      7.5
+    ],
+    "palette": [
+      {
+        "kind": "slab",
+        "materials": [
+          "dense-glass"
+        ],
+        "max": 2
+      }
+    ],
+    "max_elements": 2,
+    "materials": {
+      "dense-glass": {
+        "name": "Dense glass (n = 2)",
+        "type": "dielectric",
+        "n": 2.0
+      }
+    }
+  },
+  "scoring": {
+    "method": "fem",
+    "ppw": 9
+  },
+  "stars": [4, 6, 7],
+  "reference": [
+    {
+      "id": "split-1",
+      "name": "Splitter 1",
+      "material": {
+        "type": "dielectric",
+        "n": 2.0
+      },
+      "x_um": 0.0,
+      "y_um": 0.0,
+      "rotation_deg": -45.0,
+      "shape": {
+        "kind": "slab",
+        "thickness_um": 0.36,
+        "height_um": 6.0
+      }
+    },
+    {
+      "id": "split-2",
+      "name": "Splitter 2",
+      "material": {
+        "type": "dielectric",
+        "n": 2.0
+      },
+      "x_um": 0.0,
+      "y_um": 5.0,
+      "rotation_deg": 45.0,
+      "shape": {
+        "kind": "slab",
+        "thickness_um": 0.36,
+        "height_um": 6.0
+      }
+    }
+  ]
+}

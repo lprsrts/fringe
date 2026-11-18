@@ -1,0 +1,69 @@
+{
+  "id": "metals-shield",
+  "chapter": "metals",
+  "order": 1,
+  "title": "Shade the detector",
+  "summary": "Make the Shadow box as dark as you can with metal. An emitter on the left sends light in all directions, and some of it reaches the box on the right. You may place up to two pieces of gold, silver or aluminium, as slabs or lens shapes, in the marked region. The score is how much darker the box is than with no metal, in decibels.",
+  "hints": [
+    "A metal film 0.05 micrometres thick still lets some light through. Make the metal thicker than that.",
+    "Light also bends around the edges of the metal into the shadow. A shield that is longer in the direction the light travels gives a deeper shadow.",
+    "Use the full height of the region. Once the metal is a few tenths of a micrometre thick, almost all the light left in the box comes around the edges, so fill the region from left to right, or use two thick slabs, one at each end."
+  ],
+  "scene": {
+    "version": 3,
+    "wavelength_um": 0.6,
+    "background": {"n": 1.0},
+    "sources": [{"id": "emitter", "name": "Emitter", "type": "line_source", "x_um": -2.0, "y_um": 0.0}],
+    "elements": [],
+    "detectors": [
+      {
+        "id": "spot",
+        "name": "Shadow",
+        "shape": {"kind": "box", "x_um": 2.0, "y_um": 0.0, "width_um": 0.4, "height_um": 0.4}
+      }
+    ],
+    "domain": {"x_min_um": -3.0, "x_max_um": 3.0, "y_min_um": -2.5, "y_max_um": 2.5},
+    "solver": {"method": "mom"}
+  },
+  "goal": {
+    "type": "minimize",
+    "text": "Make Shadow as dark as possible",
+    "pass": 12,
+    "detectors": ["spot"],
+    "quantity": "intensity",
+    "reference": "incident"
+  },
+  "rules": {
+    "region": [-0.6, 0.6, -0.8, 0.8],
+    "palette": [
+      {"kind": "slab", "materials": ["gold", "silver", "aluminium"], "max": 2},
+      {"kind": "lens", "materials": ["gold", "silver", "aluminium"], "max": 2}
+    ],
+    "max_elements": 2
+  },
+  "scoring": {"method": "mom", "ppw": 16},
+  "stars": [12, 22, 31],
+  "reference": [
+    {
+      "id": "shield",
+      "name": "Shield",
+      "material": {
+        "type": "dispersive",
+        "preset": "silver",
+        "eps_inf": 1.0,
+        "poles": [
+          {"type": "drude", "gamma_ev": 0.048, "plasma_ev": 8.28234},
+          {"type": "lorentz", "gamma_ev": 3.886, "resonance_ev": 0.816, "strength": 7.9247},
+          {"type": "lorentz", "gamma_ev": 0.452, "resonance_ev": 4.481, "strength": 0.501327},
+          {"type": "lorentz", "gamma_ev": 0.065, "resonance_ev": 8.185, "strength": 0.0133292},
+          {"type": "lorentz", "gamma_ev": 0.916, "resonance_ev": 9.083, "strength": 0.826552},
+          {"type": "lorentz", "gamma_ev": 2.419, "resonance_ev": 20.29, "strength": 1.11334}
+        ]
+      },
+      "x_um": 0.0,
+      "y_um": 0.0,
+      "rotation_deg": 0.0,
+      "shape": {"kind": "slab", "thickness_um": 1.19, "height_um": 1.59}
+    }
+  ]
+}

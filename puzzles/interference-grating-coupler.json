@@ -1,0 +1,129 @@
+{
+  "id": "interference-grating-coupler",
+  "chapter": "interference",
+  "order": 5,
+  "title": "Grating coupler",
+  "summary": "Send a beam along a waveguide with a grating. The beam comes from above, tilted 10 degrees to the right, and crosses a waveguide of dense glass (n = 2) without entering it. You may place one grating of dense glass bars in the marked region, just above the waveguide. The score is the share of the beam's power that reaches the Guide detector on the right.",
+  "hints": [
+    "A row of evenly spaced bars scatters light in a few directions only, where the waves from all the bars arrive in step. With the right spacing one of these directions runs along the waveguide.",
+    "Turn the grating by 90 degrees so that the bars stand in a row along the waveguide, and keep it close to the waveguide, about 0.1 micrometres above it. The spacing has to be right to within about 0.02 micrometres. Try periods between 0.75 and 0.85 micrometres.",
+    "A grating of 10 bars with a period of 0.79 micrometres, a fill factor of 0.53 and a depth of 0.2 micrometres, centred at x = -1.9 and 0.13 micrometres above the waveguide, sends about 18 percent of the beam to the right. Light that the waveguide takes up near the left end of the grating is partly scattered out again, so the beam should land on the right half of the grating."
+  ],
+  "scene": {
+    "version": 3,
+    "wavelength_um": 1.0,
+    "background": {
+      "n": 1.0
+    },
+    "sources": [
+      {
+        "id": "beam",
+        "name": "Beam",
+        "type": "gaussian_beam",
+        "waist_um": 1.5,
+        "waist_x_um": -1.0,
+        "waist_y_um": 0.0,
+        "angle_deg": -80.0
+      }
+    ],
+    "elements": [
+      {
+        "id": "guide",
+        "name": "Waveguide",
+        "material": {
+          "type": "dielectric",
+          "n": 2.0
+        },
+        "x_um": 0.0,
+        "y_um": 0.0,
+        "rotation_deg": 0.0,
+        "shape": {
+          "kind": "waveguide",
+          "width_um": 0.5,
+          "length_um": 13.0
+        }
+      }
+    ],
+    "detectors": [
+      {
+        "id": "out",
+        "name": "Guide",
+        "shape": {
+          "kind": "line",
+          "x1_um": 5.5,
+          "y1_um": -0.8,
+          "x2_um": 5.5,
+          "y2_um": 0.8
+        }
+      }
+    ],
+    "domain": {
+      "x_min_um": -7.0,
+      "x_max_um": 7.0,
+      "y_min_um": -3.0,
+      "y_max_um": 4.0
+    },
+    "solver": {
+      "method": "fem"
+    }
+  },
+  "goal": {
+    "type": "maximize",
+    "text": "Send as much of the beam as possible along the waveguide to the right",
+    "pass": 8,
+    "detector": "out"
+  },
+  "rules": {
+    "locked": [
+      "guide"
+    ],
+    "region": [
+      -6.0,
+      4.0,
+      -2.5,
+      3.5
+    ],
+    "palette": [
+      {
+        "kind": "grating",
+        "materials": [
+          "dense-glass"
+        ],
+        "max": 1
+      }
+    ],
+    "max_elements": 1,
+    "materials": {
+      "dense-glass": {
+        "name": "Dense glass (n = 2)",
+        "type": "dielectric",
+        "n": 2.0
+      }
+    }
+  },
+  "scoring": {
+    "method": "fem",
+    "ppw": 9
+  },
+  "stars": [8, 13, 17],
+  "reference": [
+    {
+      "id": "grating",
+      "name": "Grating",
+      "material": {
+        "type": "dielectric",
+        "n": 2.0
+      },
+      "x_um": -1.9,
+      "y_um": 0.48,
+      "rotation_deg": 90.0,
+      "shape": {
+        "kind": "grating",
+        "period_um": 0.79,
+        "fill_factor": 0.53,
+        "depth_um": 0.2,
+        "count": 10
+      }
+    }
+  ]
+}

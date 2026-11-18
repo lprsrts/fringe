@@ -1,0 +1,120 @@
+{
+  "id": "metals-emitter-guide",
+  "chapter": "metals",
+  "order": 5,
+  "title": "Emitter into a waveguide",
+  "summary": "Send the light of a point emitter along a waveguide to the Guide detector. The emitter sends light in all directions, and the waveguide of dense glass starts 1 micrometre to its right. You may place up to three pieces of gold or silver, as slabs or lens shapes, in the marked region. The score is the share of the emitter's power that reaches Guide. Power that the metal absorbs counts as given off.",
+  "hints": [
+    "Most of the light leaves the emitter sideways or backwards and never reaches the end of the waveguide. Metal can turn it around.",
+    "Two metal walls in a V shape, closed behind the emitter and open towards the waveguide, act as a funnel. A flat wall just behind the emitter and two walls along the sides make a channel that does even better, but only when its width is just right.",
+    "Put a silver wall 0.1 micrometres thick about 0.1 micrometres behind the emitter. Add two silver blocks above and below the axis, between the emitter and the waveguide, that leave a channel 0.9 micrometres wide. Then change the channel width in steps of 0.01 micrometres."
+  ],
+  "scene": {
+    "version": 3,
+    "wavelength_um": 0.6,
+    "background": {"n": 1.0},
+    "sources": [{"id": "emitter", "name": "Emitter", "type": "line_source", "x_um": -1.0, "y_um": 0.0}],
+    "elements": [
+      {
+        "id": "guide",
+        "name": "Waveguide",
+        "material": {"type": "dielectric", "n": 2.0},
+        "x_um": 2.0,
+        "y_um": 0.0,
+        "rotation_deg": 0.0,
+        "shape": {"kind": "waveguide", "width_um": 0.3, "length_um": 4.0}
+      }
+    ],
+    "detectors": [
+      {
+        "id": "out",
+        "name": "Guide",
+        "shape": {"kind": "line", "x1_um": 3.5, "y1_um": -0.5, "x2_um": 3.5, "y2_um": 0.5}
+      }
+    ],
+    "domain": {"x_min_um": -2.5, "x_max_um": 4.5, "y_min_um": -2.0, "y_max_um": 2.0},
+    "solver": {"method": "fem"}
+  },
+  "goal": {
+    "type": "maximize",
+    "text": "Send as much of the emitter's power as possible along the waveguide",
+    "pass": 15,
+    "detector": "out"
+  },
+  "rules": {
+    "locked": ["guide"],
+    "region": [-2.2, -0.05, -1.6, 1.6],
+    "palette": [
+      {"kind": "slab", "materials": ["gold", "silver"], "max": 3},
+      {"kind": "lens", "materials": ["gold", "silver"], "max": 3}
+    ],
+    "max_elements": 3
+  },
+  "scoring": {"method": "fem", "ppw": 9},
+  "stars": [15, 40, 70],
+  "reference": [
+    {
+      "id": "back",
+      "name": "Back wall",
+      "material": {
+        "type": "dispersive",
+        "preset": "silver",
+        "eps_inf": 1.0,
+        "poles": [
+          {"type": "drude", "gamma_ev": 0.048, "plasma_ev": 8.28234},
+          {"type": "lorentz", "gamma_ev": 3.886, "resonance_ev": 0.816, "strength": 7.9247},
+          {"type": "lorentz", "gamma_ev": 0.452, "resonance_ev": 4.481, "strength": 0.501327},
+          {"type": "lorentz", "gamma_ev": 0.065, "resonance_ev": 8.185, "strength": 0.0133292},
+          {"type": "lorentz", "gamma_ev": 0.916, "resonance_ev": 9.083, "strength": 0.826552},
+          {"type": "lorentz", "gamma_ev": 2.419, "resonance_ev": 20.29, "strength": 1.11334}
+        ]
+      },
+      "x_um": -1.15,
+      "y_um": 0.0,
+      "rotation_deg": 0.0,
+      "shape": {"kind": "slab", "thickness_um": 0.1, "height_um": 2.0}
+    },
+    {
+      "id": "upper",
+      "name": "Upper wall",
+      "material": {
+        "type": "dispersive",
+        "preset": "silver",
+        "eps_inf": 1.0,
+        "poles": [
+          {"type": "drude", "gamma_ev": 0.048, "plasma_ev": 8.28234},
+          {"type": "lorentz", "gamma_ev": 3.886, "resonance_ev": 0.816, "strength": 7.9247},
+          {"type": "lorentz", "gamma_ev": 0.452, "resonance_ev": 4.481, "strength": 0.501327},
+          {"type": "lorentz", "gamma_ev": 0.065, "resonance_ev": 8.185, "strength": 0.0133292},
+          {"type": "lorentz", "gamma_ev": 0.916, "resonance_ev": 9.083, "strength": 0.826552},
+          {"type": "lorentz", "gamma_ev": 2.419, "resonance_ev": 20.29, "strength": 1.11334}
+        ]
+      },
+      "x_um": -0.41,
+      "y_um": 0.75,
+      "rotation_deg": 0.0,
+      "shape": {"kind": "slab", "thickness_um": 0.7, "height_um": 0.6}
+    },
+    {
+      "id": "lower",
+      "name": "Lower wall",
+      "material": {
+        "type": "dispersive",
+        "preset": "silver",
+        "eps_inf": 1.0,
+        "poles": [
+          {"type": "drude", "gamma_ev": 0.048, "plasma_ev": 8.28234},
+          {"type": "lorentz", "gamma_ev": 3.886, "resonance_ev": 0.816, "strength": 7.9247},
+          {"type": "lorentz", "gamma_ev": 0.452, "resonance_ev": 4.481, "strength": 0.501327},
+          {"type": "lorentz", "gamma_ev": 0.065, "resonance_ev": 8.185, "strength": 0.0133292},
+          {"type": "lorentz", "gamma_ev": 0.916, "resonance_ev": 9.083, "strength": 0.826552},
+          {"type": "lorentz", "gamma_ev": 2.419, "resonance_ev": 20.29, "strength": 1.11334}
+        ]
+      },
+      "x_um": -0.41,
+      "y_um": -0.75,
+      "rotation_deg": 0.0,
+      "shape": {"kind": "slab", "thickness_um": 0.7, "height_um": 0.6}
+    }
+  ]
+}

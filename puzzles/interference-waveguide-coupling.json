@@ -1,0 +1,56 @@
+{
+  "id": "interference-waveguide-coupling",
+  "chapter": "interference",
+  "order": 4,
+  "title": "Into the waveguide",
+  "summary": "Couple the beam into the end of a waveguide of dense glass (n = 2). The beam comes from the lower left at 25 degrees and passes above the end. You may place up to two lenses, or one prism and one lens, in the marked region. The Guide detector measures the power that travels along the waveguide. The score is the share of the beam's power that reaches Guide.",
+  "hints": [
+    "Light is guided only if it enters the end of the waveguide and travels along it. The waveguide is half a micrometre wide, much narrower than the beam, so the beam has to be focused onto the end.",
+    "A prism bends the beam towards its base. A prism with a 45 degree apex angle bends it by about 25 degrees, enough to make it run along the waveguide. After the prism, a strong lens on the waveguide axis focuses the beam onto the end. The light in the waveguide forms a narrow pattern, and the focus should match its width.",
+    "Put a prism with a 3 micrometre base and a 45 degree apex at x = -3.95, y = -0.8, turned by 16.5 degrees, and a lens with radii 1.6 and -1.6 micrometres and a 2.6 micrometre aperture at x = -1.5 on the axis. This sends more than 60 percent into the waveguide."
+  ],
+  "scene": {
+    "version": 3,
+    "wavelength_um": 1.0,
+    "background": {"n": 1.0},
+    "sources": [
+      {"id": "beam", "name": "Beam", "type": "gaussian_beam", "waist_um": 1.5,
+       "waist_x_um": -3.0, "waist_y_um": 0.3, "angle_deg": 25.0}
+    ],
+    "elements": [
+      {"id": "guide", "name": "Waveguide", "material": {"type": "dielectric", "n": 2.0},
+       "x_um": 3.5, "y_um": 0.0, "rotation_deg": 0.0,
+       "shape": {"kind": "waveguide", "width_um": 0.5, "length_um": 7.0}}
+    ],
+    "detectors": [
+      {"id": "out", "name": "Guide",
+       "shape": {"kind": "line", "x1_um": 5.5, "y1_um": -0.8, "x2_um": 5.5, "y2_um": 0.8}}
+    ],
+    "domain": {"x_min_um": -7.5, "x_max_um": 7.5, "y_min_um": -4.0, "y_max_um": 4.0},
+    "solver": {"method": "fem"}
+  },
+  "goal": {
+    "type": "maximize",
+    "text": "Send as much of the beam as possible along the waveguide",
+    "pass": 25,
+    "detector": "out"
+  },
+  "rules": {
+    "locked": ["guide"],
+    "region": [-6.8, -0.2, -3.5, 3.5],
+    "palette": [{"kind": "lens", "materials": ["glass"], "max": 2},
+                {"kind": "prism", "materials": ["glass"], "max": 1}],
+    "max_elements": 2,
+    "materials": {"glass": {"name": "Glass (n = 1.5)", "type": "dielectric", "n": 1.5}}
+  },
+  "scoring": {"method": "fem", "ppw": 9},
+  "stars": [25, 45, 58],
+  "reference": [
+    {"id": "prism", "name": "Prism", "material": {"type": "dielectric", "n": 1.5},
+     "x_um": -3.95, "y_um": -0.8, "rotation_deg": 16.5,
+     "shape": {"kind": "prism", "base_um": 3.0, "apex_deg": 45.0}},
+    {"id": "lens", "name": "Lens", "material": {"type": "dielectric", "n": 1.5},
+     "x_um": -1.5, "y_um": 0.0, "rotation_deg": 0.0,
+     "shape": {"kind": "lens", "r1_um": 1.6, "r2_um": -1.6, "center_thickness_um": 1.485, "aperture_um": 2.6}}
+  ]
+}

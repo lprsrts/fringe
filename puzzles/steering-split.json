@@ -1,0 +1,51 @@
+{
+  "id": "steering-split",
+  "chapter": "steering",
+  "order": 3,
+  "title": "Split a beam",
+  "summary": "Split the beam equally between the Right and Up detectors. You may place one slab of dense glass in the marked region. The split must be 50/50 within 5 percentage points. The score compares each detector's power with the half it should get and counts the smaller of the two.",
+  "hints": [
+    "A slab turned by 45 degrees reflects part of the beam by 90 degrees and lets the rest pass.",
+    "Turn the slab so that the reflected light goes up.",
+    "How much a thin slab reflects depends on its thickness, because the reflections from its two faces interfere. Try thicknesses between 0.3 and 0.4 micrometres."
+  ],
+  "scene": {
+    "version": 3,
+    "wavelength_um": 1.0,
+    "background": {"n": 1.0},
+    "sources": [
+      {"id": "beam", "name": "Beam", "type": "gaussian_beam", "waist_um": 1.2,
+       "waist_x_um": 0.0, "waist_y_um": 0.0, "angle_deg": 0.0}
+    ],
+    "elements": [],
+    "detectors": [
+      {"id": "right", "name": "Right",
+       "shape": {"kind": "line", "x1_um": 4.0, "y1_um": -3.0, "x2_um": 4.0, "y2_um": 3.0}},
+      {"id": "up", "name": "Up",
+       "shape": {"kind": "line", "x1_um": 3.0, "y1_um": 4.0, "x2_um": -3.0, "y2_um": 4.0}}
+    ],
+    "domain": {"x_min_um": -5.0, "x_max_um": 5.0, "y_min_um": -5.0, "y_max_um": 5.0},
+    "solver": {"method": "fem"}
+  },
+  "goal": {
+    "type": "target",
+    "text": "Split the beam 50/50 between Right and Up",
+    "pass": 85,
+    "detectors": ["right", "up"],
+    "ratio": 0.5,
+    "tolerance": 0.05
+  },
+  "rules": {
+    "region": [-2.5, 2.5, -2.5, 2.5],
+    "palette": [{"kind": "slab", "materials": ["dense-glass"], "max": 1}],
+    "max_elements": 1,
+    "materials": {"dense-glass": {"name": "Dense glass (n = 2)", "type": "dielectric", "n": 2.0}}
+  },
+  "scoring": {"method": "fem", "ppw": 9},
+  "stars": [85, 92, 96],
+  "reference": [
+    {"id": "splitter", "name": "Splitter", "material": {"type": "dielectric", "n": 2.0},
+     "x_um": 0.0, "y_um": 0.0, "rotation_deg": -45.0,
+     "shape": {"kind": "slab", "thickness_um": 0.36, "height_um": 6.0}}
+  ]
+}

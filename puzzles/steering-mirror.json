@@ -1,0 +1,99 @@
+{
+  "id": "steering-mirror",
+  "chapter": "steering",
+  "order": 1,
+  "title": "Hit the target",
+  "summary": "Turn the beam with one mirror so that it lands on Target. Target is at the top left. You may place one mirror, flat or curved, in the marked region. The score is the share of the beam's power that reaches Target.",
+  "hints": [
+    "A mirror reflects light so that it leaves at the same angle to the mirror as it arrived.",
+    "Turning the mirror by some angle turns the reflected beam by twice that angle. A wider mirror catches more of the beam.",
+    "Put the mirror on the beam axis near x = 1.5, make it 4 micrometres wide, and turn it by about -24 degrees, so that the reflected beam goes up and to the left."
+  ],
+  "scene": {
+    "version": 3,
+    "wavelength_um": 1.0,
+    "background": {
+      "n": 1.0
+    },
+    "sources": [
+      {
+        "id": "beam",
+        "name": "Beam",
+        "type": "gaussian_beam",
+        "waist_um": 1.5,
+        "waist_x_um": 1.5,
+        "waist_y_um": 0.0,
+        "angle_deg": 0.0
+      }
+    ],
+    "elements": [],
+    "detectors": [
+      {
+        "id": "target",
+        "name": "Target",
+        "shape": {
+          "kind": "line",
+          "x1_um": -0.5,
+          "y1_um": 4.0,
+          "x2_um": -4.5,
+          "y2_um": 4.0
+        }
+      }
+    ],
+    "domain": {
+      "x_min_um": -5.0,
+      "x_max_um": 5.0,
+      "y_min_um": -5.0,
+      "y_max_um": 5.0
+    },
+    "solver": {
+      "method": "fem"
+    }
+  },
+  "goal": {
+    "type": "maximize",
+    "text": "Send the beam into Target",
+    "pass": 50,
+    "detector": "target"
+  },
+  "rules": {
+    "region": [
+      0.5,
+      4.0,
+      -2.0,
+      2.0
+    ],
+    "palette": [
+      {
+        "kind": "mirror",
+        "materials": [
+          "pec"
+        ],
+        "max": 1
+      }
+    ],
+    "max_elements": 1
+  },
+  "scoring": {
+    "method": "fem",
+    "ppw": 9
+  },
+  "stars": [50, 72, 82],
+  "reference": [
+    {
+      "id": "mirror",
+      "name": "Mirror",
+      "material": {
+        "type": "pec"
+      },
+      "x_um": 1.5,
+      "y_um": 0.0,
+      "rotation_deg": -24.0,
+      "shape": {
+        "kind": "mirror",
+        "aperture_um": 4.0,
+        "thickness_um": 0.1
+      }
+    }
+  ]
+}

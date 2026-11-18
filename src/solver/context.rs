@@ -86,10 +86,15 @@ impl Progress {
 }
 
 /// Handed to a solver: a cancel flag to poll and a progress record to update.
+///
+/// A context may cover only part of the overall progress (see
+/// [`SolveContext::window`]), so that several solves in a row, as in a puzzle
+/// evaluation, report one monotone fraction.
 #[derive(Clone)]
 pub struct SolveContext {
     cancel: Arc<AtomicBool>,
     progress: Arc<Progress>,
+    window: (f64, f64),
 }
 
 impl Default for SolveContext {
@@ -103,7 +108,18 @@ impl SolveContext {
         Self {
             cancel: Arc::new(AtomicBool::new(false)),
             progress: Arc::new(Progress::new()),
+            window: (0.0, 1.0),
         }
+    }
+
+    /// The same cancel flag and progress record, with this context's progress
+    /// span narrowed to the part from `lo` to `hi` (fractions of it).
+    pub fn window(&self, lo: f64, hi: f64) -> SolveContext {
+        SolveContext { cancel: self.cancel.clone(), progress: self.progress.clone(), window: (self.map(lo), self.map(hi)) }
+    }
+
+    fn map(&self, f: f64) -> f64 {
+        self.window.0 + (self.window.1 - self.window.0) * f.clamp(0.0, 1.0)
     }
 
     pub fn cancel_flag(&self) -> Arc<AtomicBool> {
@@ -130,10 +146,11 @@ impl SolveContext {
 
     /// Enters stage `s`, which covers `span` (start, end) of the overall progress.
     pub fn stage(&self, s: Stage, span: (f64, f64)) {
+        let (lo, hi) = (self.map(span.0), self.map(span.1));
         self.progress.set_stage(s);
-        self.progress.span_lo.store(span.0.to_bits(), Ordering::Relaxed);
-        self.progress.span_hi.store(span.1.to_bits(), Ordering::Relaxed);
-        self.progress.raise_fraction(span.0);
+        self.progress.span_lo.store(lo.to_bits(), Ordering::Relaxed);
+        self.progress.span_hi.store(hi.to_bits(), Ordering::Relaxed);
+        self.progress.raise_fraction(lo);
     }
 
     /// Progress within the current stage, 0..1.

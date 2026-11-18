@@ -21,18 +21,29 @@ pub fn solve_pool() -> &'static rayon::ThreadPool {
     })
 }
 
-struct JobShared {
+struct JobShared<T> {
     ctx: SolveContext,
-    result: Mutex<Option<Result<Arc<FieldGrid>, SolveError>>>,
+    result: Mutex<Option<Result<T, SolveError>>>,
 }
 
-pub struct Job {
-    shared: Arc<JobShared>,
+/// Work on a background thread in the solver pool: a solve (the default, `T`
+/// a field) or anything else that reports through a [`SolveContext`], such as
+/// a puzzle evaluation.
+pub struct Job<T = Arc<FieldGrid>> {
+    shared: Arc<JobShared<T>>,
 }
 
-impl Job {
+impl Job<Arc<FieldGrid>> {
     /// Starts solving on a background thread and returns immediately.
     pub fn spawn(scene: Scene, quality: Quality) -> Job {
+        Job::run(move |ctx| solve(&scene, quality, ctx).map(Arc::new))
+    }
+}
+
+impl<T: Send + 'static> Job<T> {
+    /// Runs `work` on a background thread and returns immediately. A panic
+    /// becomes an internal error.
+    pub fn run(work: impl FnOnce(&SolveContext) -> Result<T, SolveError> + Send + 'static) -> Job<T> {
         let shared = Arc::new(JobShared { ctx: SolveContext::new(), result: Mutex::new(None) });
         let worker = shared.clone();
         std::thread::Builder::new()
@@ -40,7 +51,7 @@ impl Job {
             .spawn(move || {
                 let ctx = worker.ctx.clone();
                 let outcome = solve_pool().install(|| {
-                    catch_unwind(AssertUnwindSafe(|| solve(&scene, quality, &ctx))).unwrap_or_else(|p| {
+                    catch_unwind(AssertUnwindSafe(|| work(&ctx))).unwrap_or_else(|p| {
                         let msg = p
                             .downcast_ref::<&str>()
                             .map(|s| s.to_string())
@@ -54,7 +65,7 @@ impl Job {
                     Err(SolveError::Cancelled) => STATE_CANCELLED,
                     Err(_) => STATE_FAILED,
                 };
-                *worker.result.lock().unwrap_or_else(|e| e.into_inner()) = Some(outcome.map(Arc::new));
+                *worker.result.lock().unwrap_or_else(|e| e.into_inner()) = Some(outcome);
                 // Publish the state last, so a poller that sees DONE can take the result.
                 worker.ctx.progress().set_state(state);
             })
@@ -72,7 +83,7 @@ impl Job {
 
     /// The outcome once the job has finished; `None` while it runs or after the
     /// result was taken.
-    pub fn take_result(&self) -> Option<Result<Arc<FieldGrid>, SolveError>> {
+    pub fn take_result(&self) -> Option<Result<T, SolveError>> {
         if self.poll().state == crate::solver::context::STATE_RUNNING {
             return None;
         }
@@ -80,7 +91,7 @@ impl Job {
     }
 
     /// Blocks until the job finishes, polling every `interval`.
-    pub fn wait(&self, interval: std::time::Duration) -> Result<Arc<FieldGrid>, SolveError> {
+    pub fn wait(&self, interval: std::time::Duration) -> Result<T, SolveError> {
         loop {
             if let Some(r) = self.take_result() {
                 return r;
@@ -90,9 +101,9 @@ impl Job {
     }
 }
 
-impl Drop for Job {
+impl<T> Drop for Job<T> {
     /// Dropping a running job cancels it; the worker finishes on its own.
     fn drop(&mut self) {
-        self.cancel();
+        self.shared.ctx.cancel_flag().store(true, std::sync::atomic::Ordering::Relaxed);
     }
 }

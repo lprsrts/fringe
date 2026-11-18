@@ -1,0 +1,81 @@
+{
+  "id": "metals-half-mirror",
+  "chapter": "metals",
+  "order": 4,
+  "title": "Half mirror",
+  "summary": "Split a violet beam equally between the Through and Up detectors with a thin metal film. Its wavelength is 0.38 micrometres. You may place one slab of gold, silver or aluminium in the marked region. The split must be 50/50 within 5 percentage points. The score compares each detector's power with the half it should get and counts the smaller of the two. Light that the metal absorbs lowers it.",
+  "hints": [
+    "Thick metal reflects almost all of the light. A film only a few hundredths of a micrometre thick lets part of it through.",
+    "Turn the film by 45 degrees so that the reflected light goes up. Every metal absorbs some light, and at this wavelength silver absorbs the least.",
+    "Use silver about 0.023 micrometres thick. If Through gets more than Up, make the film a little thicker; if Up gets more, make it thinner. Turning the film by a degree or two also shifts the balance."
+  ],
+  "scene": {
+    "version": 3,
+    "wavelength_um": 0.38,
+    "background": {"n": 1.0},
+    "sources": [
+      {
+        "id": "beam",
+        "name": "Beam",
+        "type": "gaussian_beam",
+        "waist_um": 1.0,
+        "waist_x_um": 0.0,
+        "waist_y_um": 0.0,
+        "angle_deg": 0.0
+      }
+    ],
+    "elements": [],
+    "detectors": [
+      {
+        "id": "through",
+        "name": "Through",
+        "shape": {"kind": "line", "x1_um": 2.5, "y1_um": -2.2, "x2_um": 2.5, "y2_um": 2.2}
+      },
+      {
+        "id": "up",
+        "name": "Up",
+        "shape": {"kind": "line", "x1_um": 2.2, "y1_um": 2.5, "x2_um": -2.2, "y2_um": 2.5}
+      }
+    ],
+    "domain": {"x_min_um": -3.0, "x_max_um": 3.0, "y_min_um": -3.0, "y_max_um": 3.0},
+    "solver": {"method": "mom"}
+  },
+  "goal": {
+    "type": "target",
+    "text": "Split the beam 50/50 between Through and Up",
+    "pass": 40,
+    "detectors": ["through", "up"],
+    "ratio": 0.5,
+    "tolerance": 0.05
+  },
+  "rules": {
+    "region": [-1.2, 1.2, -1.2, 1.2],
+    "palette": [{"kind": "slab", "materials": ["gold", "silver", "aluminium"], "max": 1}],
+    "max_elements": 1
+  },
+  "scoring": {"method": "mom", "ppw": 8},
+  "stars": [40, 65, 80],
+  "reference": [
+    {
+      "id": "film",
+      "name": "Film",
+      "material": {
+        "type": "dispersive",
+        "preset": "silver",
+        "eps_inf": 1.0,
+        "poles": [
+          {"type": "drude", "gamma_ev": 0.048, "plasma_ev": 8.28234},
+          {"type": "lorentz", "gamma_ev": 3.886, "resonance_ev": 0.816, "strength": 7.9247},
+          {"type": "lorentz", "gamma_ev": 0.452, "resonance_ev": 4.481, "strength": 0.501327},
+          {"type": "lorentz", "gamma_ev": 0.065, "resonance_ev": 8.185, "strength": 0.0133292},
+          {"type": "lorentz", "gamma_ev": 0.916, "resonance_ev": 9.083, "strength": 0.826552},
+          {"type": "lorentz", "gamma_ev": 2.419, "resonance_ev": 20.29, "strength": 1.11334}
+        ]
+      },
+      "x_um": 0.0,
+      "y_um": 0.0,
+      "rotation_deg": -45.0,
+      "shape": {"kind": "slab", "thickness_um": 0.023, "height_um": 3.2}
+    }
+  ]
+}

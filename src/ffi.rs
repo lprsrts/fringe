@@ -12,11 +12,12 @@ use serde_json::{json, Value};
 use crate::check::check_json;
 use crate::geometry::{element_bodies, BodyMaterial, MAX_POLYGON_VERTICES};
 use crate::job::Job;
+use crate::puzzle::{self, Evaluation};
 use crate::render::{export_png_file, npz_c128, render_rgba, write_npy_c128, Colormap, View};
 use crate::scene::validate::{MAX_GRATING_BARS, MAX_SLITS};
 use crate::scene::{examples, parse_scene, to_json, validate, Detector, DetectorShape, Issue, Material, Shape, SourceKind};
 use crate::solver::context::{STATE_CANCELLED, STATE_DONE, STATE_FAILED};
-use crate::solver::{FieldGrid, Part, Quality, SolveError};
+use crate::solver::{FieldGrid, Part, ProgressSnapshot, Quality, SolveError};
 use crate::types::{Vec2, C64};
 
 pub const FRINGE_ABI_VERSION: u32 = 3;
@@ -31,8 +32,38 @@ pub struct FringeProgress {
     pub unknowns: u64,
 }
 
-pub struct FringeJob(Job);
+/// A solve or a puzzle evaluation; both are polled, cancelled and freed with
+/// the `fringe_job_*` functions.
+pub struct FringeJob(JobKind);
+
+enum JobKind {
+    Solve(Job),
+    Puzzle(Job<Evaluation>),
+}
+
+impl FringeJob {
+    fn poll(&self) -> ProgressSnapshot {
+        match &self.0 {
+            JobKind::Solve(j) => j.poll(),
+            JobKind::Puzzle(j) => j.poll(),
+        }
+    }
+
+    fn cancel(&self) {
+        match &self.0 {
+            JobKind::Solve(j) => j.cancel(),
+            JobKind::Puzzle(j) => j.cancel(),
+        }
+    }
+}
+
 pub struct FringeField(Arc<FieldGrid>);
+
+/// A finished puzzle evaluation: the result JSON and one field per source.
+pub struct FringePuzzleResult {
+    json: String,
+    fields: Vec<Arc<FieldGrid>>,
+}
 
 fn guard<T>(fallback: T, f: impl FnOnce() -> T) -> T {
     catch_unwind(AssertUnwindSafe(f)).unwrap_or(fallback)
@@ -279,7 +310,7 @@ pub unsafe extern "C" fn fringe_job_start(scene_json: *const c_char, quality: u3
             set_error(error_json_out, "invalid", msg, &issues);
             return ptr::null_mut();
         }
-        Box::into_raw(Box::new(FringeJob(Job::spawn(scene, q))))
+        Box::into_raw(Box::new(FringeJob(JobKind::Solve(Job::spawn(scene, q)))))
     })
 }
 
@@ -291,7 +322,7 @@ pub unsafe extern "C" fn fringe_job_poll(job: *const FringeJob, out: *mut Fringe
         return;
     }
     guard((), || {
-        let s = (*job).0.poll();
+        let s = (*job).poll();
         *out = FringeProgress { state: s.state, stage: s.stage, fraction: s.fraction, elapsed_s: s.elapsed_s, unknowns: s.unknowns };
     })
 }
@@ -301,7 +332,7 @@ pub unsafe extern "C" fn fringe_job_poll(job: *const FringeJob, out: *mut Fringe
 #[no_mangle]
 pub unsafe extern "C" fn fringe_job_cancel(job: *mut FringeJob) {
     if !job.is_null() {
-        guard((), || (*job).0.cancel());
+        guard((), || (*job).cancel());
     }
 }
 
@@ -313,8 +344,10 @@ pub unsafe extern "C" fn fringe_job_take_result(job: *mut FringeJob, error_json_
         return ptr::null_mut();
     }
     guard(ptr::null_mut(), || {
-        let job = &(*job).0;
-        let state = job.poll().state;
+        let JobKind::Solve(job) = &(*job).0 else {
+            set_error(error_json_out, "wrong_job", "this job is a puzzle evaluation; use fringe_puzzle_job_take_result", &[]);
+            return ptr::null_mut();
+        };
         match job.take_result() {
             Some(Ok(field)) => Box::into_raw(Box::new(FringeField(field))),
             Some(Err(e)) => {
@@ -322,16 +355,21 @@ pub unsafe extern "C" fn fringe_job_take_result(job: *mut FringeJob, error_json_
                 ptr::null_mut()
             }
             None => {
-                match state {
-                    STATE_DONE => set_error(error_json_out, "internal", "the result was already taken", &[]),
-                    STATE_CANCELLED => set_error(error_json_out, "cancelled", "cancelled", &[]),
-                    STATE_FAILED => set_error(error_json_out, "internal", "the error was already taken", &[]),
-                    _ => {}
-                }
+                set_taken_error(error_json_out, job.poll().state);
                 ptr::null_mut()
             }
         }
     })
+}
+
+/// The error for a job whose result is not (or no longer) there.
+unsafe fn set_taken_error(out: *mut *mut c_char, state: u32) {
+    match state {
+        STATE_DONE => set_error(out, "internal", "the result was already taken", &[]),
+        STATE_CANCELLED => set_error(out, "cancelled", "cancelled", &[]),
+        STATE_FAILED => set_error(out, "internal", "the error was already taken", &[]),
+        _ => {}
+    }
 }
 
 /// # Safety
@@ -789,4 +827,117 @@ pub unsafe extern "C" fn fringe_field_combine(
             }
         }
     })
+}
+
+#[no_mangle]
+pub extern "C" fn fringe_puzzle_list() -> *mut c_char {
+    guard(ptr::null_mut(), || into_c(puzzle::list_json().to_string()))
+}
+
+/// # Safety
+/// `id` must be NULL or a valid C string.
+#[no_mangle]
+pub unsafe extern "C" fn fringe_puzzle_get(id: *const c_char) -> *mut c_char {
+    guard(ptr::null_mut(), || {
+        let Some(p) = str_arg(id).and_then(puzzle::get) else { return ptr::null_mut() };
+        into_c(p.to_json())
+    })
+}
+
+/// # Safety
+/// The strings must be NULL or valid; `error_json_out` NULL or writable.
+#[no_mangle]
+pub unsafe extern "C" fn fringe_puzzle_job_start(
+    puzzle_id: *const c_char,
+    solution_json: *const c_char,
+    error_json_out: *mut *mut c_char,
+) -> *mut FringeJob {
+    guard(ptr::null_mut(), || {
+        let Some(p) = str_arg(puzzle_id).and_then(puzzle::get) else {
+            set_error(error_json_out, "unknown_puzzle", "no puzzle with this id", &[]);
+            return ptr::null_mut();
+        };
+        let Some(text) = str_arg(solution_json) else {
+            set_error(error_json_out, "parse", "solution JSON is NULL or not UTF-8", &[]);
+            return ptr::null_mut();
+        };
+        let design = match puzzle::parse_design(text) {
+            Ok(d) => d,
+            Err(m) => {
+                set_error(error_json_out, "parse", m, &[]);
+                return ptr::null_mut();
+            }
+        };
+        let job = Job::run(move |ctx| puzzle::evaluate(p, &design, ctx));
+        Box::into_raw(Box::new(FringeJob(JobKind::Puzzle(job))))
+    })
+}
+
+/// # Safety
+/// `job` must be NULL or a live job; `error_json_out` NULL or writable.
+#[no_mangle]
+pub unsafe extern "C" fn fringe_puzzle_job_take_result(job: *mut FringeJob, error_json_out: *mut *mut c_char) -> *mut FringePuzzleResult {
+    if job.is_null() {
+        return ptr::null_mut();
+    }
+    guard(ptr::null_mut(), || {
+        let JobKind::Puzzle(job) = &(*job).0 else {
+            set_error(error_json_out, "wrong_job", "this job is a solve; use fringe_job_take_result", &[]);
+            return ptr::null_mut();
+        };
+        match job.take_result() {
+            Some(Ok(e)) => Box::into_raw(Box::new(FringePuzzleResult { json: e.json.to_string(), fields: e.fields })),
+            Some(Err(e)) => {
+                set_solve_error(error_json_out, &e);
+                ptr::null_mut()
+            }
+            None => {
+                set_taken_error(error_json_out, job.poll().state);
+                ptr::null_mut()
+            }
+        }
+    })
+}
+
+/// # Safety
+/// `result` must be NULL or live.
+#[no_mangle]
+pub unsafe extern "C" fn fringe_puzzle_result_json(result: *const FringePuzzleResult) -> *mut c_char {
+    if result.is_null() {
+        return ptr::null_mut();
+    }
+    guard(ptr::null_mut(), || into_c((*result).json.clone()))
+}
+
+/// # Safety
+/// `result` must be NULL or live.
+#[no_mangle]
+pub unsafe extern "C" fn fringe_puzzle_result_field_count(result: *const FringePuzzleResult) -> u32 {
+    if result.is_null() {
+        return 0;
+    }
+    guard(0, || (*result).fields.len() as u32)
+}
+
+/// # Safety
+/// `result` must be NULL or live.
+#[no_mangle]
+pub unsafe extern "C" fn fringe_puzzle_result_field(result: *const FringePuzzleResult, index: u32) -> *mut FringeField {
+    if result.is_null() {
+        return ptr::null_mut();
+    }
+    let result = &*result;
+    guard(ptr::null_mut(), || match result.fields.get(index as usize) {
+        Some(f) => Box::into_raw(Box::new(FringeField(f.clone()))),
+        None => ptr::null_mut(),
+    })
+}
+
+/// # Safety
+/// `result` must be NULL or a result not yet freed.
+#[no_mangle]
+pub unsafe extern "C" fn fringe_puzzle_result_free(result: *mut FringePuzzleResult) {
+    if !result.is_null() {
+        guard((), || drop(Box::from_raw(result)));
+    }
 }

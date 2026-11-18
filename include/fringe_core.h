@@ -38,8 +38,9 @@
 
 #define FRINGE_MAX_DIMENSION 16384u
 
-typedef struct FringeJob FringeJob;     // one solve on a background thread
+typedef struct FringeJob FringeJob;     // one solve or puzzle evaluation on a background thread
 typedef struct FringeField FringeField; // solved complex Ez phasor grid (total + incident)
+typedef struct FringePuzzleResult FringePuzzleResult; // a finished puzzle evaluation
 
 typedef struct {
     uint32_t state;     // FRINGE_JOB_*
@@ -108,7 +109,8 @@ FringeJob* fringe_job_start(const char* scene_json, uint32_t quality, char** err
 void fringe_job_poll(const FringeJob* job, FringeProgress* out);   // lock-free, any rate
 void fringe_job_cancel(FringeJob* job);                          // idempotent, returns immediately
 // Non-NULL exactly once, after state == DONE. For FAILED or CANCELLED returns
-// NULL and sets *error_json_out (code "cancelled" for CANCELLED).
+// NULL and sets *error_json_out (code "cancelled" for CANCELLED). A puzzle job gives
+// NULL with code "wrong_job"; use fringe_puzzle_job_take_result.
 FringeField* fringe_job_take_result(FringeJob* job, char** error_json_out);
 // Cancels if running and releases the handle without blocking; the worker
 // thread finishes on its own. NULL is fine.
@@ -170,6 +172,37 @@ bool fringe_field_export_npy(const FringeField* field, uint32_t part, const char
 uint8_t* fringe_field_npz(const FringeField* field, uint32_t part, size_t* out_len,
                           char** error_json_out);
 void fringe_field_free(FringeField* field);  // NULL is fine
+
+// Puzzles
+// [{"id","chapter","chapter_title","order","title","summary","goal_type","stars":[a,b,c]}]
+// sorted by chapter, then order.
+char* fringe_puzzle_list(void);
+// The full puzzle JSON, or NULL for an unknown id.
+char* fringe_puzzle_get(const char* id);
+// Scores a design (a JSON array of elements, or a whole scene of which only the elements
+// are used) on a background thread. Poll, cancel and free the job with fringe_job_*.
+// Returns NULL and sets *error_json_out for an unknown puzzle ("unknown_puzzle") or a
+// design that does not parse ("parse"). A design that breaks the rules still runs and
+// gives a result with "valid": false.
+FringeJob* fringe_puzzle_job_start(const char* puzzle_id, const char* solution_json,
+                                   char** error_json_out);
+// Like fringe_job_take_result, for a puzzle job.
+FringePuzzleResult* fringe_puzzle_job_take_result(FringeJob* job, char** error_json_out);
+// {"puzzle","valid","issues":[...],"goal_type","method","ppw","sources":[id,..],"inputs":[id,..],
+//  "cases":[{"bits":[..],"weights":[[re,im],..],"readings":[reading,..],
+//            "outputs":[{"detector","target","value"}]}],
+//  "metric":{"label","unit","value","text",...},"score","pass","passed","stars",
+//  "star_thresholds":[a,b,c],"wall_s"}
+// Fields are given in the order of "sources"; a case's weights apply to them in that order.
+// Every score is higher-is-better; see src/puzzle/eval.rs for the metrics.
+// Values that can be null: "score", "metric" and "metric.value" (null for a design with
+// "valid": false, or when a detector value is not finite); outputs[].target (null unless
+// the goal is a truth table); outputs[].value (null when not finite).
+char* fringe_puzzle_result_json(const FringePuzzleResult* result);
+uint32_t fringe_puzzle_result_field_count(const FringePuzzleResult* result);
+// A new reference to field i (only source i on), freed with fringe_field_free; NULL out of range.
+FringeField* fringe_puzzle_result_field(const FringePuzzleResult* result, uint32_t index);
+void fringe_puzzle_result_free(FringePuzzleResult* result);  // NULL is fine
 
 // 256 RGBA8 entries (out_len >= 1024) for a colour legend.
 bool fringe_colormap_lut(const char* name, double wavelength_um, uint8_t* out_rgba, size_t out_len);

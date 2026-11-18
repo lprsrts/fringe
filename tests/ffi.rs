@@ -423,3 +423,119 @@ fn field_info_detectors_measure_and_memory() {
     assert!(unsafe { fringe_field_measure(f, ptr::null()) }.is_null());
     unsafe { fringe_field_free(f) };
 }
+
+#[test]
+fn puzzle_list_and_get() {
+    let list = json(fringe_puzzle_list());
+    let list = list.as_array().unwrap();
+    assert!(!list.is_empty());
+    for key in ["id", "chapter", "chapter_title", "order", "title", "summary", "goal_type", "stars"] {
+        assert!(list.iter().all(|p| p.get(key).is_some()), "{key}");
+    }
+    let id = list[0]["id"].as_str().unwrap();
+    let p = json(unsafe { fringe_puzzle_get(cstr(id).as_ptr()) });
+    assert_eq!(p["id"], id);
+    for key in ["scene", "inputs", "goal", "rules", "scoring", "stars", "reference", "hints"] {
+        assert!(p.get(key).is_some(), "{key}");
+    }
+    assert!(unsafe { fringe_puzzle_get(cstr("nope").as_ptr()) }.is_null());
+    assert!(unsafe { fringe_puzzle_get(ptr::null()) }.is_null());
+}
+
+#[test]
+fn puzzle_job_result_and_combination() {
+    let p = json(unsafe { fringe_puzzle_get(cstr("logic-xor").as_ptr()) });
+    let design = cstr(&p["reference"].to_string());
+    let mut err = ptr::null_mut();
+    let job = unsafe { fringe_puzzle_job_start(cstr("logic-xor").as_ptr(), design.as_ptr(), &mut err) };
+    assert!(!job.is_null() && err.is_null());
+    assert_eq!(wait(job).state, 1);
+    // A puzzle job's result is not a field.
+    let mut err = ptr::null_mut();
+    assert!(unsafe { fringe_job_take_result(job, &mut err) }.is_null());
+    assert_eq!(json(err)["code"], "wrong_job");
+    let res = unsafe { fringe_puzzle_job_take_result(job, ptr::null_mut()) };
+    assert!(!res.is_null());
+    let mut err = ptr::null_mut();
+    assert!(unsafe { fringe_puzzle_job_take_result(job, &mut err) }.is_null());
+    assert_eq!(json(err)["code"], "internal");
+    unsafe { fringe_job_free(job) };
+
+    let r = json(unsafe { fringe_puzzle_result_json(res) });
+    for key in ["puzzle", "valid", "issues", "sources", "inputs", "cases", "metric", "score", "pass", "passed", "stars", "star_thresholds", "wall_s"] {
+        assert!(r.get(key).is_some(), "{key}");
+    }
+    assert_eq!(r["passed"], true);
+    let count = unsafe { fringe_puzzle_result_field_count(res) };
+    assert_eq!(count as usize, r["sources"].as_array().unwrap().len());
+    let fields: Vec<*mut FringeField> = (0..count).map(|i| unsafe { fringe_puzzle_result_field(res, i) }).collect();
+    assert!(fields.iter().all(|f| !f.is_null()));
+    assert!(unsafe { fringe_puzzle_result_field(res, count) }.is_null());
+    unsafe { fringe_puzzle_result_free(res) };
+
+    // The fields outlive the result. Case A = 1, B = 1 by combination:
+    let case = &r["cases"][3];
+    let (re, im): (Vec<f64>, Vec<f64>) =
+        case["weights"].as_array().unwrap().iter().map(|w| (w[0].as_f64().unwrap(), w[1].as_f64().unwrap())).unzip();
+    let ptrs: Vec<*const FringeField> = fields.iter().map(|&f| f as *const _).collect();
+    let mut err = ptr::null_mut();
+    let both = unsafe { fringe_field_combine(ptrs.as_ptr(), re.as_ptr(), im.as_ptr(), ptrs.len(), &mut err) };
+    assert!(!both.is_null() && err.is_null());
+    let info = json(unsafe { fringe_field_info(both) });
+    let want = case["readings"][0]["flux"]["total"].as_f64().unwrap();
+    let got = info["detectors"][0]["flux"]["total"].as_f64().unwrap();
+    assert!((got - want).abs() < 1e-12 * want.abs().max(1e-3), "{got} vs {want}");
+    unsafe { fringe_field_free(both) };
+    // Only input B on: the scene of the combination says so.
+    let (re, im) = ([0.0, 1.0], [0.0, 0.0]);
+    let b = unsafe { fringe_field_combine(ptrs.as_ptr(), re.as_ptr(), im.as_ptr(), 2, ptr::null_mut()) };
+    let mut x = 0.0;
+    assert!(unsafe { fringe_field_sample(b, 0.0, 3.0, 2, &mut x, ptr::null_mut()) });
+    unsafe { fringe_field_free(b) };
+    let mut err = ptr::null_mut();
+    assert!(unsafe { fringe_field_combine(ptrs.as_ptr(), re.as_ptr(), im.as_ptr(), 0, &mut err) }.is_null());
+    assert_eq!(json(err)["code"], "buffer");
+    // Fields from another scene do not combine.
+    let other = solve_example("lens");
+    let mixed = [ptrs[0], other as *const FringeField];
+    let mut err = ptr::null_mut();
+    assert!(unsafe { fringe_field_combine(mixed.as_ptr(), re.as_ptr(), im.as_ptr(), 2, &mut err) }.is_null());
+    assert_eq!(json(err)["code"], "combine");
+    unsafe { fringe_field_free(other) };
+    for f in fields {
+        unsafe { fringe_field_free(f) };
+    }
+}
+
+#[test]
+fn puzzle_job_errors_and_invalid_designs() {
+    let mut err = ptr::null_mut();
+    assert!(unsafe { fringe_puzzle_job_start(cstr("nope").as_ptr(), cstr("[]").as_ptr(), &mut err) }.is_null());
+    assert_eq!(json(err)["code"], "unknown_puzzle");
+    let mut err = ptr::null_mut();
+    assert!(unsafe { fringe_puzzle_job_start(cstr("logic-xor").as_ptr(), cstr("[{").as_ptr(), &mut err) }.is_null());
+    assert_eq!(json(err)["code"], "parse");
+    assert!(unsafe { fringe_puzzle_job_start(ptr::null(), ptr::null(), ptr::null_mut()) }.is_null());
+    // A design outside the region runs and comes back invalid, with no fields.
+    let bad = r#"[{"id": "s", "material": {"type": "dielectric", "n": 2}, "x_um": 4, "y_um": 4,
+                   "shape": {"kind": "slab", "thickness_um": 0.3, "height_um": 0.5}}]"#;
+    let job = unsafe { fringe_puzzle_job_start(cstr("logic-xor").as_ptr(), cstr(bad).as_ptr(), ptr::null_mut()) };
+    assert_eq!(wait(job).state, 1);
+    let res = unsafe { fringe_puzzle_job_take_result(job, ptr::null_mut()) };
+    let r = json(unsafe { fringe_puzzle_result_json(res) });
+    assert_eq!(r["valid"], false);
+    assert_eq!(r["issues"][0]["code"], "rule_region");
+    assert_eq!(unsafe { fringe_puzzle_result_field_count(res) }, 0);
+    unsafe { fringe_puzzle_result_free(res) };
+    // A solve job cannot be taken as a puzzle result.
+    let f_job = unsafe { fringe_job_start(default_scene().as_ptr(), 0, ptr::null_mut()) };
+    wait(f_job);
+    let mut err = ptr::null_mut();
+    assert!(unsafe { fringe_puzzle_job_take_result(f_job, &mut err) }.is_null());
+    assert_eq!(json(err)["code"], "wrong_job");
+    unsafe { fringe_job_free(f_job) };
+    unsafe { fringe_job_free(job) };
+    assert!(unsafe { fringe_puzzle_result_json(ptr::null()) }.is_null());
+    assert_eq!(unsafe { fringe_puzzle_result_field_count(ptr::null()) }, 0);
+    unsafe { fringe_puzzle_result_free(ptr::null_mut()) };
+}

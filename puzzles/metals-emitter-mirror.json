@@ -1,0 +1,45 @@
+{
+  "id": "metals-emitter-mirror",
+  "chapter": "metals",
+  "order": 2,
+  "title": "Point the emitter",
+  "summary": "Collect the light of a point emitter in the Output detector on the left. The emitter sends light in all directions. You may place one curved piece of silver, shaped like a lens, in the marked region. The score is the share of the emitter's power that reaches Output. Power that the silver absorbs counts as given off.",
+  "hints": [
+    "Light that leaves the emitter towards the right is lost. A silver shell behind the emitter can reflect it back.",
+    "A curved mirror turns light from a point at its focus into a parallel beam. The focus is half the radius of curvature away from the mirror.",
+    "Make both faces of the lens shape curve the same way, so that it is a thin shell, put it to the right of the emitter with its hollow side facing the emitter, and choose the radius so that the emitter sits at the focus."
+  ],
+  "scene": {
+    "version": 3,
+    "wavelength_um": 0.6,
+    "background": {"n": 1.0},
+    "sources": [
+      {"id": "emitter", "name": "Emitter", "type": "line_source", "x_um": 0.0, "y_um": 0.0}
+    ],
+    "elements": [],
+    "detectors": [
+      {"id": "out", "name": "Output",
+       "shape": {"kind": "line", "x1_um": -3.0, "y1_um": 1.8, "x2_um": -3.0, "y2_um": -1.8}}
+    ],
+    "domain": {"x_min_um": -3.5, "x_max_um": 2.5, "y_min_um": -2.5, "y_max_um": 2.5},
+    "solver": {"method": "mom"}
+  },
+  "goal": {
+    "type": "maximize",
+    "text": "Send as much of the emitter's power as possible into Output",
+    "pass": 40,
+    "detector": "out"
+  },
+  "rules": {
+    "region": [-0.5, 2.2, -2.2, 2.2],
+    "palette": [{"kind": "lens", "materials": ["silver"], "max": 1}],
+    "max_elements": 1
+  },
+  "scoring": {"method": "mom", "ppw": 8},
+  "stars": [40, 55, 70],
+  "reference": [
+    {"id": "mirror", "name": "Mirror", "material": {"type":"dispersive","preset":"silver","eps_inf":1.0,"poles":[{"type":"drude","plasma_ev":8.28234,"gamma_ev":0.048},{"type":"lorentz","strength":7.9247,"resonance_ev":0.816,"gamma_ev":3.886},{"type":"lorentz","strength":0.501327,"resonance_ev":4.481,"gamma_ev":0.452},{"type":"lorentz","strength":0.0133292,"resonance_ev":8.185,"gamma_ev":0.065},{"type":"lorentz","strength":0.826552,"resonance_ev":9.083,"gamma_ev":0.916},{"type":"lorentz","strength":1.11334,"resonance_ev":20.29,"gamma_ev":2.419}]},
+     "x_um": 0.5, "y_um": 0.0, "rotation_deg": 0.0,
+     "shape": {"kind": "lens", "r1_um": -0.8, "r2_um": -0.9, "center_thickness_um": 0.1, "aperture_um": 1.5}}
+  ]
+}

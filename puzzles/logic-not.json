@@ -1,0 +1,133 @@
+{
+  "id": "logic-not",
+  "chapter": "logic",
+  "order": 4,
+  "title": "NOT",
+  "summary": "Make the Output detector dark when beam A is on and bright when it is off. A comes from the left. A bias beam of the same strength comes from above and is always on. You may place one slab of dense glass in the marked region. The score is the contrast between the bright case and the dark case, in decibels.",
+  "hints": [
+    "With A off, the bias beam has to reach Output. With A on, light from A has to cancel it there.",
+    "A thin slab turned by 45 degrees sends part of each beam straight on and reflects the rest. Turn it so that A passes straight through to Output and the bias beam is reflected towards Output.",
+    "Centre the slab at x = 0, y = 0, turned by +45 degrees, and try thicknesses between 0.34 and 0.38 micrometres. The dark case is sensitive to position, so keep the centre exactly where the beams cross."
+  ],
+  "scene": {
+    "version": 3,
+    "wavelength_um": 1.0,
+    "background": {
+      "n": 1.0
+    },
+    "sources": [
+      {
+        "id": "in-a",
+        "name": "A",
+        "type": "gaussian_beam",
+        "waist_um": 1.2,
+        "waist_x_um": 0,
+        "waist_y_um": 0,
+        "angle_deg": 0
+      },
+      {
+        "id": "bias",
+        "name": "Bias",
+        "type": "gaussian_beam",
+        "waist_um": 1.2,
+        "waist_x_um": 0,
+        "waist_y_um": 0,
+        "angle_deg": -90,
+        "phase_deg": 90.0
+      }
+    ],
+    "elements": [],
+    "detectors": [
+      {
+        "id": "out",
+        "name": "Output",
+        "shape": {
+          "kind": "line",
+          "x1_um": 4,
+          "y1_um": -3,
+          "x2_um": 4,
+          "y2_um": 3
+        }
+      }
+    ],
+    "domain": {
+      "x_min_um": -5,
+      "x_max_um": 5,
+      "y_min_um": -5,
+      "y_max_um": 5
+    },
+    "solver": {
+      "method": "fem"
+    }
+  },
+  "inputs": [
+    "in-a"
+  ],
+  "goal": {
+    "type": "truth_table",
+    "text": "Output = NOT A",
+    "pass": 6,
+    "outputs": [
+      {
+        "detector": "out",
+        "bits": [
+          1,
+          0
+        ]
+      }
+    ]
+  },
+  "rules": {
+    "locked": [],
+    "region": [
+      -2.5,
+      2.5,
+      -2.5,
+      2.5
+    ],
+    "palette": [
+      {
+        "kind": "slab",
+        "materials": [
+          "dense-glass"
+        ],
+        "max": 1
+      }
+    ],
+    "max_elements": 1,
+    "materials": {
+      "dense-glass": {
+        "name": "Dense glass (n = 2)",
+        "type": "dielectric",
+        "n": 2.0
+      }
+    }
+  },
+  "scoring": {
+    "method": "fem",
+    "ppw": 9
+  },
+  "stars": [
+    6,
+    10,
+    15
+  ],
+  "reference": [
+    {
+      "id": "splitter",
+      "name": "Splitter",
+      "material": {
+        "type": "dielectric",
+        "n": 2.0
+      },
+      "x_um": 0.0,
+      "y_um": 0.0,
+      "rotation_deg": 45.0,
+      "shape": {
+        "kind": "slab",
+        "thickness_um": 0.36,
+        "height_um": 6.0
+      }
+    }
+  ]
+}

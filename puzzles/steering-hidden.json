@@ -1,0 +1,133 @@
+{
+  "id": "steering-hidden",
+  "chapter": "steering",
+  "order": 4,
+  "title": "Over the wall",
+  "summary": "Guide the beam over a metal wall into Target. The beam comes from the left, and the wall stands between it and Target. You may place up to two mirrors, flat or curved, in the marked region to the left of the wall. The score is the share of the beam's power that reaches Target.",
+  "hints": [
+    "One mirror cannot send the beam over the wall from inside the region. Use two.",
+    "A periscope uses two parallel mirrors: the first turns the beam up, the second turns it back to its old direction.",
+    "Put both mirrors at x = -2 and turn both by -45 degrees: one on the beam axis at y = -3, the other at y = 3, level with Target. Make them about 5 micrometres wide."
+  ],
+  "scene": {
+    "version": 3,
+    "wavelength_um": 1.0,
+    "background": {
+      "n": 1.0
+    },
+    "sources": [
+      {
+        "id": "beam",
+        "name": "Beam",
+        "type": "gaussian_beam",
+        "waist_um": 1.5,
+        "waist_x_um": 3.0,
+        "waist_y_um": -3.0,
+        "angle_deg": 0.0
+      }
+    ],
+    "elements": [
+      {
+        "id": "wall",
+        "name": "Wall",
+        "material": {
+          "type": "pec"
+        },
+        "x_um": 1.0,
+        "y_um": -2.05,
+        "rotation_deg": 0.0,
+        "shape": {
+          "kind": "slab",
+          "thickness_um": 0.3,
+          "height_um": 6.1
+        }
+      }
+    ],
+    "detectors": [
+      {
+        "id": "target",
+        "name": "Target",
+        "shape": {
+          "kind": "line",
+          "x1_um": 4.2,
+          "y1_um": 0.5,
+          "x2_um": 4.2,
+          "y2_um": 5.0
+        }
+      }
+    ],
+    "domain": {
+      "x_min_um": -5.0,
+      "x_max_um": 5.0,
+      "y_min_um": -5.5,
+      "y_max_um": 5.5
+    },
+    "solver": {
+      "method": "fem"
+    }
+  },
+  "goal": {
+    "type": "maximize",
+    "text": "Send the beam over the wall into Target",
+    "pass": 40,
+    "detector": "target"
+  },
+  "rules": {
+    "locked": [
+      "wall"
+    ],
+    "region": [
+      -4.5,
+      0.2,
+      -5.0,
+      5.0
+    ],
+    "palette": [
+      {
+        "kind": "mirror",
+        "materials": [
+          "pec"
+        ],
+        "max": 2
+      }
+    ],
+    "max_elements": 2
+  },
+  "scoring": {
+    "method": "fem",
+    "ppw": 9
+  },
+  "stars": [40, 60, 76],
+  "reference": [
+    {
+      "id": "mirror-1",
+      "name": "Mirror 1",
+      "material": {
+        "type": "pec"
+      },
+      "x_um": -2.0,
+      "y_um": -3.0,
+      "rotation_deg": -45.0,
+      "shape": {
+        "kind": "mirror",
+        "aperture_um": 5.0,
+        "thickness_um": 0.1
+      }
+    },
+    {
+      "id": "mirror-2",
+      "name": "Mirror 2",
+      "material": {
+        "type": "pec"
+      },
+      "x_um": -2.0,
+      "y_um": 3.0,
+      "rotation_deg": -45.0,
+      "shape": {
+        "kind": "mirror",
+        "aperture_um": 5.0,
+        "thickness_um": 0.1
+      }
+    }
+  ]
+}

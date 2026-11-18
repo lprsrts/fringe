@@ -1,0 +1,113 @@
+{
+  "id": "steering-focus",
+  "chapter": "steering",
+  "order": 2,
+  "title": "Focus to a spot",
+  "summary": "Focus a wide beam onto the small Spot detector. You may place one glass lens in the marked region. The score is the mean intensity in Spot, as a multiple of the beam's peak intensity at its waist.",
+  "hints": [
+    "A lens that is thicker in the middle than at the edges brings a parallel beam to a focus.",
+    "The focus lies one focal length behind the lens. For a thin lens with radii R1 and R2, 1/f = (n - 1)(1/R1 - 1/R2).",
+    "A lens with radii of 4 and -4 micrometres and a width of 6 micrometres, centred near x = -0.5, puts the focus on Spot."
+  ],
+  "scene": {
+    "version": 3,
+    "wavelength_um": 1.0,
+    "background": {
+      "n": 1.0
+    },
+    "sources": [
+      {
+        "id": "beam",
+        "name": "Beam",
+        "type": "gaussian_beam",
+        "waist_um": 2.5,
+        "waist_x_um": -2.0,
+        "waist_y_um": 0.0,
+        "angle_deg": 0.0
+      }
+    ],
+    "elements": [],
+    "detectors": [
+      {
+        "id": "spot",
+        "name": "Spot",
+        "shape": {
+          "kind": "box",
+          "x_um": 3.0,
+          "y_um": 0.0,
+          "width_um": 0.3,
+          "height_um": 0.3
+        }
+      }
+    ],
+    "domain": {
+      "x_min_um": -5.0,
+      "x_max_um": 5.0,
+      "y_min_um": -6.0,
+      "y_max_um": 6.0
+    },
+    "solver": {
+      "method": "fem"
+    }
+  },
+  "goal": {
+    "type": "maximize",
+    "text": "Make Spot as bright as possible",
+    "pass": 2,
+    "detector": "spot"
+  },
+  "rules": {
+    "region": [
+      -4.5,
+      1.5,
+      -5.5,
+      5.5
+    ],
+    "palette": [
+      {
+        "kind": "lens",
+        "materials": [
+          "glass"
+        ],
+        "max": 1
+      }
+    ],
+    "max_elements": 1,
+    "materials": {
+      "glass": {
+        "name": "Glass (n = 1.5)",
+        "type": "dielectric",
+        "n": 1.5
+      }
+    }
+  },
+  "scoring": {
+    "method": "fem",
+    "ppw": 9
+  },
+  "stars": [
+    2,
+    3,
+    3.5
+  ],
+  "reference": [
+    {
+      "id": "lens",
+      "name": "Lens",
+      "material": {
+        "type": "dielectric",
+        "n": 1.5
+      },
+      "x_um": -0.5,
+      "y_um": 0.0,
+      "rotation_deg": 0.0,
+      "shape": {
+        "kind": "lens",
+        "r1_um": 4.0,
+        "r2_um": -4.0,
+        "center_thickness_um": 2.81,
+        "aperture_um": 6.0
+      }
+    }
+  ]
+}

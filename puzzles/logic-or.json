@@ -1,0 +1,129 @@
+{
+  "id": "logic-or",
+  "chapter": "logic",
+  "order": 1,
+  "title": "OR",
+  "summary": "Make the Output detector bright when beam A, beam B or both are on. A comes from the left and already reaches Output. B comes from below and misses it. You may place one mirror, flat or curved, in the marked region. With both beams off, Output is always dark, so the score depends only on the dimmest bright case. 60 dB means a whole beam arrives, 50 dB a tenth of one.",
+  "hints": [
+    "A mirror turned by 45 degrees turns a beam through 90 degrees.",
+    "Put the mirror in the path of beam B, above beam A, so that it does not block A.",
+    "Centre the mirror at x = 0, y = 2.5, turn it so that B goes to the right, and make it about 4 micrometres wide so that it catches the whole beam."
+  ],
+  "scene": {
+    "version": 3,
+    "wavelength_um": 1.0,
+    "background": {
+      "n": 1.0
+    },
+    "sources": [
+      {
+        "id": "in-a",
+        "name": "A",
+        "type": "gaussian_beam",
+        "waist_um": 1.2,
+        "waist_x_um": 0,
+        "waist_y_um": 0,
+        "angle_deg": 0
+      },
+      {
+        "id": "in-b",
+        "name": "B",
+        "type": "gaussian_beam",
+        "waist_um": 1.2,
+        "waist_x_um": 0,
+        "waist_y_um": 0,
+        "angle_deg": 90,
+        "phase_deg": 90
+      }
+    ],
+    "elements": [],
+    "detectors": [
+      {
+        "id": "out",
+        "name": "Output",
+        "shape": {
+          "kind": "line",
+          "x1_um": 4,
+          "y1_um": -2.5,
+          "x2_um": 4,
+          "y2_um": 4.5
+        }
+      }
+    ],
+    "domain": {
+      "x_min_um": -5,
+      "x_max_um": 5,
+      "y_min_um": -5,
+      "y_max_um": 5.5
+    },
+    "solver": {
+      "method": "fem"
+    }
+  },
+  "inputs": [
+    "in-a",
+    "in-b"
+  ],
+  "goal": {
+    "type": "truth_table",
+    "text": "Output = A OR B",
+    "pass": 50,
+    "outputs": [
+      {
+        "detector": "out",
+        "bits": [
+          0,
+          1,
+          1,
+          1
+        ]
+      }
+    ]
+  },
+  "rules": {
+    "locked": [],
+    "region": [
+      -2.5,
+      2.5,
+      -2.5,
+      4.5
+    ],
+    "palette": [
+      {
+        "kind": "mirror",
+        "materials": [
+          "pec"
+        ],
+        "max": 1
+      }
+    ],
+    "max_elements": 1
+  },
+  "scoring": {
+    "method": "fem",
+    "ppw": 9
+  },
+  "stars": [
+    50,
+    56,
+    59
+  ],
+  "reference": [
+    {
+      "id": "mirror",
+      "name": "Mirror",
+      "material": {
+        "type": "pec"
+      },
+      "x_um": 0.0,
+      "y_um": 2.5,
+      "rotation_deg": 135.0,
+      "shape": {
+        "kind": "mirror",
+        "aperture_um": 4.0,
+        "thickness_um": 0.2,
+        "radius_um": null
+      }
+    }
+  ]
+}

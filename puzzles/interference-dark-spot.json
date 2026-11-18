@@ -1,0 +1,49 @@
+{
+  "id": "interference-dark-spot",
+  "chapter": "interference",
+  "order": 1,
+  "title": "Dark spot",
+  "summary": "Make the Spot detector dark without blocking the beam. The beam comes from the left and lights the spot. You may place one glass slab in the marked region. The score is how much darker the spot is than with no glass, in decibels.",
+  "hints": [
+    "Light that passes through glass is delayed. A slab of the right thickness delays it by half a wavelength.",
+    "Cover only half of the beam. The two halves then arrive at the spot out of step and cancel.",
+    "The glass has n = 1.5, so a slab 1 micrometre thick delays the light by half of the 1 micrometre wavelength. Put its lower edge on the beam axis."
+  ],
+  "scene": {
+    "version": 3,
+    "wavelength_um": 1.0,
+    "background": {"n": 1.0},
+    "sources": [
+      {"id": "beam", "name": "Beam", "type": "gaussian_beam", "waist_um": 1.5,
+       "waist_x_um": -1.0, "waist_y_um": 0.0, "angle_deg": 0.0}
+    ],
+    "elements": [],
+    "detectors": [
+      {"id": "spot", "name": "Spot",
+       "shape": {"kind": "box", "x_um": 3.0, "y_um": 0.0, "width_um": 0.3, "height_um": 0.3}}
+    ],
+    "domain": {"x_min_um": -4.0, "x_max_um": 5.0, "y_min_um": -4.0, "y_max_um": 4.0},
+    "solver": {"method": "fem"}
+  },
+  "goal": {
+    "type": "minimize",
+    "text": "Make Spot as dark as possible",
+    "pass": 10,
+    "detectors": ["spot"],
+    "quantity": "intensity",
+    "reference": "incident"
+  },
+  "rules": {
+    "region": [-3.0, 1.0, -3.5, 3.5],
+    "palette": [{"kind": "slab", "materials": ["glass"], "max": 1}],
+    "max_elements": 1,
+    "materials": {"glass": {"name": "Glass (n = 1.5)", "type": "dielectric", "n": 1.5}}
+  },
+  "scoring": {"method": "fem", "ppw": 9},
+  "stars": [10, 12, 13.5],
+  "reference": [
+    {"id": "step", "name": "Phase step", "material": {"type": "dielectric", "n": 1.5},
+     "x_um": -1.0, "y_um": 1.5, "rotation_deg": 0.0,
+     "shape": {"kind": "slab", "thickness_um": 1.0, "height_um": 3.0}}
+  ]
+}
