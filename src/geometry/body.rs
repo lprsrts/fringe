@@ -156,6 +156,29 @@ impl BodyMaterial {
         let nc = C64::new(n, -k);
         BodyMaterial::Dielectric { n: nc, eps: nc * nc }
     }
+
+    /// From a relative permittivity (a dispersive material at the scene
+    /// wavelength), with n on the decaying branch.
+    pub fn from_eps(eps: C64) -> Self {
+        BodyMaterial::Dielectric { n: crate::scene::materials::index_from_eps(eps), eps }
+    }
+
+    /// |n|, the index that sets the local wavelength for resolution: a metal
+    /// (small Re n, large k) is resolved by its skin depth. `None` for PEC.
+    pub fn index_magnitude(&self) -> Option<f64> {
+        match self {
+            BodyMaterial::Pec => None,
+            BodyMaterial::Dielectric { n, .. } => Some(n.norm()),
+        }
+    }
+
+    /// Re n, the index a propagating wave sees; `None` for PEC.
+    pub fn index_real(&self) -> Option<f64> {
+        match self {
+            BodyMaterial::Pec => None,
+            BodyMaterial::Dielectric { n, .. } => Some(n.re),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

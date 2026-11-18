@@ -4,7 +4,7 @@
 use std::collections::HashSet;
 
 use crate::analytic::cases::case_scene;
-use crate::geometry::BodyMaterial;
+use crate::geometry::{BodyMaterial, Segment};
 use crate::problem::{compile, Problem};
 use crate::scene::{examples, Scene};
 use crate::solver::{Method, Quality};
@@ -28,6 +28,9 @@ struct MeshReport {
     arc_edges: usize,
     /// Total area of the triangles tagged dielectric.
     dielectric_area: f64,
+    /// Area between the dielectric bodies' arcs and their straight constraint
+    /// edges (positive where an arc bulges out of its body).
+    chord_deficit: f64,
 }
 
 fn mesh_report(p: &Problem) -> MeshReport {
@@ -49,6 +52,14 @@ fn mesh_report(p: &Problem) -> MeshReport {
         .map(|(a, b)| (a.min(b), a.max(b)))
         .collect();
     let missing_arc_edges = m.arcs.keys().filter(|k| !edges.contains(k)).count();
+    let mut chord_deficit = 0.0;
+    for r in m.arcs.values() {
+        let body = &p.bodies[r.body as usize];
+        if let (false, Segment::Arc { radius, sweep, .. }) = (body.is_pec(), body.contour.segments[r.seg as usize]) {
+            let phi = (sweep * (r.t_hi - r.t_lo)).abs();
+            chord_deficit += sweep.signum() * 0.5 * radius * radius * (phi - phi.sin());
+        }
+    }
     let mut dielectric_area = 0.0;
     for (t, tr) in m.tris.iter().enumerate() {
         let b = m.tri_body[t];
@@ -70,13 +81,14 @@ fn mesh_report(p: &Problem) -> MeshReport {
         missing_arc_edges,
         arc_edges: m.arcs.len(),
         dielectric_area,
+        chord_deficit,
     }
 }
 
 fn mesh_scenes() -> Vec<(String, Scene)> {
     let mut out: Vec<(String, Scene)> =
         examples::EXAMPLES.iter().map(|e| (e.name.to_string(), examples::example(e.name).unwrap())).collect();
-    for id in ["mie_pec", "mie_diel", "mie_high_index", "slab_airy_0", "mirror_0", "free_beam"] {
+    for id in ["mie_pec", "mie_diel", "mie_high_index", "slab_airy_0", "mirror_0", "free_beam", "mie_silver_plasmon"] {
         out.push((id.to_string(), case_scene(id).unwrap()));
     }
     out
@@ -84,7 +96,8 @@ fn mesh_scenes() -> Vec<(String, Scene)> {
 
 /// Every triangle of every example and case mesh has all angles ≥ 18°; every arc
 /// constraint edge survives as a mesh edge with its ends on the arc; dielectric
-/// triangles cover the bodies' areas to 1 %; the DOF estimate is within 25 %.
+/// triangles cover the bodies' areas, less the segments the straight arc
+/// edges cut off, to 1 %; the DOF estimate is within 25 %.
 #[test]
 fn fem_mesh_quality() {
     for (name, mut s) in mesh_scenes() {
@@ -108,12 +121,14 @@ fn fem_mesh_quality() {
             assert!(m.warnings.is_empty(), "{name}: {:?}", m.warnings);
             assert!(m.max_arc_error < 1e-9, "{name}: arc error {}", m.max_arc_error);
             assert_eq!(m.missing_arc_edges, 0, "{name} {}: arc edges lost from the mesh", q.name());
-            // Chords cut arcs, so the straight-sided area differs slightly.
+            // Chords cut arcs, so the straight-sided area is smaller by their
+            // segments (2.6 % on the small silver_dimer cylinders at preview).
             assert!(
-                (m.dielectric_area - diel_area).abs() <= 1e-2 * diel_area,
-                "{name}: dielectric area {} vs {}",
+                (m.dielectric_area - (diel_area - m.chord_deficit)).abs() <= 1e-2 * diel_area,
+                "{name}: dielectric area {} vs {} less {} under chords",
                 m.dielectric_area,
-                diel_area
+                diel_area,
+                m.chord_deficit
             );
             let est = m.estimated_dofs;
             assert!(

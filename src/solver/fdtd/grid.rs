@@ -86,9 +86,10 @@ impl Layout {
     }
 }
 
-/// Transit time `diag(outer) · n_max / λ0`, in periods.
+/// Transit time `diag(outer) · n_wave / λ0`, in periods. Re n rather than |n|:
+/// light does not cross a metal at c/|n|, it decays within a skin depth.
 pub fn transit_periods(p: &Problem) -> f64 {
-    p.outer().diag() * p.n_max / p.lambda0
+    p.outer().diag() * p.n_wave / p.lambda0
 }
 
 /// The default cap on periods: `ceil(T_r + 3 T_tr + 30)`.

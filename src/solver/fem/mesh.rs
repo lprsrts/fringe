@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use rayon::prelude::*;
 use spade::{AngleLimit, ConstrainedDelaunayTriangulation, Point2, RefinementParameters, Triangulation};
 
-use crate::geometry::{BodyMaterial, Segment};
+use crate::geometry::Segment;
 use crate::problem::Problem;
 use crate::solver::SolveError;
 use crate::types::{Rect, Vec2};
@@ -58,10 +58,9 @@ pub struct Mesh {
 
 /// Mesh size inside body `b`, or `None` for PEC: `p · λ_region / ppw`.
 pub fn body_h(p: &Problem, b: usize, order: f64) -> Option<f64> {
-    match p.bodies[b].material {
-        BodyMaterial::Pec => None,
-        BodyMaterial::Dielectric { n, .. } => Some(order * p.lambda0 / n.re.max(1e-3) / p.settings.ppw),
-    }
+    // |n| rather than Re n: inside a metal the field varies on the skin depth
+    // λ0/(2πk), not on λ0/Re n.
+    p.bodies[b].material.index_magnitude().map(|n| order * p.lambda0 / n.max(1e-3) / p.settings.ppw)
 }
 
 pub fn background_h(p: &Problem, order: f64) -> f64 {

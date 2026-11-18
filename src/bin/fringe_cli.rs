@@ -16,7 +16,7 @@ use fringe_core::job::Job;
 use fringe_core::render::view::{NormMode, Normalization, PartName, ViewRect};
 use fringe_core::render::{export_png_file, render_rgba, write_npy_c128, Colormap, Quantity, View};
 use fringe_core::scene::validate::fmt;
-use fringe_core::scene::{examples, parse_scene, to_json, Scene, Severity};
+use fringe_core::scene::{examples, parse_scene, to_json, Scene, Severity, SourceKind};
 use fringe_core::solver::context::{STATE_CANCELLED, STATE_RUNNING};
 use fringe_core::solver::{FieldGrid, Method, Part, Quality, SolveError};
 use fringe_core::types::C64;
@@ -36,6 +36,10 @@ Usage:
                                           solve with each solver; time, peak on
                                           the source axis past the last element,
                                           and the difference between each pair
+  fringe-cli materials [ID] [--wavelength UM] [--json]
+                                          the dispersive material presets and their
+                                          n + ik (default at 0.55 µm); with ID, the
+                                          material JSON for a scene
   fringe-cli --help | --version
 
 SCENE is a scene JSON file, or - for standard input.
@@ -53,9 +57,9 @@ Solve options:
   --phase-deg D                phase of the snapshot Re(E e^{jφ})
   --width W, --height H        one sets the other from the domain aspect; neither
                                gives a 1920 px long edge
-  --outlines                   draw element outlines
+  --outlines                   draw element outlines and emitters
   --npy FILE                   also write the chosen part as complex128 .npy
-  --stats FILE                 write the field info as JSON
+  --stats FILE                 write the field info, with the detector readings, as JSON
   --quiet                      no progress or summary
 
 Exit codes: 0 ok, 1 check or validation failure, 2 usage, 3 solve or file error,
@@ -114,6 +118,7 @@ fn run(args: Vec<String>) -> Result<()> {
         "frames" => cmd_frames(&mut a),
         "validate" => cmd_validate(&mut a),
         "compare" => cmd_compare(&mut a),
+        "materials" => cmd_materials(&mut a),
         "info" | "export" => Err(Fail::Usage(
             "removed in v2; use `fringe-cli example lens | fringe-cli solve - -o out.png`".into(),
         )),
@@ -218,6 +223,40 @@ fn cmd_example(a: &mut Args) -> Result<()> {
     }
 }
 
+fn cmd_materials(a: &mut Args) -> Result<()> {
+    use fringe_core::scene::materials::{presets, presets_json};
+    let as_json = a.flag(&["--json"]);
+    let lambda: f64 = a.parsed(&["--wavelength", "-w"])?.unwrap_or(0.55);
+    let id = a.positional();
+    a.finish()?;
+    if !(lambda.is_finite() && lambda > 0.0) {
+        return Err(Fail::Usage(format!("invalid wavelength {lambda}")));
+    }
+    if let Some(id) = id {
+        let p = presets().into_iter().find(|p| p.id == id).ok_or_else(|| Fail::Usage(format!("no material preset named '{id}'")))?;
+        println!("{}", serde_json::to_string_pretty(&p.material).unwrap_or_default());
+        return Ok(());
+    }
+    if as_json {
+        println!("{}", serde_json::to_string_pretty(&presets_json()).unwrap_or_default());
+        return Ok(());
+    }
+    println!("{:<14} {:<6} {:>20}  source", "preset", "kind", format!("n + ik at {} µm", fmt(lambda)));
+    for p in presets() {
+        let n = p.material.index_at(lambda).unwrap_or_default();
+        let range = if lambda < p.range_um[0] || lambda > p.range_um[1] { " (outside the fitted range)" } else { "" };
+        println!("{:<14} {:<6} {:>20}  {}{range}", p.id, p.kind, complex_text(format!("{:.4}", n.re), -n.im, format!("{:.4}", n.im.abs())), p.source);
+    }
+    Ok(())
+}
+
+/// `a + bi` or `a − bi`, so a negative imaginary part does not print as `+ -b`.
+/// `im_abs` is |im| already formatted.
+fn complex_text(re: String, im: f64, im_abs: String) -> String {
+    let sign = if im < 0.0 { '−' } else { '+' };
+    format!("{re} {sign} {im_abs}i")
+}
+
 fn cmd_check(a: &mut Args) -> Result<()> {
     let as_json = a.flag(&["--json"]);
     let src = a.positional().ok_or_else(|| Fail::Usage("check needs a SCENE".into()))?;
@@ -275,13 +314,26 @@ fn derived_lines(d: &serde_json::Value) -> Vec<String> {
         }
         out.push(line);
     }
-    let src = &d["source"];
-    if let (Some(z), Some(t)) = (um(&src["rayleigh_range_um"]), deg(&src["divergence_deg"])) {
-        out.push(format!("Source: Rayleigh range {z}, divergence half-angle {t} (paraxial)"));
+    let sources = d["sources"].as_array().map_or(&[][..], |v| v.as_slice());
+    for src in sources {
+        if let (Some(z), Some(t)) = (um(&src["rayleigh_range_um"]), deg(&src["divergence_deg"])) {
+            let label = if sources.len() > 1 { format!("Source {}", src["id"].as_str().unwrap_or("?")) } else { "Source".into() };
+            out.push(format!("{label}: Rayleigh range {z}, divergence half-angle {t} (paraxial)"));
+        }
     }
     for e in d["elements"].as_array().into_iter().flatten() {
         let id = e["id"].as_str().unwrap_or("?");
         let mut parts = Vec::new();
+        let m = &e["material"];
+        if m["dispersive"].as_bool() == Some(true) {
+            if let (Some(n), Some(k), Some(e1), Some(e2)) = (m["n"].as_f64(), m["k"].as_f64(), m["eps1"].as_f64(), m["eps2"].as_f64()) {
+                parts.push(format!(
+                    "n = {}, ε = {} at the scene wavelength",
+                    complex_text(fmt(n), k, fmt(k.abs())),
+                    complex_text(fmt(e1), e2, fmt(e2.abs()))
+                ));
+            }
+        }
         if let Some(l) = e.get("lens") {
             match (um(&l["paraxial_focal_um"]), um(&l["back_focal_um"])) {
                 (Some(f), Some(b)) => parts.push(format!("paraxial focal length {f}, paraxial back focal length {b}")),
@@ -565,9 +617,34 @@ fn cmd_solve(a: &mut Args) -> Result<()> {
     }
     if !opts.quiet {
         eprintln!("{}", summary(&field));
+        for line in detector_lines(&field) {
+            eprintln!("{line}");
+        }
         eprintln!("Wrote {out} ({w}×{h})");
     }
     Ok(())
+}
+
+/// One line per enabled detector: a line's flux (total, incident, scattered,
+/// per µm in z), a box's mean |E|² (total and incident).
+fn detector_lines(field: &FieldGrid) -> Vec<String> {
+    use fringe_core::detectors::Measurement;
+    field
+        .detector_readings()
+        .iter()
+        .map(|r| {
+            let label = if r.name.is_empty() { r.id.clone() } else { format!("{} ({})", r.id, r.name) };
+            match &r.measurement {
+                Measurement::Line { flux, .. } => format!(
+                    "Detector {label}: flux {:.5e} (incident {:.5e}, scattered {:.5e})",
+                    flux.total, flux.incident, flux.scattered
+                ),
+                Measurement::Box { total, incident, .. } => {
+                    format!("Detector {label}: mean |E|² {:.5e} (incident {:.5e}), max {:.5e}", total.mean, incident.mean, total.max)
+                }
+            }
+        })
+        .collect()
 }
 
 fn cmd_frames(a: &mut Args) -> Result<()> {
@@ -691,9 +768,12 @@ fn cmd_compare(a: &mut Args) -> Result<()> {
     let src = a.positional().ok_or_else(|| Fail::Usage("compare needs a SCENE".into()))?;
     a.finish()?;
     let scene = read_scene(&src)?;
-    let axis_y = match scene.source {
-        fringe_core::scene::Source::GaussianBeam { waist_y_um, .. } => waist_y_um,
-        fringe_core::scene::Source::PlaneWave { .. } => 0.5 * (scene.domain.y_min_um + scene.domain.y_max_um),
+    // The axis is the line y = const through the first enabled source: a
+    // beam's waist, an emitter's point, or the domain's middle for a plane wave.
+    let axis_y = match scene.enabled_sources().next().map(|s| &s.kind) {
+        Some(&SourceKind::GaussianBeam { waist_y_um, .. }) => waist_y_um,
+        Some(&SourceKind::LineSource { y_um, .. }) => y_um,
+        Some(SourceKind::PlaneWave { .. }) | None => 0.5 * (scene.domain.y_min_um + scene.domain.y_max_um),
     };
     let mut fields = Vec::new();
     for &m in &methods {

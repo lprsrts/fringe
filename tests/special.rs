@@ -455,3 +455,42 @@ mod quadrature {
         }
     }
 }
+
+/// H0⁽²⁾ and H1⁽²⁾ deep in the lower half plane, where a metal's interior
+/// wavenumber k0(n − jk) with n ≪ k puts the Green's function, against
+/// `H0⁽²⁾(z) = (2j/π) ∫₀^∞ e^{−jz cosh t} dt` and
+/// `H1⁽²⁾(z) = −(2/π) ∫₀^∞ cosh t e^{−jz cosh t} dt` (Im z < 0). Below the
+/// asymptotic switch the error grows like e^{2|Im z|}·1e−16 (9e−8 at z = −10j),
+/// where H⁽²⁾ itself is already e^{−10} of its size near the source.
+#[test]
+fn hankel_in_the_lower_half_plane() {
+    use fringe_core::special::bessel::h2_01;
+    use std::f64::consts::PI;
+    let j = C64::new(0.0, 1.0);
+    let mut worst = 0.0f64;
+    for &rho in &[0.3, 1.0, 3.0, 7.5, 10.0, 15.0, 25.0] {
+        for &deg in &[-45.0f64, -60.0, -75.0, -85.0, -89.0, -90.0] {
+            let z = C64::from_polar(rho, deg.to_radians());
+            let (mut i0, mut i1) = (C64::new(0.0, 0.0), C64::new(0.0, 0.0));
+            let h = 2e-4f64;
+            let mut t = 0.0f64;
+            while t < 14.0 {
+                let w = if t == 0.0 { 0.5 * h } else { h };
+                let e = (-j * z * t.cosh()).exp();
+                i0 += w * e;
+                i1 += w * t.cosh() * e;
+                if e.norm() < 1e-20 {
+                    break;
+                }
+                t += h;
+            }
+            let (h0, h1) = h2_01(z);
+            let r0 = 2.0 * j / PI * i0;
+            let r1 = -2.0 / PI * i1;
+            let e = ((h0 - r0).norm() / r0.norm()).max((h1 - r1).norm() / r1.norm());
+            worst = worst.max(e);
+            assert!(e < 2e-7, "z = {z}: H0 {h0} vs {r0}, H1 {h1} vs {r1} ({e:.1e})");
+        }
+    }
+    eprintln!("worst relative error {worst:.1e}");
+}

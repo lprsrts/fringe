@@ -13,7 +13,7 @@ pub struct ExampleInfo {
     pub colormap: &'static str,
 }
 
-pub const EXAMPLES: [ExampleInfo; 10] = [
+pub const EXAMPLES: [ExampleInfo; 12] = [
     ex("lens", "Biconvex lens focusing a Gaussian beam", Method::Fdtd),
     ex("nanojet", "Photonic nanojet behind a dielectric cylinder", Method::Fdtd),
     ex("mie_pec", "Plane wave on a PEC cylinder", Method::Mom),
@@ -30,20 +30,23 @@ pub const EXAMPLES: [ExampleInfo; 10] = [
     ex("mirror", "Concave mirror focusing a Gaussian beam", Method::Mom),
     ex("waveguide", "Gaussian beam coupled into a slab waveguide", Method::Fem),
     ex("slab", "Gaussian beam through a glass slab at 30°", Method::Fdtd),
+    ex("silver_dimer", "Gaussian beam on a pair of silver nanocylinders", Method::Mom),
+    ex("emitter_mirror", "Point emitter at the focus of a concave mirror", Method::Mom),
 ];
 
 const fn ex(name: &'static str, title: &'static str, method: Method) -> ExampleInfo {
     ExampleInfo { name, title, method, quantity: "intensity", colormap: "inferno" }
 }
 
-fn scene(source: Source, elements: Vec<Element>, domain: [f64; 4], method: Method) -> Scene {
+fn scene(source: SourceKind, elements: Vec<Element>, domain: [f64; 4], method: Method) -> Scene {
     Scene {
         version: SCHEMA_VERSION,
         wavelength_um: 1.0,
         background: Background { n: 1.0 },
         polarization: Polarization::Ez,
-        source,
+        sources: vec![Source::new(crate::scene::UPGRADED_SOURCE_ID, source)],
         elements,
+        detectors: Vec::new(),
         domain: Domain {
             x_min_um: domain[0],
             x_max_um: domain[1],
@@ -55,12 +58,12 @@ fn scene(source: Source, elements: Vec<Element>, domain: [f64; 4], method: Metho
     }
 }
 
-fn plane_wave() -> Source {
-    Source::PlaneWave { angle_deg: 0.0, amplitude: 1.0, phase_deg: 0.0 }
+fn plane_wave() -> SourceKind {
+    SourceKind::PlaneWave { angle_deg: 0.0, amplitude: 1.0, phase_deg: 0.0 }
 }
 
-fn gaussian(w0: f64, x: f64, y: f64, angle_deg: f64) -> Source {
-    Source::GaussianBeam { waist_um: w0, waist_x_um: x, waist_y_um: y, angle_deg, amplitude: 1.0, phase_deg: 0.0 }
+fn gaussian(w0: f64, x: f64, y: f64, angle_deg: f64) -> SourceKind {
+    SourceKind::GaussianBeam { waist_um: w0, waist_x_um: x, waist_y_um: y, angle_deg, amplitude: 1.0, phase_deg: 0.0 }
 }
 
 fn element(id: &str, name: &str, material: Material, x: f64, y: f64, shape: Shape) -> Element {
@@ -194,8 +197,62 @@ pub fn example(name: &str) -> Option<Scene> {
             [-8.0, 8.0, -9.0, 9.0],
             Method::Fdtd,
         ),
+        // Silver from the preset library at 500 nm (ε ≈ −7.6 − 0.73j): a beam
+        // focused on two 300 nm cylinders 100 nm apart.
+        "silver_dimer" => {
+            let silver = super::materials::preset("silver").expect("a library preset");
+            let mut s = scene(
+                gaussian(0.8, 0.0, 0.0, 0.0),
+                vec![
+                    cylinder_at("cylinder-1", "Upper silver cylinder", silver.clone(), 0.0, 0.2, 0.15),
+                    cylinder_at("cylinder-2", "Lower silver cylinder", silver, 0.0, -0.2, 0.15),
+                ],
+                [-2.0, 4.0, -1.6875, 1.6875],
+                Method::Mom,
+            );
+            s.wavelength_um = 0.5;
+            s.detectors = vec![detector(
+                "gap",
+                "Gap",
+                DetectorShape::Box { x_um: 0.0, y_um: 0.0, width_um: 0.08, height_um: 0.08 },
+            )];
+            s
+        }
+        // A line source at the paraxial focus (R/2 in front of the vertex) of
+        // the mirror example's mirror: the reflection leaves as a collimated
+        // beam towards −x, beside the emitter's own cylindrical wave.
+        // A line detector across the returning beam counts its power towards −x.
+        "emitter_mirror" => {
+            let mut s = scene(
+                SourceKind::LineSource { x_um: -2.0, y_um: 0.0, amplitude: 1.0, phase_deg: 0.0 },
+                vec![element(
+                    "mirror-1",
+                    "Concave mirror",
+                    Material::Pec,
+                    8.0,
+                    0.0,
+                    Shape::Mirror { aperture_um: 12.0, thickness_um: 0.5, radius_um: Some(20.0) },
+                )],
+                [-12.0, 12.0, -6.75, 6.75],
+                Method::Mom,
+            );
+            s.detectors = vec![detector(
+                "output",
+                "Output",
+                DetectorShape::Line { x1_um: -10.0, y1_um: 5.0, x2_um: -10.0, y2_um: -5.0 },
+            )];
+            s
+        }
         _ => return None,
     })
+}
+
+fn detector(id: &str, name: &str, shape: DetectorShape) -> Detector {
+    Detector { id: id.into(), name: name.into(), enabled: true, shape }
+}
+
+fn cylinder_at(id: &str, name: &str, m: Material, x: f64, y: f64, r: f64) -> Element {
+    element(id, name, m, x, y, Shape::Cylinder { radius_um: r })
 }
 
 pub fn info(name: &str) -> Option<&'static ExampleInfo> {

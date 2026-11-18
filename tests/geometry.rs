@@ -63,7 +63,7 @@ fn polyline_inside(poly: &[Vec2], p: Vec2) -> bool {
 }
 
 fn bodies(shape: &Shape, material: Material, rotation: f64) -> Vec<Body> {
-    element_bodies(0, &element(shape.clone(), material, rotation))
+    element_bodies(0, &element(shape.clone(), material, rotation), 1.0)
 }
 
 #[test]
@@ -71,7 +71,7 @@ fn inside_agrees_with_polyline_winding() {
     let mut rng = Rng(0x1234_5678_9abc_def1);
     for (name, shape, material) in shapes() {
         for rotation in [0.0, 37.0] {
-            for body in bodies(&shape, material, rotation) {
+            for body in bodies(&shape, material.clone(), rotation) {
                 let poly = body.contour.polyline(1e-3, 0.2f64.to_radians());
                 let r = body.bbox.expand(0.5);
                 let mut disagreements = 0;

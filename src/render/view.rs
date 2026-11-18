@@ -321,34 +321,70 @@ pub fn render_rgba(field: &FieldGrid, view: &View, width: u32, height: u32, out:
 }
 
 /// Body outlines in white at 60 % alpha, 1.5 px wide, with distance-based
-/// anti-aliasing. Coverage is the maximum over segments, so joints are not
-/// blended twice.
+/// anti-aliasing, a small ring at each enabled emitter (line source) and the
+/// enabled detectors. Coverage is the maximum over segments, so joints are not blended twice.
 fn draw_outlines(field: &FieldGrid, rect: &ViewRect, w: usize, h: usize, out: &mut [u8]) {
     let sx = w as f64 / (rect.x_max_um - rect.x_min_um);
     let sy = h as f64 / (rect.y_max_um - rect.y_min_um);
     let to_px = |p: [f64; 2]| Vec2::new((p[0] - rect.x_min_um) * sx, (rect.y_max_um - p[1]) * sy);
     let mut cover = vec![0f32; w * h];
     const HALF: f64 = 0.75;
+    let mut segment = |a: Vec2, b: Vec2| {
+        let x0 = (a.x.min(b.x) - 2.0).floor().max(0.0) as usize;
+        let x1 = ((a.x.max(b.x) + 2.0).ceil().max(0.0) as usize).min(w);
+        let y0 = (a.y.min(b.y) - 2.0).floor().max(0.0) as usize;
+        let y1 = ((a.y.max(b.y) + 2.0).ceil().max(0.0) as usize).min(h);
+        let d = b - a;
+        let l2 = d.norm_sqr();
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let p = Vec2::new(x as f64 + 0.5, y as f64 + 0.5);
+                let t = if l2 > 0.0 { ((p - a).dot(d) / l2).clamp(0.0, 1.0) } else { 0.0 };
+                let dist = p.dist(a + d * t);
+                let c = (HALF + 0.5 - dist).clamp(0.0, 1.0) as f32;
+                let slot = &mut cover[y * w + x];
+                *slot = slot.max(c);
+            }
+        }
+    };
     for body in &field.bodies {
         let n = body.outline.len();
         for k in 0..n {
-            let a = to_px(body.outline[k]);
-            let b = to_px(body.outline[(k + 1) % n]);
-            let x0 = (a.x.min(b.x) - 2.0).floor().max(0.0) as usize;
-            let x1 = ((a.x.max(b.x) + 2.0).ceil().max(0.0) as usize).min(w);
-            let y0 = (a.y.min(b.y) - 2.0).floor().max(0.0) as usize;
-            let y1 = ((a.y.max(b.y) + 2.0).ceil().max(0.0) as usize).min(h);
-            let d = b - a;
-            let l2 = d.norm_sqr();
-            for y in y0..y1 {
-                for x in x0..x1 {
-                    let p = Vec2::new(x as f64 + 0.5, y as f64 + 0.5);
-                    let t = if l2 > 0.0 { ((p - a).dot(d) / l2).clamp(0.0, 1.0) } else { 0.0 };
-                    let dist = p.dist(a + d * t);
-                    let c = (HALF + 0.5 - dist).clamp(0.0, 1.0) as f32;
-                    let slot = &mut cover[y * w + x];
-                    *slot = slot.max(c);
-                }
+            segment(to_px(body.outline[k]), to_px(body.outline[(k + 1) % n]));
+        }
+    }
+    const RING_PX: f64 = 5.0;
+    const RING_SIDES: usize = 24;
+    for s in field.scene.enabled_sources() {
+        if let crate::scene::SourceKind::LineSource { x_um, y_um, .. } = s.kind {
+            let c = to_px([x_um, y_um]);
+            if !(c.x.is_finite() && c.y.is_finite()) || c.x < -RING_PX || c.y < -RING_PX || c.x > w as f64 + RING_PX || c.y > h as f64 + RING_PX {
+                continue;
+            }
+            let at = |k: usize| c + Vec2::from_angle(2.0 * PI * k as f64 / RING_SIDES as f64) * RING_PX;
+            for k in 0..RING_SIDES {
+                segment(at(k), at(k + 1));
+            }
+        }
+    }
+    // Enabled detectors: a box's rectangle, a line with a short tick from its
+    // middle towards the side its flux counts positive.
+    const TICK_PX: f64 = 6.0;
+    for d in field.scene.detectors.iter().filter(|d| d.enabled) {
+        let pts: Vec<Vec2> = crate::detectors::outline(&d.shape).into_iter().map(to_px).collect();
+        if pts.iter().any(|p| !(p.x.is_finite() && p.y.is_finite())) {
+            continue;
+        }
+        if let [a, b] = pts[..] {
+            segment(a, b);
+            let n = crate::detectors::line_normal(a, b);
+            // Pixel y grows downwards, which reverses the turn: the scene's
+            // normal is the opposite of the one computed in pixels.
+            let mid = (a + b) * 0.5;
+            segment(mid, mid - n * TICK_PX);
+        } else {
+            for k in 0..pts.len() {
+                segment(pts[k], pts[(k + 1) % pts.len()]);
             }
         }
     }

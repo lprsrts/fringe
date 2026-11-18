@@ -232,3 +232,100 @@ fn far_waist_is_capped() {
     assert!(!inc.warnings.is_empty());
     assert!(t.elapsed().as_secs_f64() < 5.0, "took {:.1} s", t.elapsed().as_secs_f64());
 }
+
+// Line sources and composite fields.
+
+#[test]
+fn line_source_is_normalised_one_wavelength_out() {
+    let inc = Incident::line_source(K, Vec2::new(0.3, -0.2), 1.7, 0.5);
+    for a in [0.0, 1.0, 2.5] {
+        let p = Vec2::new(0.3, -0.2) + Vec2::from_angle(a) * 1.0;
+        assert!((inc.eval(p).norm() - 1.7).abs() < 1e-12, "{}", inc.eval(p).norm());
+    }
+    // Outgoing H0⁽²⁾: far out the phase falls by k per unit distance.
+    let (a, b) = (inc.eval(Vec2::new(20.3, -0.2)), inc.eval(Vec2::new(20.55, -0.2)));
+    let dphase = (b / a).arg();
+    assert!((dphase + PI / 2.0).abs() < 0.02, "{dphase}");
+    // The singular point itself gives a finite value.
+    let e = inc.eval(Vec2::new(0.3, -0.2));
+    assert!(e.re.is_finite() && e.im.is_finite());
+}
+
+#[test]
+fn line_source_gradient_matches_finite_differences() {
+    let inc = Incident::line_source(K * 1.4, Vec2::new(-1.0, 0.5), 1.0, 0.3);
+    let h = 1e-6;
+    for p in points(Rect::new(-3.0, 3.0, -3.0, 3.0), 30, 5) {
+        let (e, g) = inc.eval_grad(p);
+        assert!((e - inc.eval(p)).norm() < 1e-14);
+        let dx = (inc.eval(p + Vec2::new(h, 0.0)) - inc.eval(p - Vec2::new(h, 0.0))) / (2.0 * h);
+        let dy = (inc.eval(p + Vec2::new(0.0, h)) - inc.eval(p - Vec2::new(0.0, h))) / (2.0 * h);
+        let scale = 1.0 + e.norm() * K;
+        assert!((dx - g[0]).norm() < 1e-6 * scale && (dy - g[1]).norm() < 1e-6 * scale, "{p:?}");
+    }
+}
+
+/// A composite field is the sum of its parts at every point, through `eval`
+/// and through the GEMM path of `eval_grid`, whatever the parts' origins.
+#[test]
+fn composite_field_is_the_sum_of_its_parts() {
+    let rect = Rect::new(-6.0, 6.0, -5.0, 5.0);
+    let parts = [
+        beam(1.5, Vec2::new(-2.0, 1.0), 0.3, rect),
+        Incident::plane_wave(K, -1.1, 0.6, 1.0),
+        Incident::line_source(K, Vec2::new(1.0, -1.5), 0.8, -0.4),
+        beam(2.0, Vec2::new(3.0, -2.0), 2.5, rect),
+    ];
+    let mut sum = Incident::empty(K);
+    for p in &parts {
+        sum.add(p.clone());
+    }
+    assert_eq!(sum.lines.len(), 1);
+    assert_eq!(sum.directions.len(), 3);
+    let g = GridSpec { x0: -5.0, y0: -4.0, dx: 0.37, nx: 27, ny: 21 };
+    let grid = sum.eval_grid(&g);
+    for j in 0..g.ny {
+        for i in 0..g.nx {
+            let p = g.point(i, j);
+            let want: C64 = parts.iter().map(|q| q.eval(p)).sum();
+            assert!((sum.eval(p) - want).norm() < 1e-11, "{p:?}");
+            assert!((grid[g.index(i, j)] - want).norm() < 1e-11, "{p:?}");
+        }
+    }
+}
+
+#[test]
+fn dispersion_axis_follows_the_sources() {
+    let beam_at = |a: f64| Incident::plane_wave(K, a, 1.0, 0.0);
+    assert_eq!(beam_at(0.4).dispersion_axis(), 0.4);
+    // Same sin²(2θ): one axis serves both.
+    let mut two = beam_at(0.3);
+    two.add(beam_at(0.3 + PI / 2.0));
+    assert_eq!(two.dispersion_axis(), 0.3);
+    let mut mixed = beam_at(0.0);
+    mixed.add(beam_at(0.5));
+    assert_eq!(mixed.dispersion_axis(), PI / 8.0);
+    let mut with_line = beam_at(0.0);
+    with_line.add(Incident::line_source(K, Vec2::ZERO, 1.0, 0.0));
+    assert_eq!(with_line.dispersion_axis(), PI / 8.0);
+}
+
+/// The FDTD copy of a line source uses the Yee wavenumber of each direction:
+/// far from the source its phase advances by k̃(φ) per unit distance.
+#[test]
+fn yee_matched_line_source_uses_the_direction_wavenumber() {
+    use fringe_core::source::YeeGrid;
+    let dx = 1.0 / 12.0;
+    let grid = YeeGrid { eps_b: 1.0, omega: K, dx, dt: 1.0 / (12.0 / 0.6f64).ceil() };
+    let inc = Incident::line_source(K, Vec2::ZERO, 1.0, 0.0).yee_matched(grid);
+    assert!(inc.is_finite());
+    for phi in [0.0, PI / 8.0, PI / 4.0, 1.2] {
+        let kt = yee_wavenumber(phi, 1.0, K, grid.dx, grid.dt);
+        let d = Vec2::from_angle(phi);
+        let (a, b) = (inc.eval(d * 40.0), inc.eval(d * 40.01));
+        let k_obs = -(b / a).arg() / 0.01;
+        assert!((k_obs - kt).abs() < 2e-3 * K, "φ = {phi}: {k_obs} vs {kt}");
+    }
+    // Along the axis the grid is slower than the continuum, along the diagonal less so.
+    assert!(yee_wavenumber(0.0, 1.0, K, grid.dx, grid.dt) > yee_wavenumber(PI / 4.0, 1.0, K, grid.dx, grid.dt));
+}

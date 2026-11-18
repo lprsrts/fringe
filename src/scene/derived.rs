@@ -17,14 +17,12 @@ pub struct LensParaxial {
     pub focus: Vec2,
 }
 
-pub fn lens_paraxial(e: &Element, n_b: f64) -> Option<LensParaxial> {
+/// A dispersive material uses Re n at the vacuum wavelength `lambda0`.
+pub fn lens_paraxial(e: &Element, n_b: f64, lambda0: f64) -> Option<LensParaxial> {
     let Shape::Lens { r1_um, r2_um, center_thickness_um: t, .. } = e.shape else {
         return None;
     };
-    let n = match e.material {
-        Material::Dielectric { n, .. } => n,
-        Material::Pec => return None,
-    };
+    let n = e.material.index_at(lambda0)?.re;
     let n_rel = n / n_b;
     let c1 = r1_um.map_or(0.0, |r| 1.0 / r);
     let c2 = r2_um.map_or(0.0, |r| 1.0 / r);
@@ -48,22 +46,32 @@ pub fn derived(scene: &Scene) -> Value {
         .elements
         .iter()
         .filter(|e| e.enabled)
-        .filter_map(|e| match e.material {
-            Material::Dielectric { n, .. } => Some(n),
-            Material::Pec => None,
-        })
+        .filter_map(|e| e.material.index_at(lambda0).map(|n| n.norm()))
         .fold(n_b, f64::max);
 
-    let source = match scene.source {
-        Source::GaussianBeam { waist_um: w0, .. } => json!({
+    let source_derived = |k: &SourceKind| match *k {
+        SourceKind::GaussianBeam { waist_um: w0, .. } => json!({
             "rayleigh_range_um": PI * w0 * w0 * n_b / lambda0,
             // atan of the paraxial λ/(π n w0): the same for wide beams, and
             // below 90° for the sub-wavelength waists where the paraxial value
             // would exceed it.
             "divergence_deg": (lambda0 / (PI * n_b * w0)).atan().to_degrees(),
         }),
-        Source::PlaneWave { .. } => json!({}),
+        SourceKind::PlaneWave { .. } | SourceKind::LineSource { .. } => json!({}),
     };
+    let sources: Vec<Value> = scene
+        .sources
+        .iter()
+        .map(|s| {
+            let mut v = source_derived(&s.kind);
+            if let Value::Object(o) = &mut v {
+                o.insert("id".into(), json!(s.id));
+            }
+            v
+        })
+        .collect();
+    // `source` describes the first enabled source, as in version 2.
+    let source = scene.enabled_sources().next().map_or(json!({}), |s| source_derived(&s.kind));
 
     let elements: Vec<Value> = scene.elements.iter().map(|e| element_derived(e, scene, lambda_b)).collect();
 
@@ -71,6 +79,7 @@ pub fn derived(scene: &Scene) -> Value {
         "lambda_b_um": lambda_b,
         "lambda_min_um": lambda0 / n_max,
         "source": source,
+        "sources": sources,
         "elements": elements,
     })
 }
@@ -78,16 +87,26 @@ pub fn derived(scene: &Scene) -> Value {
 fn element_derived(e: &Element, scene: &Scene, lambda_b: f64) -> Value {
     let n_b = scene.background.n;
     let lambda0 = scene.wavelength_um;
-    let n = match e.material {
-        Material::Dielectric { n, .. } => Some(n),
-        Material::Pec => None,
-    };
+    let index = e.material.index_at(lambda0);
+    let n = index.map(|n| n.re);
     let mut out = json!({ "id": e.id });
+    // The material at the scene wavelength (what the solvers use): n + ik and
+    // ε1 + iε2 in the optics convention (k, ε2 ≥ 0 absorb). `eps_re` and
+    // `eps_im` repeat ε1 and ε2 under the names the app reads.
+    if let (Some(nc), Some(eps), Value::Object(o)) = (index, e.material.eps_at(lambda0), &mut out) {
+        o.insert(
+            "material".into(),
+            json!({
+                "n": nc.re, "k": -nc.im, "eps1": eps.re, "eps2": -eps.im,
+                "eps_re": eps.re, "eps_im": -eps.im, "dispersive": e.material.is_dispersive(),
+            }),
+        );
+    }
     let body = match e.shape {
         Shape::Lens { r1_um, r2_um, center_thickness_um: t, aperture_um: d } => {
             let h = 0.5 * d;
             let edge = crate::geometry::lens_surface_x(0.5 * t, r2_um, h) - crate::geometry::lens_surface_x(-0.5 * t, r1_um, h);
-            match lens_paraxial(e, n_b) {
+            match lens_paraxial(e, n_b, lambda0) {
                 Some(p) => json!({ "lens": {
                     "paraxial_focal_um": p.focal_um,
                     "back_focal_um": p.back_focal_um,
@@ -102,7 +121,9 @@ fn element_derived(e: &Element, scene: &Scene, lambda_b: f64) -> Value {
         }
         Shape::Mirror { radius_um, .. } => json!({ "mirror": { "focal_um": radius_um.map(|r| 0.5 * r) } }),
         Shape::Grating { period_um, .. } => {
-            let theta_i = (scene.source.angle_deg() - e.rotation_deg).to_radians();
+            // Orders for the first beam's incidence (normal incidence without one).
+            let beam = scene.first_beam().and_then(|s| s.kind.angle_deg()).unwrap_or(e.rotation_deg);
+            let theta_i = (beam - e.rotation_deg).to_radians();
             let mut orders = Vec::new();
             let m_max = (2.0 * period_um / lambda_b).ceil() as i64 + 1;
             for m in -m_max..=m_max {

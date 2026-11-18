@@ -54,7 +54,7 @@ fn example_list_and_check() {
     let o = cli(&["example"], None);
     assert_eq!(code(&o), 0);
     let text = String::from_utf8(o.stdout).unwrap();
-    assert_eq!(text.lines().count(), 10);
+    assert_eq!(text.lines().count(), fringe_core::scene::examples::EXAMPLES.len());
     assert!(text.lines().next().unwrap().starts_with("lens"));
     assert_eq!(code(&cli(&["example", "nope"], None)), 2);
     let o = cli(&["check", "-"], Some(&example("talbot")));
@@ -155,4 +155,38 @@ fn compare_and_check_read_as_text() {
     let text = String::from_utf8_lossy(&o.stdout);
     assert!(text.contains("lens-1: paraxial focal length 12.5217 µm"), "{text}");
     assert!(!text.contains('{'), "{text}");
+}
+
+#[test]
+fn materials_list_and_preset() {
+    let o = cli(&["materials"], None);
+    assert_eq!(code(&o), 0);
+    let text = String::from_utf8(o.stdout).unwrap();
+    assert!(text.lines().any(|l| l.starts_with("gold")) && text.lines().any(|l| l.starts_with("bk7")), "{text}");
+    let o = cli(&["materials", "silver"], None);
+    let m: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap();
+    assert_eq!(m["preset"], "silver");
+    let o = cli(&["materials", "--json", "-w", "0.633"], None);
+    let list: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap();
+    assert!(list.as_array().unwrap().len() >= 6);
+    assert_eq!(code(&cli(&["materials", "wood"], None)), 2);
+    let o = cli(&["check", "-"], Some(&example("silver_dimer")));
+    assert!(String::from_utf8_lossy(&o.stdout).contains("n = 0.132"), "{}", String::from_utf8_lossy(&o.stdout));
+}
+
+#[test]
+fn solve_reports_detectors() {
+    let png = tmp("dimer.png");
+    let stats = tmp("dimer.json");
+    let o = cli(
+        &["solve", "-", "-o", png.to_str().unwrap(), "--quality", "preview", "--width", "64", "--stats", stats.to_str().unwrap()],
+        Some(&example("silver_dimer")),
+    );
+    assert_eq!(code(&o), 0, "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("Detector gap (Gap): mean |E|²"));
+    let s: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&stats).unwrap()).unwrap();
+    let d = &s["detectors"][0];
+    assert_eq!(d["id"], "gap");
+    assert_eq!(d["kind"], "box");
+    assert!(d["total"]["mean"].as_f64().unwrap() > 0.0);
 }

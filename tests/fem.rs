@@ -339,3 +339,64 @@ fn fem_estimate_counts_vertices_and_output() {
     let points = p.output_grid().len() as f64;
     assert!(est_fine.memory_mb - est.memory_mb > 60.0 * points / 1e6, "{} vs {} MB", est_fine.memory_mb, est.memory_mb);
 }
+
+// Dispersive materials.
+
+#[test]
+fn fem_mie_silver() {
+    fem_case("mie_silver");
+}
+
+#[test]
+fn fem_mie_gold() {
+    fem_case("mie_gold");
+}
+
+#[test]
+fn fem_mie_silver_plasmon() {
+    fem_case("mie_silver_plasmon");
+}
+
+#[test]
+fn fem_bk7_plain() {
+    fem_case("bk7_plain");
+}
+
+// Line sources.
+
+#[test]
+fn fem_line_free() {
+    fem_case("line_free");
+}
+
+#[test]
+fn fem_line_pec() {
+    fem_case("line_pec");
+}
+
+#[test]
+fn fem_line_diel() {
+    fem_case("line_diel");
+}
+
+#[test]
+fn fem_line_plane_diel() {
+    fem_case("line_plane_diel");
+}
+
+// Detectors.
+
+#[test]
+fn fem_detector_plane() {
+    fem_case("detector_plane");
+}
+
+#[test]
+fn fem_slab_power() {
+    fem_case("slab_power");
+}
+
+#[test]
+fn fem_slab_lossy_power() {
+    fem_case("slab_lossy_power");
+}

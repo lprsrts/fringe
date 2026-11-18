@@ -177,3 +177,67 @@ fn fitted_order_recovers_a_power_law() {
     let e: Vec<f64> = h.iter().map(|h: &f64| 3.0 * h.powf(2.2)).collect();
     assert!((fitted_order(&h, &e) - 2.2).abs() < 1e-12);
 }
+
+// A line source next to a cylinder (Graf's addition theorem).
+
+fn line_cyl(material: BodyMaterial, source: Vec2) -> fringe_core::analytic::LineCylinder {
+    fringe_core::analytic::LineCylinder::new(Vec2::new(0.3, -0.2), 1.0, material, 1.0, K0, source, 1.0, 0.25)
+}
+
+#[test]
+fn line_source_pec_field_vanishes_on_the_surface() {
+    for s in [Vec2::new(-1.5, 0.4), Vec2::new(0.3, 1.1), Vec2::new(3.0, 2.0)] {
+        let m = line_cyl(BodyMaterial::Pec, s);
+        let scale = m.incident(m.center + (s - m.center).normalized()).norm();
+        for k in 0..72 {
+            let p = m.center + Vec2::from_angle(2.0 * PI * k as f64 / 72.0) * 1.0;
+            assert!(m.total(p).norm() <= 1e-10 * scale, "{s:?} {p:?}: {:.2e}", m.total(p).norm());
+        }
+    }
+}
+
+/// E and ∂E/∂ρ are continuous across a dielectric surface.
+#[test]
+fn line_source_dielectric_fields_are_continuous() {
+    let m = line_cyl(BodyMaterial::dielectric(1.5, 0.02), Vec2::new(-1.4, 0.6));
+    let h = 1e-5;
+    for k in 0..24 {
+        let u = Vec2::from_angle(2.0 * PI * k as f64 / 24.0);
+        let at = |r: f64| m.total(m.center + u * r);
+        let (out, inn) = (at(1.0 + 1e-12), at(1.0 - 1e-12));
+        assert!((out - inn).norm() < 1e-9 * out.norm().max(1.0), "E jumps: {out} vs {inn}");
+        let d_out = (at(1.0 + 2.0 * h) - at(1.0 + h)) / h;
+        let d_in = (at(1.0 - h) - at(1.0 - 2.0 * h)) / h;
+        assert!((d_out - d_in).norm() < 1e-3 * (1.0 + d_out.norm()), "∂E/∂ρ jumps: {d_out} vs {d_in}");
+    }
+}
+
+/// Reciprocity: the scattered field at r of a source at s equals that at s of
+/// a source at r. The series treats the two very differently (the source sets
+/// the Hankel factor Hₙ(k d), the observer the other), so this checks the
+/// coefficients and the Graf expansion together.
+#[test]
+fn line_source_scattering_is_reciprocal() {
+    for material in [BodyMaterial::Pec, BodyMaterial::dielectric(2.0, 0.1)] {
+        let (a, b) = (Vec2::new(-1.6, 0.5), Vec2::new(2.1, -1.9));
+        let s_ab = line_cyl(material, a).scattered(b);
+        let s_ba = line_cyl(material, b).scattered(a);
+        assert!((s_ab - s_ba).norm() < 1e-12 * s_ab.norm(), "{s_ab} vs {s_ba}");
+    }
+}
+
+/// Far from the cylinder, a distant line source looks like a plane wave: the
+/// scattered field matches the Mie series for a plane wave from that
+/// direction, scaled by the source's field at the centre.
+#[test]
+fn distant_line_source_approaches_a_plane_wave() {
+    let d = 4000.0;
+    let lc = line_cyl(BodyMaterial::dielectric(1.5, 0.0), Vec2::new(0.3 - d, -0.2));
+    let at_centre = lc.incident(lc.center);
+    let mie = MieCylinder::new(lc.center, 1.0, BodyMaterial::dielectric(1.5, 0.0), 1.0, K0, 0.0, 1.0, 0.0);
+    for p in [Vec2::new(2.5, 0.3), Vec2::new(0.0, 2.0), Vec2::new(-1.5, -1.0)] {
+        let want = mie.scattered(p) * at_centre / mie.incident(lc.center);
+        let got = lc.scattered(p);
+        assert!((got - want).norm() < 3e-3 * want.norm(), "{p:?}: {got} vs {want}");
+    }
+}

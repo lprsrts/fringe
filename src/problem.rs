@@ -1,7 +1,7 @@
 //! A validated scene compiled for one solve: bodies, incident field, the PML
 //! rectangle and the solver settings resolved for the requested quality.
 
-use crate::geometry::{bodies_from_scene, Body, BodyMaterial};
+use crate::geometry::{bodies_from_scene, Body};
 use crate::scene::{validate, Issue, PecFormulation, Scene};
 use crate::solver::field::GridSpec;
 use crate::solver::{Method, Quality};
@@ -16,8 +16,13 @@ pub struct Problem {
     pub n_b: f64,
     pub k_b: f64,
     pub eps_b: f64,
-    /// Largest real index among the background and enabled dielectric bodies.
+    /// Largest |n| among the background and enabled dielectric bodies (|n|, so
+    /// that a metal is resolved by its skin depth).
     pub n_max: f64,
+    /// Largest Re n among the background and enabled dielectric bodies: the
+    /// index light travels at. A metal (small Re n, large k) carries no
+    /// propagating wave, so FDTD run lengths use this rather than [`n_max`](Self::n_max).
+    pub n_wave: f64,
     pub bodies: Vec<Body>,
     /// Analytic incident field, accurate on the PML outer rectangle.
     pub incident: Incident,
@@ -231,10 +236,11 @@ pub fn compile_unchecked(scene: &Scene, quality: Quality) -> Problem {
     let bodies = bodies_from_scene(scene);
     let n_max = bodies
         .iter()
-        .filter_map(|b| match b.material {
-            BodyMaterial::Dielectric { n, .. } => Some(n.re),
-            BodyMaterial::Pec => None,
-        })
+        .filter_map(|b| b.material.index_magnitude())
+        .fold(n_b, f64::max);
+    let n_wave = bodies
+        .iter()
+        .filter_map(|b| b.material.index_real())
         .fold(n_b, f64::max);
     let settings = Resolved::new(scene, quality);
     let interior = scene.domain.rect();
@@ -249,6 +255,7 @@ pub fn compile_unchecked(scene: &Scene, quality: Quality) -> Problem {
         k_b: k0 * n_b,
         eps_b: n_b * n_b,
         n_max,
+        n_wave,
         bodies,
         incident,
         interior,

@@ -313,7 +313,7 @@ fn estimate_calibration() {
 #[test]
 fn pec_surface_snaps_to_the_nearest_node_line() {
     use fringe_core::solver::fdtd::grid::Layout;
-    use fringe_core::solver::fdtd::materials::{body_eps, pec_edges, rasterize, NodeMat};
+    use fringe_core::solver::fdtd::materials::{body_media, pec_edges, rasterize, NodeMat};
     use fringe_core::types::C64;
     use std::sync::atomic::AtomicBool;
     let mut s = case_scene("mirror_0").unwrap();
@@ -323,11 +323,11 @@ fn pec_surface_snaps_to_the_nearest_node_line() {
     s.elements[0].x_um += 0.3 * dx;
     let p = compile(&s, Quality::Final).unwrap();
     let l = Layout::new(&p);
-    let raster = rasterize(&p, &l, C64::new(1.0, 0.0), &body_eps(&p, |e| e), &AtomicBool::new(false)).unwrap();
+    let raster = rasterize(&p, &l, C64::new(1.0, 0.0), &body_media(&p, |_| 1.0), &AtomicBool::new(false)).unwrap();
     let face = s.elements[0].x_um;
     let j = ((0.0 - l.y0) / l.dx).round() as usize;
     let node = |x: f64| j * l.nx + ((x - l.x0) / l.dx).round() as usize;
-    let mat = |idx: usize| raster.nodes.iter().find(|n| n.0 == idx).map(|n| n.1);
+    let mat = |idx: usize| raster.nodes.iter().find(|n| n.0 == idx).map(|n| n.1.clone());
     let (snapped, free) = (node(face - 0.3 * dx), node(face - 1.3 * dx));
     assert_eq!(mat(snapped), Some(NodeMat::Pec));
     assert_eq!(mat(free), None);
@@ -341,11 +341,11 @@ fn pec_surface_snaps_to_the_nearest_node_line() {
 #[test]
 fn non_finite_field_is_an_error() {
     use fringe_core::problem::compile_unchecked;
-    use fringe_core::scene::Source;
+    use fringe_core::scene::SourceKind;
     use fringe_core::solver::SolveError;
     let mut s = case_scene("mie_pec").unwrap();
     s.solver.method = Method::Fdtd;
-    if let Source::PlaneWave { amplitude, .. } = &mut s.source {
+    if let SourceKind::PlaneWave { amplitude, .. } = &mut s.sources[0].kind {
         *amplitude = 1e40;
     }
     let p = compile_unchecked(&s, Quality::Preview);
@@ -356,4 +356,65 @@ fn non_finite_field_is_an_error() {
         Ok(_) => panic!("an overflowing run returned a result"),
     }
     assert!(t.elapsed().as_secs_f64() < 5.0, "the run went on after the field overflowed");
+}
+
+// Dispersive materials.
+
+#[test]
+fn mie_silver() {
+    fdtd("mie_silver");
+}
+
+#[test]
+fn mie_gold() {
+    fdtd("mie_gold");
+}
+
+#[test]
+fn mie_silver_plasmon() {
+    fdtd("mie_silver_plasmon");
+}
+
+#[test]
+fn bk7_plain() {
+    fdtd("bk7_plain");
+}
+
+// Line sources.
+
+#[test]
+fn line_free() {
+    fdtd("line_free");
+}
+
+#[test]
+fn line_pec() {
+    fdtd("line_pec");
+}
+
+#[test]
+fn line_diel() {
+    fdtd("line_diel");
+}
+
+#[test]
+fn line_plane_diel() {
+    fdtd("line_plane_diel");
+}
+
+// Detectors.
+
+#[test]
+fn detector_plane() {
+    fdtd("detector_plane");
+}
+
+#[test]
+fn slab_power() {
+    fdtd("slab_power");
+}
+
+#[test]
+fn slab_lossy_power() {
+    fdtd("slab_lossy_power");
 }

@@ -195,6 +195,8 @@ pub fn solver_for(m: Method) -> &'static dyn Solver {
 /// Seconds per output point and incident plane wave for evaluating the incident
 /// field (one GEMM; release build, M-series Mac).
 const C_INCIDENT: f64 = 5e-11;
+/// The same per line source (one Hankel function per point, in parallel).
+const C_LINE: f64 = 2e-8;
 
 /// The selected solver's estimate for `p`, plus the cost of evaluating the
 /// incident field on the output grid, which matters for a Gaussian beam with
@@ -206,7 +208,7 @@ pub fn estimate(p: &Problem) -> Estimate {
         Method::Fdtd => est.grid.map_or(0, |[nx, ny]| nx * ny),
         Method::Fem | Method::Mom => p.output_grid().len(),
     };
-    est.seconds += C_INCIDENT * points as f64 * p.incident.comps.len() as f64;
+    est.seconds += (C_INCIDENT * p.incident.comps.len() as f64 + C_LINE * p.incident.lines.len() as f64) * points as f64;
     est
 }
 
@@ -273,8 +275,10 @@ pub fn solve(scene: &Scene, quality: Quality, ctx: &SolveContext) -> Result<Fiel
             ppw: p.settings.ppw,
             incident_kind: incident_kind.into(),
             wall_s: t0.elapsed().as_secs_f64(),
+            memory_mb: est.memory_mb,
         },
         norms: Default::default(),
+        readings: Default::default(),
     };
     ctx.stage(Stage::Finished, (1.0, 1.0));
     Ok(field)

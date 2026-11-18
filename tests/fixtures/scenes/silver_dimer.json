@@ -1,0 +1,183 @@
+{
+  "version": 3,
+  "wavelength_um": 0.5,
+  "background": {
+    "n": 1.0
+  },
+  "polarization": "ez",
+  "sources": [
+    {
+      "id": "source-1",
+      "name": "",
+      "enabled": true,
+      "type": "gaussian_beam",
+      "waist_um": 0.8,
+      "waist_x_um": 0.0,
+      "waist_y_um": 0.0,
+      "angle_deg": 0.0,
+      "amplitude": 1.0,
+      "phase_deg": 0.0
+    }
+  ],
+  "elements": [
+    {
+      "id": "cylinder-1",
+      "name": "Upper silver cylinder",
+      "enabled": true,
+      "material": {
+        "type": "dispersive",
+        "preset": "silver",
+        "eps_inf": 1.0,
+        "poles": [
+          {
+            "type": "drude",
+            "plasma_ev": 8.28234,
+            "gamma_ev": 0.048
+          },
+          {
+            "type": "lorentz",
+            "strength": 7.9247,
+            "resonance_ev": 0.816,
+            "gamma_ev": 3.886
+          },
+          {
+            "type": "lorentz",
+            "strength": 0.501327,
+            "resonance_ev": 4.481,
+            "gamma_ev": 0.452
+          },
+          {
+            "type": "lorentz",
+            "strength": 0.0133292,
+            "resonance_ev": 8.185,
+            "gamma_ev": 0.065
+          },
+          {
+            "type": "lorentz",
+            "strength": 0.826552,
+            "resonance_ev": 9.083,
+            "gamma_ev": 0.916
+          },
+          {
+            "type": "lorentz",
+            "strength": 1.11334,
+            "resonance_ev": 20.29,
+            "gamma_ev": 2.419
+          }
+        ]
+      },
+      "x_um": 0.0,
+      "y_um": 0.2,
+      "rotation_deg": 0.0,
+      "shape": {
+        "kind": "cylinder",
+        "radius_um": 0.15
+      }
+    },
+    {
+      "id": "cylinder-2",
+      "name": "Lower silver cylinder",
+      "enabled": true,
+      "material": {
+        "type": "dispersive",
+        "preset": "silver",
+        "eps_inf": 1.0,
+        "poles": [
+          {
+            "type": "drude",
+            "plasma_ev": 8.28234,
+            "gamma_ev": 0.048
+          },
+          {
+            "type": "lorentz",
+            "strength": 7.9247,
+            "resonance_ev": 0.816,
+            "gamma_ev": 3.886
+          },
+          {
+            "type": "lorentz",
+            "strength": 0.501327,
+            "resonance_ev": 4.481,
+            "gamma_ev": 0.452
+          },
+          {
+            "type": "lorentz",
+            "strength": 0.0133292,
+            "resonance_ev": 8.185,
+            "gamma_ev": 0.065
+          },
+          {
+            "type": "lorentz",
+            "strength": 0.826552,
+            "resonance_ev": 9.083,
+            "gamma_ev": 0.916
+          },
+          {
+            "type": "lorentz",
+            "strength": 1.11334,
+            "resonance_ev": 20.29,
+            "gamma_ev": 2.419
+          }
+        ]
+      },
+      "x_um": 0.0,
+      "y_um": -0.2,
+      "rotation_deg": 0.0,
+      "shape": {
+        "kind": "cylinder",
+        "radius_um": 0.15
+      }
+    }
+  ],
+  "detectors": [
+    {
+      "id": "gap",
+      "name": "Gap",
+      "enabled": true,
+      "shape": {
+        "kind": "box",
+        "x_um": 0.0,
+        "y_um": 0.0,
+        "width_um": 0.08,
+        "height_um": 0.08
+      }
+    }
+  ],
+  "domain": {
+    "x_min_um": -2.0,
+    "x_max_um": 4.0,
+    "y_min_um": -1.6875,
+    "y_max_um": 1.6875,
+    "pml_wl": 1.0
+  },
+  "solver": {
+    "method": "mom",
+    "fdtd": {
+      "preview_ppw": null,
+      "final_ppw": null,
+      "courant": 0.6,
+      "max_periods": null,
+      "steady_tol": null,
+      "subpixel": true,
+      "dispersion_correction": true
+    },
+    "fem": {
+      "preview_ppw": null,
+      "final_ppw": null,
+      "order": 3,
+      "pml_reflection": 1e-6
+    },
+    "mom": {
+      "preview_ppw": null,
+      "final_ppw": null,
+      "pec_formulation": "auto",
+      "cfie_beta_scale": 1.0,
+      "corner_grading": true
+    },
+    "output": {
+      "preview_ppw": null,
+      "final_ppw": null
+    },
+    "memory_limit_mb": null
+  }
+}

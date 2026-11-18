@@ -20,15 +20,20 @@ pub fn bodies_from_scene(scene: &Scene) -> Vec<Body> {
         .iter()
         .enumerate()
         .filter(|(_, e)| e.enabled)
-        .flat_map(|(i, e)| element_bodies(i, e))
+        .flat_map(|(i, e)| element_bodies(i, e, scene.wavelength_um))
         .collect()
 }
 
-/// The bodies one element is made of (several for slits and comb-less gratings).
-pub fn element_bodies(index: usize, e: &Element) -> Vec<Body> {
+/// The bodies one element is made of (several for slits and comb-less gratings),
+/// with a dispersive material evaluated at the vacuum wavelength `lambda0_um`.
+pub fn element_bodies(index: usize, e: &Element, lambda0_um: f64) -> Vec<Body> {
     let material = match e.material {
         Material::Pec => BodyMaterial::Pec,
         Material::Dielectric { n, k } => BodyMaterial::dielectric(n, k),
+        Material::Dispersive { .. } => match e.material.eps_at(lambda0_um) {
+            Some(eps) => BodyMaterial::from_eps(eps),
+            None => BodyMaterial::Pec,
+        },
     };
     let rot = e.rotation_deg.to_radians();
     let anchor = Vec2::new(e.x_um, e.y_um);

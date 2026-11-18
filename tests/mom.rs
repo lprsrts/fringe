@@ -413,14 +413,14 @@ fn shapes_converge() {
     };
     let glass = Material::Dielectric { n: 1.5, k: 0.0 };
     let scenes = vec![
-        ("prism", mk(Shape::Prism { base_um: 8.0, apex_deg: 60.0 }, glass, 0.0)),
+        ("prism", mk(Shape::Prism { base_um: 8.0, apex_deg: 60.0 }, glass.clone(), 0.0)),
         ("sharp prism", mk(Shape::Prism { base_um: 2.0, apex_deg: 20.0 }, Material::Dielectric { n: 3.0, k: 0.0 }, 20.0)),
-        ("wedge", mk(Shape::Wedge { thick_um: 2.0, thin_um: 0.5, height_um: 6.0 }, glass, 0.0)),
-        ("comb grating", mk(Shape::Grating { period_um: 1.0, fill_factor: 0.3, depth_um: 0.5, count: 6, substrate_um: 0.5 }, glass, 0.0)),
+        ("wedge", mk(Shape::Wedge { thick_um: 2.0, thin_um: 0.5, height_um: 6.0 }, glass.clone(), 0.0)),
+        ("comb grating", mk(Shape::Grating { period_um: 1.0, fill_factor: 0.3, depth_um: 0.5, count: 6, substrate_um: 0.5 }, glass.clone(), 0.0)),
         ("pec comb", mk(Shape::Grating { period_um: 1.0, fill_factor: 0.3, depth_um: 0.5, count: 6, substrate_um: 0.5 }, Material::Pec, 0.0)),
         ("thin pec", mk(Shape::Slab { thickness_um: 0.05, height_um: 6.0 }, Material::Pec, 30.0)),
         ("thin glass", mk(Shape::Slab { thickness_um: 0.05, height_um: 6.0 }, Material::Dielectric { n: 2.0, k: 0.0 }, 30.0)),
-        ("polygon", mk(Shape::Polygon { vertices_um: vec![[-2.0, -2.0], [2.0, -1.0], [0.0, 0.0], [1.5, 2.0], [-1.5, 1.0]] }, glass, 0.0)),
+        ("polygon", mk(Shape::Polygon { vertices_um: vec![[-2.0, -2.0], [2.0, -1.0], [0.0, 0.0], [1.5, 2.0], [-1.5, 1.0]] }, glass.clone(), 0.0)),
         ("pec lens", mk(Shape::Lens { r1_um: Some(6.0), r2_um: Some(-6.0), center_thickness_um: 2.0, aperture_um: 6.0 }, Material::Pec, 0.0)),
     ];
     for (name, s) in scenes {
@@ -479,4 +479,65 @@ fn estimate_calibration() {
     if perf() {
         assert!(worst <= 2.0);
     }
+}
+
+// Dispersive materials.
+
+#[test]
+fn mie_silver() {
+    assert_case("mie_silver", Method::Mom, Quality::Final);
+}
+
+#[test]
+fn mie_gold() {
+    assert_case("mie_gold", Method::Mom, Quality::Final);
+}
+
+#[test]
+fn mie_silver_plasmon() {
+    assert_case("mie_silver_plasmon", Method::Mom, Quality::Final);
+}
+
+#[test]
+fn bk7_plain() {
+    assert_case("bk7_plain", Method::Mom, Quality::Final);
+}
+
+// Line sources.
+
+#[test]
+fn line_free() {
+    assert_case("line_free", Method::Mom, Quality::Final);
+}
+
+#[test]
+fn line_pec() {
+    assert_case("line_pec", Method::Mom, Quality::Final);
+}
+
+#[test]
+fn line_diel() {
+    assert_case("line_diel", Method::Mom, Quality::Final);
+}
+
+#[test]
+fn line_plane_diel() {
+    assert_case("line_plane_diel", Method::Mom, Quality::Final);
+}
+
+// Detectors.
+
+#[test]
+fn detector_plane() {
+    assert_case("detector_plane", Method::Mom, Quality::Final);
+}
+
+#[test]
+fn slab_power() {
+    assert_case("slab_power", Method::Mom, Quality::Final);
+}
+
+#[test]
+fn slab_lossy_power() {
+    assert_case("slab_lossy_power", Method::Mom, Quality::Final);
 }

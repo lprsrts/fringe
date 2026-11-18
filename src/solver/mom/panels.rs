@@ -110,7 +110,7 @@ pub struct Panels {
 pub fn panel_length(p: &Problem, body: &Body) -> f64 {
     let lambda_loc = match body.material {
         BodyMaterial::Pec => p.lambda_b(),
-        BodyMaterial::Dielectric { n, .. } => p.lambda0 / p.n_b.max(n.re),
+        BodyMaterial::Dielectric { n, .. } => p.lambda0 / p.n_b.max(n.norm()),
     };
     lambda_loc / p.settings.ppw
 }

@@ -5,17 +5,23 @@
 //! polarisation currents `J = (ε′ − ε_b,u) ∂_t E_inc + σ E_inc` inside dielectric
 //! bodies, written in the exactly consistent discrete form, plus `E_s = −E_inc` on
 //! PEC nodes. The incident field is the Yee-dispersion-matched copy of the
-//! analytic one (every plane-wave component gets its numerical wavenumber), so
-//! `E_s + E_inc` is an exact discrete total-field solution and the shadow shows
-//! no ghost beam. All media get the axis dispersion correction ε·F when enabled.
+//! analytic one (every plane-wave component gets its numerical wavenumber, and
+//! a line source the numerical wavenumber along each direction from it), so
+//! `E_s + E_inc` is a discrete total-field solution (exact for plane waves) and
+//! the shadow shows no ghost beam. All media get the dispersion correction ε·F
+//! along one axis when enabled (`Incident::dispersion_axis`).
+//! Dispersive media carry one auxiliary current per Lorentz–Drude pole, driven
+//! by the total field (`ade.rs`).
 //!
 //! The run ramps the source over 4 periods, runs at least the ramp plus one
 //! transit time, watches a one-period DFT at probe nodes until it settles, and
 //! then takes a 2-period DFT on every interior node.
 //!
-//! Files: `grid.rs` (layout), `materials.rs` (rasterisation), `cpml.rs` (PML
-//! coefficients), `update.rs` (the time step), `dft.rs` (run control).
+//! Files: `grid.rs` (layout), `materials.rs` (rasterisation), `ade.rs`
+//! (dispersive poles), `cpml.rs` (PML coefficients), `update.rs` (the time
+//! step), `dft.rs` (run control).
 
+pub mod ade;
 pub mod cpml;
 pub mod dft;
 pub mod grid;
@@ -27,15 +33,15 @@ use std::time::Instant;
 use crate::problem::Problem;
 use crate::scene::validate::fmt;
 use crate::scene::{Material, Shape};
-use crate::source::yee::{dispersion_corrected_eps, yee_wavenumber};
-use crate::source::Incident;
+use crate::source::yee::dispersion_factor_eps;
+use crate::source::{Incident, YeeGrid};
 use crate::types::C64;
 
 use super::field::GridSpec;
 use super::{Estimate, Issue, Method, Quality, SolveContext, SolveError, Solver, SolverMeta, SolverOutput, Stage};
 use grid::{min_periods, Layout};
-use materials::{body_eps, pec_edges, rasterize, NodeMat};
-use update::{EdgeNode, Engine, EngineInit, PecNode, SrcNode};
+use materials::{body_media, pec_edges, rasterize, BodyMedium, NodeMat};
+use update::{DispNode, DispPole, EdgeNode, Engine, EngineInit, PecNode, SrcNode};
 
 pub struct FdtdSolver;
 
@@ -46,7 +52,7 @@ const T_STEP: f64 = 5e-5;
 /// Periods beyond the minimum run that convergence typically takes, plus the
 /// 2-period DFT.
 const EXTRA_PERIODS: f64 = 6.0;
-/// Index contrast n_max/n_b from which dielectric bodies may hold ringing
+/// Index contrast n_wave/n_b (Re n) from which dielectric bodies may hold ringing
 /// resonances (the `nanojet` cylinder at 1.6 settles after ~3× the typical run
 /// at final quality; `mie_high_index` at 3.5 runs to the cap).
 const RESONANT_CONTRAST: f64 = 1.6;
@@ -67,7 +73,7 @@ impl FdtdSolver {
     pub fn estimated_periods(p: &Problem) -> f64 {
         let cap = (grid::max_periods(p) + DFT_PERIODS) as f64;
         let typical = (min_periods(p) as f64 + EXTRA_PERIODS).min(cap);
-        let resonant = p.n_max >= RESONANT_CONTRAST * p.eps_b.sqrt() - 1e-12;
+        let resonant = p.n_wave >= RESONANT_CONTRAST * p.eps_b.sqrt() - 1e-12;
         if resonant || slow_convergence(p).is_some_and(|s| s.kind != "grating") {
             (typical * cap).sqrt()
         } else {
@@ -117,23 +123,47 @@ fn slow_convergence(p: &Problem) -> Option<SlowConvergence> {
 }
 
 /// ε of the background and of each body as the grid sees it (dispersion
-/// corrected along the source axis when enabled).
+/// corrected along [`Incident::dispersion_axis`] when enabled), with the correction factor
+/// of each body (1 for PEC) for its poles.
 pub struct Media {
     pub eps_bg: f64,
-    pub bodies: Vec<Option<C64>>,
+    pub bodies: Vec<BodyMedium>,
+    pub factors: Vec<f64>,
 }
 
 pub fn media(p: &Problem, l: &Layout) -> Media {
-    let axis = p.incident.axis_angle;
+    let axis = p.incident.dispersion_axis();
     let corr = p.settings.fdtd.dispersion_correction;
-    let correct = |e: C64| if corr { dispersion_corrected_eps(e, axis, p.k0, l.dx, l.dt) } else { e };
-    Media { eps_bg: correct(C64::new(p.eps_b, 0.0)).re, bodies: body_eps(p, correct) }
+    let factor = |e: C64| if corr { dispersion_factor_eps(e, axis, p.k0, l.dx, l.dt) } else { 1.0 };
+    let factors = p
+        .bodies
+        .iter()
+        .map(|b| match b.material {
+            crate::geometry::BodyMaterial::Dielectric { eps, .. } => factor(eps),
+            crate::geometry::BodyMaterial::Pec => 1.0,
+        })
+        .collect();
+    Media { eps_bg: p.eps_b * factor(C64::new(p.eps_b, 0.0)), bodies: body_media(p, factor), factors }
+}
+
+/// The ADE coefficients of every pole of each body, scaled by its dispersion
+/// factor (empty for non-dispersive bodies).
+fn body_poles(p: &Problem, l: &Layout, factors: &[f64]) -> Vec<Vec<ade::PoleCoef>> {
+    p.bodies
+        .iter()
+        .zip(factors)
+        .map(|(b, &f)| match &p.scene.elements[b.element_index].material {
+            Material::Dispersive { poles, .. } if !b.is_pec() => {
+                poles.iter().map(|q| ade::pole_coef(q, l.omega(), l.dt).scaled(f)).collect()
+            }
+            _ => Vec::new(),
+        })
+        .collect()
 }
 
 /// The Yee-matched copy of the problem's incident field.
 pub fn matched_incident(p: &Problem, l: &Layout, eps_bg: f64) -> Incident {
-    let omega = l.omega();
-    p.incident.map_wavenumbers(|phi| yee_wavenumber(phi, eps_bg, omega, l.dx, l.dt))
+    p.incident.yee_matched(YeeGrid { eps_b: eps_bg, omega: l.omega(), dx: l.dx, dt: l.dt })
 }
 
 /// Grid rows per incident-field block between cancellation checks.
@@ -261,12 +291,13 @@ impl Solver for FdtdSolver {
         let media = media(p, &l);
         let eps_bg = media.eps_bg;
         let matched = matched_incident(p, &l, eps_bg);
-        if matched.comps.iter().any(|c| !c.k[0].is_finite() || !c.k[1].is_finite()) {
+        if !matched.is_finite() {
             return Err(SolveError::Numerical("no Yee wavenumber for the incident field (Courant limit)".into()));
         }
         let cancel = ctx.cancel_flag();
         let raster =
             rasterize(p, &l, C64::new(eps_bg, 0.0), &media.bodies, &cancel).ok_or(SolveError::Cancelled)?;
+        let poles_of = body_poles(p, &l, &media.factors);
         ctx.report(0.5);
         ctx.checkpoint()?;
 
@@ -290,12 +321,49 @@ impl Solver for FdtdSolver {
         let e_inc = incident_at_nodes(&matched, &l, &raster.nodes, ctx)?;
         let mut src = Vec::new();
         let mut pec = Vec::new();
-        for (&(idx, m), e) in raster.nodes.iter().zip(&e_inc) {
-            match m {
+        let mut disp = Vec::new();
+        let mut disp_poles = Vec::new();
+        for ((idx, m), e) in raster.nodes.iter().zip(&e_inc) {
+            let idx = *idx;
+            match *m {
                 NodeMat::Pec => {
                     ca[idx] = 0.0;
                     cbd[idx] = 0.0;
                     pec.push(PecNode { idx: idx as u32, re: e.re as f32, im: e.im as f32 });
+                }
+                NodeMat::Dispersive { constant, ref parts } => {
+                    // The instantaneous part: ε_c = Re, and its loss as a
+                    // conductivity σ = Ω ε″ (Ω the warped frequency of the
+                    // trapezoidal σ term, see `ade.rs`).
+                    let e1 = constant.re;
+                    let th = 0.5 * omega * dt;
+                    let sigma = -constant.im * 2.0 * th.tan() / dt;
+                    let first = disp_poles.len() as u32;
+                    for &(b, frac) in parts {
+                        for c in &poles_of[b] {
+                            disp_poles.push(DispPole { c: c.scaled(frac), j_n: 0.0, j_nm1: 0.0 });
+                        }
+                    }
+                    let ps = &disp_poles[first as usize..];
+                    let a = ps.iter().map(|q| 0.5 * q.c.q).sum::<f64>() + 0.5 * sigma;
+                    let b = ps.iter().map(|q| 0.5 * q.c.qn).sum::<f64>() + 0.5 * sigma;
+                    let c = ps.iter().map(|q| 0.5 * q.c.qm).sum::<f64>();
+                    let d = e1 / dt + a;
+                    ca[idx] = (e1 / dt / d) as f32;
+                    cbd[idx] = (1.0 / (d * l.dx)) as f32;
+                    disp.push(DispNode {
+                        idx: idx as u32,
+                        re: e.re,
+                        im: e.im,
+                        inv_d: 1.0 / d,
+                        k_inc: (e1 - eps_bg) / dt,
+                        a,
+                        b,
+                        c,
+                        poles: (first, disp_poles.len() as u32),
+                        e_n: 0.0,
+                        e_nm1: 0.0,
+                    });
                 }
                 NodeMat::Medium(eps) => {
                     // ε = ε′ − jε″, σ = ω ε″.
@@ -337,7 +405,7 @@ impl Solver for FdtdSolver {
         ctx.checkpoint()?;
         let px = cpml::profiles(&l, nx, eps_bg, p.k_b);
         let py = cpml::profiles(&l, ny, eps_bg, p.k_b);
-        let mut engine = Engine::new(l, EngineInit { ca, cbd, cb_bg: cb_bg as f32, src, pec, edges, px, py });
+        let mut engine = Engine::new(l, EngineInit { ca, cbd, cb_bg: cb_bg as f32, src, pec, edges, disp, disp_poles, px, py });
         // Matched incident at the probes, the scale for the convergence measure.
         let interior = l.interior_grid();
         let probes = GridSpec {

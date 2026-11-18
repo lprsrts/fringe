@@ -3,6 +3,7 @@
 
 pub mod analytic;
 pub mod check;
+pub mod detectors;
 pub mod ffi;
 pub mod geometry;
 pub mod job;

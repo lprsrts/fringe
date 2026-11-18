@@ -73,7 +73,7 @@ pub fn check(scene: &Scene) -> CheckReport {
             ));
         }
         for w in &p.incident.warnings {
-            extra.push(Issue::warning("source", "incident_accuracy", w.clone()));
+            extra.push(Issue::warning("sources", "incident_accuracy", w.clone()));
         }
         let report = EstimateReport {
             method: p.settings.method,

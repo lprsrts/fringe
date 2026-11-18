@@ -5,8 +5,9 @@ use std::sync::OnceLock;
 use serde::Serialize;
 use serde_json::{json, Value};
 
+use crate::detectors::{self, FieldView, Reading};
 use crate::geometry::{Body, BodyMaterial};
-use crate::scene::Scene;
+use crate::scene::{Scene, SourceKind};
 use crate::types::{Rect, Vec2, C64};
 
 use super::{Quality, SolverMeta};
@@ -148,10 +149,13 @@ pub struct SolveMeta {
     /// "analytic" or "yee_matched".
     pub incident_kind: String,
     pub wall_s: f64,
+    /// The solver's memory estimate for this run (an estimate of the peak, not
+    /// a measurement).
+    pub memory_mb: f64,
 }
 
 /// Display scales per part (indexed by `Part as usize`), over the grid with PEC
-/// interiors left out.
+/// interiors and the discs around emitters left out.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Norms {
     pub p995: [f64; 3],
@@ -169,6 +173,8 @@ pub struct FieldGrid {
     pub quality: Quality,
     pub meta: SolveMeta,
     pub norms: OnceLock<Norms>,
+    /// The scene's detector readings, measured on first use.
+    pub readings: OnceLock<Vec<Reading>>,
 }
 
 impl FieldGrid {
@@ -215,9 +221,10 @@ impl FieldGrid {
         self.norms.get_or_init(|| {
             let mut p995 = [0.0; 3];
             let mut max = [0.0; 3];
+            let core = self.emitter_core_mask();
             for part in [Part::Total, Part::Scattered, Part::Incident] {
                 let mut mags: Vec<f64> = (0..self.grid.len())
-                    .filter(|&i| !self.is_pec(i))
+                    .filter(|&i| !self.is_pec(i) && !core.as_ref().is_some_and(|c| c[i]))
                     .map(|i| self.value(part, i).norm())
                     .collect();
                 if mags.is_empty() {
@@ -232,15 +239,97 @@ impl FieldGrid {
         })
     }
 
+    /// Nodes within a quarter background wavelength of an enabled line
+    /// source, where its singular point would dominate any maximum or
+    /// percentile; `None` without line sources.
+    pub fn emitter_core_mask(&self) -> Option<Vec<bool>> {
+        let emitters: Vec<Vec2> = self
+            .scene
+            .enabled_sources()
+            .filter_map(|s| match s.kind {
+                SourceKind::LineSource { x_um, y_um, .. } => Some(Vec2::new(x_um, y_um)),
+                _ => None,
+            })
+            .collect();
+        if emitters.is_empty() {
+            return None;
+        }
+        let r = 0.25 * self.scene.wavelength_um / self.scene.background.n;
+        let g = &self.grid;
+        Some((0..g.len()).map(|i| emitters.iter().any(|e| e.dist(g.point(i % g.nx, i / g.nx)) < r)).collect())
+    }
+
+    /// The incident field scale: the sum of the enabled sources' amplitudes.
     pub fn incident_peak(&self) -> f64 {
-        self.scene.source.amplitude()
+        self.scene.incident_scale()
+    }
+
+    /// The field as the detector code sees it.
+    pub fn view(&self) -> FieldView<'_> {
+        FieldView { grid: &self.grid, total: &self.total, incident: &self.incident, wavelength_um: self.scene.wavelength_um }
+    }
+
+    /// Readings of the scene's enabled detectors, measured once per field (a
+    /// large box detector takes a noticeable time).
+    pub fn detector_readings(&self) -> &[Reading] {
+        self.readings.get_or_init(|| detectors::measure_all(&self.view(), &self.scene.detectors))
+    }
+
+    /// The weighted sum `Σ wᵢ fieldᵢ` of fields solved on the same grid with the
+    /// same bodies, such as the per-source fields of one scene (the solvers are
+    /// linear, so this is the field with every source scaled by its weight).
+    /// The scene is the first field's, with each source enabled when some field
+    /// with a non-zero weight has it enabled. Detector readings are measured
+    /// afresh on the sum.
+    pub fn combine(fields: &[&FieldGrid], weights: &[C64]) -> Result<FieldGrid, String> {
+        let Some(first) = fields.first() else { return Err("no fields to combine".into()) };
+        if fields.len() != weights.len() {
+            return Err(format!("{} fields but {} weights", fields.len(), weights.len()));
+        }
+        if let Some(w) = weights.iter().find(|w| !(w.re.is_finite() && w.im.is_finite())) {
+            return Err(format!("weight {w} is not finite"));
+        }
+        for (i, f) in fields.iter().enumerate().skip(1) {
+            if f.grid != first.grid || f.region != first.region || f.scene.wavelength_um != first.scene.wavelength_um {
+                return Err(format!("field {i} is not on the same grid, with the same bodies, as field 0"));
+            }
+        }
+        let sum = |part: fn(&FieldGrid) -> &[C64]| -> Vec<C64> {
+            let mut out = vec![C64::new(0.0, 0.0); first.grid.len()];
+            for (f, &w) in fields.iter().zip(weights) {
+                if w != C64::new(0.0, 0.0) {
+                    out.iter_mut().zip(part(f)).for_each(|(o, v)| *o += w * v);
+                }
+            }
+            out
+        };
+        let mut scene = first.scene.clone();
+        for s in &mut scene.sources {
+            s.enabled = fields.iter().zip(weights).any(|(f, w)| {
+                *w != C64::new(0.0, 0.0) && f.scene.sources.iter().any(|t| t.id == s.id && t.enabled)
+            });
+        }
+        let mut meta = first.meta.clone();
+        meta.wall_s = fields.iter().map(|f| f.meta.wall_s).sum();
+        Ok(FieldGrid {
+            grid: first.grid,
+            total: sum(|f| &f.total),
+            incident: sum(|f| &f.incident),
+            region: first.region.clone(),
+            bodies: first.bodies.clone(),
+            scene,
+            quality: first.quality,
+            meta,
+            norms: OnceLock::new(),
+            readings: OnceLock::new(),
+        })
     }
 
     pub fn pml_um(&self) -> f64 {
         self.scene.domain.pml_wl * self.scene.wavelength_um / self.scene.background.n
     }
 
-    /// Grid, scene context, diagnostics and body outlines.
+    /// Grid, scene context, diagnostics, body outlines and detector readings.
     pub fn info_json(&self) -> Value {
         let g = &self.grid;
         let d = &self.scene.domain;
@@ -256,6 +345,7 @@ impl FieldGrid {
             "method": self.meta.method,
             "meta": serde_json::to_value(&self.meta).unwrap_or(Value::Null),
             "bodies": serde_json::to_value(&self.bodies).unwrap_or(Value::Null),
+            "detectors": serde_json::to_value(self.detector_readings()).unwrap_or(Value::Null),
         })
     }
 }

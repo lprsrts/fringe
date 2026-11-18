@@ -18,6 +18,46 @@ use crate::geometry::BodyMaterial;
 use crate::special::{bessel_deriv, bessel_j_array, hankel2_array};
 use crate::types::{cis, Vec2, C64};
 
+/// The cylinder's response to each cylindrical harmonic `Jₙ(k_b ρ) e^{jnφ}`
+/// (n = 0..=cap): the scattered `cₙ Hₙ(k_b ρ) e^{jnφ}` and, for a dielectric,
+/// the interior `bₙ Jₙ(m k_b ρ) e^{jnφ}`; plus Jₙ(x) and Hₙ(x) at the surface.
+pub struct Coefficients {
+    pub c: Vec<C64>,
+    pub b: Vec<C64>,
+    pub jx: Vec<C64>,
+    pub hx: Vec<C64>,
+}
+
+/// [`Coefficients`] at x = k_b a for relative index `m` (`None` for PEC).
+pub fn coefficients(x: f64, m: Option<C64>, cap: usize) -> Coefficients {
+    let xc = C64::new(x, 0.0);
+    let jx = bessel_j_array(cap + 1, xc);
+    let hx = hankel2_array(cap + 1, x);
+    let (c, b): (Vec<C64>, Vec<C64>) = match m {
+        None => ((0..=cap).map(|n| -jx[n] / hx[n]).collect(), Vec::new()),
+        Some(m) => {
+            let mx = m * x;
+            let jmx = bessel_j_array(cap + 1, mx);
+            let djx = bessel_deriv(&jx, xc);
+            let dhx = bessel_deriv(&hx, xc);
+            let djmx = bessel_deriv(&jmx, mx);
+            let mut c = Vec::with_capacity(cap + 1);
+            let mut b = Vec::with_capacity(cap + 1);
+            for n in 0..=cap {
+                // Written with the log-derivative Jₙ′(mx)/Jₙ(mx) so a tiny Jₙ(mx)
+                // at high order cannot underflow the ratio.
+                let d = djmx[n] / jmx[n];
+                let cn = (m * jx[n] * d - djx[n]) / (dhx[n] - m * hx[n] * d);
+                c.push(cn);
+                // bₙJₙ(mx) = Jₙ(x) + cₙHₙ(x): the interior term at the surface.
+                b.push((jx[n] + cn * hx[n]) / jmx[n]);
+            }
+            (c, b)
+        }
+    };
+    Coefficients { c, b, jx, hx }
+}
+
 pub struct MieCylinder {
     pub center: Vec2,
     pub radius: f64,
@@ -61,31 +101,7 @@ impl MieCylinder {
         // below 1e−16 of the amplitude. Past the turning point these decay
         // faster than exponentially, so the omitted tail is of the same size.
         let cap = (big_x + 6.0 * big_x.cbrt() + 10.0).ceil() as usize;
-        let xc = C64::new(x, 0.0);
-        let jx = bessel_j_array(cap + 1, xc);
-        let hx = hankel2_array(cap + 1, x);
-        let (mut c, mut b): (Vec<C64>, Vec<C64>) = match m {
-            None => ((0..=cap).map(|n| -jx[n] / hx[n]).collect(), Vec::new()),
-            Some(m) => {
-                let mx = m * x;
-                let jmx = bessel_j_array(cap + 1, mx);
-                let djx = bessel_deriv(&jx, xc);
-                let dhx = bessel_deriv(&hx, xc);
-                let djmx = bessel_deriv(&jmx, mx);
-                let mut c = Vec::with_capacity(cap + 1);
-                let mut b = Vec::with_capacity(cap + 1);
-                for n in 0..=cap {
-                    // Written with the log-derivative Jₙ′(mx)/Jₙ(mx) so a tiny Jₙ(mx)
-                    // at high order cannot underflow the ratio.
-                    let d = djmx[n] / jmx[n];
-                    let cn = (m * jx[n] * d - djx[n]) / (dhx[n] - m * hx[n] * d);
-                    c.push(cn);
-                    // bₙJₙ(mx) = Jₙ(x) + cₙHₙ(x): the interior term at the surface.
-                    b.push((jx[n] + cn * hx[n]) / jmx[n]);
-                }
-                (c, b)
-            }
-        };
+        let Coefficients { mut c, mut b, jx, hx } = coefficients(x, m, cap);
         let negligible = |n: usize| {
             let interior = if b.is_empty() { 0.0 } else { (jx[n] + c[n] * hx[n]).norm() };
             jx[n].norm() < 1e-16 && (c[n] * hx[n]).norm() < 1e-16 && interior < 1e-16

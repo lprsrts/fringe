@@ -42,8 +42,13 @@ pub fn dispersion_factor(n: f64, axis_angle: f64, k0: f64, dx: f64, dt: f64) -> 
     dt * dt / (n * n * (0.5 * k0 * dt).sin().powi(2)) * num / (dx * dx)
 }
 
+/// `F(Re n, θ_axis)` with n = √ε. Re n is floored at 1e−6: a lossless metal has
+/// Re n = 0, where F tends to its finite limit.
+pub fn dispersion_factor_eps(eps: C64, axis_angle: f64, k0: f64, dx: f64, dt: f64) -> f64 {
+    dispersion_factor(eps.sqrt().re.max(1e-6), axis_angle, k0, dx, dt)
+}
+
 /// `ε · F(Re n, θ_axis)` with n = √ε (Re n > 0).
 pub fn dispersion_corrected_eps(eps: C64, axis_angle: f64, k0: f64, dx: f64, dt: f64) -> C64 {
-    let n = eps.sqrt().re;
-    eps * dispersion_factor(n, axis_angle, k0, dx, dt)
+    eps * dispersion_factor_eps(eps, axis_angle, k0, dx, dt)
 }

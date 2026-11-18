@@ -45,6 +45,40 @@ pub struct EdgeNode {
     pub im: f32,
 }
 
+/// A node with dispersive material (see `ade.rs`). The E sweep gives it
+/// `ca·E_s^n + cbd·curl` with `ca = (ε_c/Δt)/D`, `cbd = 1/(DΔ)` and
+/// `D = ε_c/Δt + A + σ/2`; this adds
+/// `[−k_inc (I^{n+1} − I^n) − R − a I^{n+1} − b E^n − c E^{n−1}]/D`, with I the
+/// incident field at the node, E the total field, R the poles' known part,
+/// `a = A + σ/2`, `b = B + σ/2`, `c = C` (A, B, C: the sums of the poles'
+/// q/2, qn/2, qm/2) and `k_inc = (ε_c − ε_b,u)/Δt`. Then the poles step.
+#[derive(Clone, Copy, Debug)]
+pub struct DispNode {
+    pub idx: u32,
+    /// Matched incident phasor at the node.
+    pub re: f64,
+    pub im: f64,
+    pub inv_d: f64,
+    pub k_inc: f64,
+    pub a: f64,
+    pub b: f64,
+    pub c: f64,
+    /// This node's poles in `Engine::disp_poles`.
+    pub poles: (u32, u32),
+    /// Total field at the last two steps.
+    pub e_n: f64,
+    pub e_nm1: f64,
+}
+
+/// One pole at one node: its coefficients (scaled by the fill fraction) and
+/// the currents J^n, J^{n−1}.
+#[derive(Clone, Copy, Debug)]
+pub struct DispPole {
+    pub c: super::ade::PoleCoef,
+    pub j_n: f64,
+    pub j_nm1: f64,
+}
+
 /// Source and DFT phases of one step (producing E^{n+1}).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct StepPhase {
@@ -95,6 +129,9 @@ pub struct Engine {
     pec: Vec<PecNode>,
     pec_row: Vec<usize>,
     edges: Vec<EdgeNode>,
+    disp: Vec<DispNode>,
+    disp_row: Vec<usize>,
+    disp_poles: Vec<DispPole>,
     /// Probe accumulators, `probe_rows × probe_cols`.
     pub probe_re: Vec<f64>,
     pub probe_im: Vec<f64>,
@@ -156,6 +193,9 @@ pub struct EngineInit {
     pub src: Vec<SrcNode>,
     pub pec: Vec<PecNode>,
     pub edges: Vec<EdgeNode>,
+    /// Sorted by idx, with their poles stored in the same order.
+    pub disp: Vec<DispNode>,
+    pub disp_poles: Vec<DispPole>,
     pub px: (Profile, Profile),
     pub py: (Profile, Profile),
 }
@@ -166,6 +206,7 @@ impl Engine {
         let n = nx * ny;
         let src_row = row_offsets(init.src.iter().map(|s| s.idx as usize), nx, ny);
         let pec_row = row_offsets(init.pec.iter().map(|s| s.idx as usize), nx, ny);
+        let disp_row = row_offsets(init.disp.iter().map(|s| s.idx as usize), nx, ny);
         let probe_cols = (l.nxi - 1) / PROBE_STRIDE + 1;
         let probe_rows = (l.nyi - 1) / PROBE_STRIDE + 1;
         let threads = rayon::current_num_threads().max(1);
@@ -197,6 +238,9 @@ impl Engine {
             pec: init.pec,
             pec_row,
             edges: init.edges,
+            disp: init.disp,
+            disp_row,
+            disp_poles: init.disp_poles,
             probe_re: vec![0.0; probe_rows * probe_cols],
             probe_im: vec![0.0; probe_rows * probe_cols],
             probe_cols,
@@ -286,6 +330,9 @@ impl Engine {
         let (px, py) = (&self.px_e, &self.py_e);
         let cb_bg = self.cb_bg;
         let (src, src_row, pec, pec_row) = (&self.src, &self.src_row, &self.pec, &self.pec_row);
+        let disp = Ptr::new(&mut self.disp);
+        let disp_poles = Ptr::new(&mut self.disp_poles);
+        let disp_row = &self.disp_row;
         let acc_re = Ptr::new(&mut self.acc_re);
         let acc_im = Ptr::new(&mut self.acc_im);
         let pr_re = Ptr::new(&mut self.probe_re);
@@ -334,6 +381,35 @@ impl Engine {
                 let base = j * nx;
                 for s in &src[src_row[j]..src_row[j + 1]] {
                     ez_r[s.idx as usize - base] -= s.u1 * ph.da + s.u2 * ph.sa - s.v1 * ph.db - s.v2 * ph.sb;
+                }
+                let (d0, d1) = (disp_row[j], disp_row[j + 1]);
+                if d1 > d0 {
+                    // SAFETY: nodes and their poles are sorted by grid index, so
+                    // row j's are a range only this chunk touches.
+                    let nodes = unsafe { disp.slice(d0, d1 - d0) };
+                    let p0 = nodes[0].poles.0 as usize;
+                    let p1 = nodes[nodes.len() - 1].poles.1 as usize;
+                    let poles = unsafe { disp_poles.slice(p0, p1 - p0) };
+                    let (i0, i1) = (ph.a0 as f64, ph.a1 as f64);
+                    let (b0, b1) = (ph.b0 as f64, ph.b1 as f64);
+                    for d in nodes {
+                        let inc0 = i0 * d.re - b0 * d.im;
+                        let inc1 = i1 * d.re - b1 * d.im;
+                        let ps = &mut poles[d.poles.0 as usize - p0..d.poles.1 as usize - p0];
+                        let r: f64 = ps.iter().map(|q| 0.5 * ((1.0 + q.c.p1) * q.j_n + q.c.p2 * q.j_nm1)).sum();
+                        let e = &mut ez_r[d.idx as usize - base];
+                        let es = *e as f64
+                            + d.inv_d * (-d.k_inc * (inc1 - inc0) - r - d.a * inc1 - d.b * d.e_n - d.c * d.e_nm1);
+                        *e = es as f32;
+                        let e1 = es + inc1;
+                        for q in ps.iter_mut() {
+                            let j1 = q.c.p1 * q.j_n + q.c.p2 * q.j_nm1 + q.c.q * e1 + q.c.qn * d.e_n + q.c.qm * d.e_nm1;
+                            q.j_nm1 = q.j_n;
+                            q.j_n = j1;
+                        }
+                        d.e_nm1 = d.e_n;
+                        d.e_n = e1;
+                    }
                 }
                 for p in &pec[pec_row[j]..pec_row[j + 1]] {
                     ez_r[p.idx as usize - base] = -(ph.a1 * p.re - ph.b1 * p.im);

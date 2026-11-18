@@ -52,7 +52,7 @@ fn headers_are_identical_and_versions_agree() {
     let line = text.lines().find(|l| l.starts_with("#define FRINGE_ABI_VERSION")).unwrap();
     let v: u32 = line.split_whitespace().nth(2).unwrap().trim_end_matches('u').parse().unwrap();
     assert_eq!(v, fringe_abi_version());
-    assert_eq!(fringe_abi_version(), 2);
+    assert_eq!(fringe_abi_version(), 3);
     let version = unsafe { CStr::from_ptr(fringe_version()) }.to_str().unwrap();
     assert_eq!(version, env!("CARGO_PKG_VERSION"));
 }
@@ -106,6 +106,21 @@ fn outlines() {
     assert_eq!(find("lens-1").unwrap()["enabled"], true);
     assert_eq!(find("lens-2").unwrap()["enabled"], false);
     assert_eq!(find("lens-3").unwrap()["enabled"], false);
+
+    // Every source is listed; an emitter by its point.
+    let mut v: serde_json::Value = serde_json::from_str(scene.to_str().unwrap()).unwrap();
+    v["sources"].as_array_mut().unwrap().push(serde_json::json!({
+        "type": "line_source", "id": "e", "name": "Emitter", "enabled": false, "x_um": 1.5, "y_um": -2.0
+    }));
+    let o = json(unsafe { fringe_scene_outlines(cstr(&v.to_string()).as_ptr()) });
+    let s = o["sources"].as_array().unwrap();
+    assert_eq!(s.len(), 2);
+    assert_eq!(s[0]["kind"], "gaussian_beam");
+    assert_eq!(s[1]["kind"], "line_source");
+    assert_eq!(s[1]["enabled"], false);
+    assert_eq!(s[1]["position_um"], serde_json::json!([1.5, -2.0]));
+    assert!(s[1]["angle_deg"].is_null());
+    assert_eq!(o["source"]["kind"], "gaussian_beam");
 }
 
 /// Outlines are not validated, so a huge element, a tiny wavelength or an
@@ -281,4 +296,130 @@ fn colormap_lut() {
     assert!(out[4 * 128 + 1] > out[4 * 128]);
     assert!(!unsafe { fringe_colormap_lut(cstr("nope").as_ptr(), 0.6, out.as_mut_ptr(), out.len()) });
     assert!(!unsafe { fringe_colormap_lut(cstr("inferno").as_ptr(), 0.6, out.as_mut_ptr(), 100) });
+}
+
+#[test]
+fn material_presets_and_evaluation() {
+    let list = json(fringe_material_presets());
+    let ids: Vec<&str> = list.as_array().unwrap().iter().map(|p| p["id"].as_str().unwrap()).collect();
+    for id in ["gold", "silver", "aluminium", "copper", "bk7", "fused_silica"] {
+        assert!(ids.contains(&id), "{id} missing from {ids:?}");
+    }
+    let gold = &list.as_array().unwrap()[0]["material"];
+    assert_eq!(gold["type"], "dispersive");
+    let req = serde_json::json!({ "material": gold, "wavelengths_um": [0.5, 1.0] }).to_string();
+    let r = json(unsafe { fringe_material_evaluate(cstr(&req).as_ptr()) });
+    let k = r["k"].as_array().unwrap();
+    assert_eq!(k.len(), 2);
+    assert!(k[1].as_f64().unwrap() > 5.0 && r["eps1"][1].as_f64().unwrap() < -30.0, "{r}");
+    let pec = json(unsafe { fringe_material_evaluate(cstr(r#"{"material": {"type": "pec"}, "wavelengths_um": [1]}"#).as_ptr()) });
+    assert!(pec["n"][0].is_null());
+    let bad = json(unsafe { fringe_material_evaluate(cstr(r#"{"material": {"type": "wood"}, "wavelengths_um": [1]}"#).as_ptr()) });
+    assert_eq!(bad["error"]["code"], "parse");
+    assert!(unsafe { fringe_material_evaluate(ptr::null()) }.is_null());
+}
+
+#[test]
+fn material_curve() {
+    let silver = take(fringe_material_presets());
+    let presets: serde_json::Value = serde_json::from_str(&silver).unwrap();
+    let m = presets.as_array().unwrap().iter().find(|p| p["id"] == "silver").unwrap()["material"].to_string();
+    let r = json(unsafe { fringe_material_curve(cstr(&m).as_ptr(), 0.4, 1.2, 5, 0.5) });
+    let wl: Vec<f64> = r["wavelength_um"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+    assert_eq!(wl.len(), 5);
+    assert!((wl[0] - 0.4).abs() < 1e-12 && (wl[4] - 1.2).abs() < 1e-12 && (wl[2] - 0.8).abs() < 1e-12);
+    for key in ["n", "k", "eps_re", "eps_im"] {
+        assert_eq!(r[key].as_array().unwrap().len(), 5, "{key}");
+    }
+    // Silver absorbs: k > 0 and ε_im > 0 in the n + ik convention, ε_re < 0.
+    for i in 0..5 {
+        assert!(r["k"][i].as_f64().unwrap() > 0.0 && r["eps_im"][i].as_f64().unwrap() > 0.0, "{r}");
+        assert!(r["eps_re"][i].as_f64().unwrap() < 0.0);
+    }
+    assert_eq!(r["at"]["wavelength_um"], 0.5);
+    assert!(r["at"]["k"].as_f64().unwrap() > 1.0);
+    // A plain dielectric gives its own n and k everywhere.
+    let r = json(unsafe { fringe_material_curve(cstr(r#"{"type":"dielectric","n":1.5,"k":0.01}"#).as_ptr(), 0.5, 0.6, 1, 0.55) });
+    assert_eq!(r["n"][0], 1.5);
+    assert_eq!(r["k"][0], 0.01);
+    let pec = json(unsafe { fringe_material_curve(cstr(r#"{"type":"pec"}"#).as_ptr(), 0.5, 0.6, 2, 0.55) });
+    assert!(pec["n"][0].is_null() && pec["at"]["k"].is_null());
+    for (lo, hi, n, l0) in [(0.6, 0.5, 2, 0.5), (0.5, 0.6, 0, 0.5), (0.5, 0.6, 2, -1.0), (f64::NAN, 0.6, 2, 0.5)] {
+        let e = json(unsafe { fringe_material_curve(cstr(r#"{"type":"pec"}"#).as_ptr(), lo, hi, n, l0) });
+        assert_eq!(e["error"]["code"], "out_of_range", "{lo} {hi} {n} {l0}");
+    }
+    let e = json(unsafe { fringe_material_curve(cstr(r#"{"type":"gold"}"#).as_ptr(), 0.5, 0.6, 2, 0.5) });
+    assert_eq!(e["error"]["code"], "parse");
+    assert!(unsafe { fringe_material_curve(ptr::null(), 0.5, 0.6, 2, 0.5) }.is_null());
+}
+
+#[test]
+fn scene_upgrade_gives_the_v2_source_its_id() {
+    let v2 = common::fixture("scenes/lens.json");
+    let v: serde_json::Value = serde_json::from_str(&v2).unwrap();
+    assert_eq!(v["version"], 2, "the lens fixture is a version 2 scene");
+    let up = json(unsafe { fringe_scene_upgrade(cstr(&v2).as_ptr()) });
+    assert_eq!(up["version"], 3);
+    assert!(up.get("source").is_none());
+    let s = &up["sources"][0];
+    assert_eq!((s["id"].as_str(), s["name"].as_str(), s["enabled"].as_bool()), (Some("source-1"), Some(""), Some(true)));
+    assert_eq!(s["type"], v["source"]["type"]);
+    let bad = json(unsafe { fringe_scene_upgrade(cstr(r#"{"version": 1}"#).as_ptr()) });
+    assert_eq!(bad["error"]["code"], "schema_version");
+    assert!(unsafe { fringe_scene_upgrade(ptr::null()) }.is_null());
+}
+
+#[test]
+fn check_report_has_source_ids_and_effective_materials() {
+    let s = take(unsafe { fringe_scene_example(cstr("silver_dimer").as_ptr()) });
+    let r = json(unsafe { fringe_scene_check(cstr(&s).as_ptr()) });
+    assert_eq!(r["derived"]["sources"][0]["id"], "source-1");
+    assert!(r["derived"]["sources"][0]["rayleigh_range_um"].as_f64().unwrap() > 0.0);
+    let m = &r["derived"]["elements"][0]["material"];
+    assert!(m["k"].as_f64().unwrap() > 0.0 && m["eps_im"].as_f64().unwrap() > 0.0 && m["eps_re"].as_f64().unwrap() < 0.0, "{m}");
+    assert_eq!(m["eps_re"], m["eps1"]);
+}
+
+/// Solves an example at preview quality through the C ABI.
+fn solve_example(name: &str) -> *mut FringeField {
+    let s = cstr(&take(unsafe { fringe_scene_example(cstr(name).as_ptr()) }));
+    let job = unsafe { fringe_job_start(s.as_ptr(), 0, ptr::null_mut()) };
+    assert_eq!(wait(job).state, 1);
+    let f = unsafe { fringe_job_take_result(job, ptr::null_mut()) };
+    unsafe { fringe_job_free(job) };
+    assert!(!f.is_null());
+    f
+}
+
+#[test]
+fn field_info_detectors_measure_and_memory() {
+    let f = solve_example("silver_dimer");
+    let info = json(unsafe { fringe_field_info(f) });
+    assert!(info["meta"]["memory_mb"].as_f64().unwrap() > 0.0);
+    let gap = &info["detectors"][0];
+    assert_eq!((gap["id"].as_str(), gap["kind"].as_str()), (Some("gap"), Some("box")));
+    assert_eq!(gap["mean_intensity"]["total"], gap["total"]["mean"]);
+    assert_eq!(gap["integral"]["incident"], gap["incident"]["integral"]);
+    // The same detector moved, without a solve.
+    let moved = r#"[{"id": "a", "shape": {"kind": "box", "x_um": 1.0, "y_um": 0.0, "width_um": 0.2, "height_um": 0.2}},
+                    {"id": "b", "enabled": false, "shape": {"kind": "line", "x1_um": 0, "y1_um": 0, "x2_um": 1, "y2_um": 0}},
+                    {"id": "c", "shape": {"kind": "line", "x1_um": 2.0, "y1_um": -1.0, "x2_um": 2.0, "y2_um": 1.0}}]"#;
+    let r = json(unsafe { fringe_field_measure(f, cstr(moved).as_ptr()) });
+    let r = r.as_array().unwrap();
+    assert_eq!(r.len(), 2);
+    assert_eq!(r[0]["id"], "a");
+    assert!(r[0]["mean_intensity"]["incident"].as_f64().unwrap() > 0.5);
+    // A line's normal has no negative zero.
+    assert_eq!(r[1]["normal"].to_string(), "[1.0,0.0]");
+    // The scene's own detectors read the same as the field info.
+    let scene: serde_json::Value = serde_json::from_str(&take(unsafe { fringe_scene_example(cstr("silver_dimer").as_ptr()) })).unwrap();
+    let same = json(unsafe { fringe_field_measure(f, cstr(&scene["detectors"].to_string()).as_ptr()) });
+    assert_eq!(same[0], info["detectors"][0]);
+    let outside = r#"[{"id": "x", "shape": {"kind": "box", "x_um": 40, "y_um": 0, "width_um": 1, "height_um": 1}}]"#;
+    let e = json(unsafe { fringe_field_measure(f, cstr(outside).as_ptr()) });
+    assert_eq!(e["error"]["issues"][0]["code"], "outside_domain");
+    let e = json(unsafe { fringe_field_measure(f, cstr("{").as_ptr()) });
+    assert_eq!(e["error"]["code"], "parse");
+    assert!(unsafe { fringe_field_measure(f, ptr::null()) }.is_null());
+    unsafe { fringe_field_free(f) };
 }

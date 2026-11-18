@@ -6,10 +6,12 @@
 //! case region, intersected with the solver's grid and with PEC interiors left
 //! out; for FDTD, points within 2Δ of an interface are left out too.
 
+use std::sync::Arc;
 use std::time::Instant;
 
 use serde::Serialize;
 
+use crate::detectors::{FieldView, Flux, Measurement};
 use crate::geometry::{bodies_from_scene, BodyMaterial};
 use crate::scene::*;
 use crate::solver::{solve, FieldGrid, Method, Part, Quality, SolveContext};
@@ -17,7 +19,7 @@ use crate::source::Incident;
 use crate::types::{Vec2, C64};
 
 use super::metrics::{fitted_order, flux_balance, interface_band, observed_order, rel_l2, resample};
-use super::{pec_plane_image, AirySlab, MieCylinder};
+use super::{pec_plane_image, AirySlab, LineCylinder, MieCylinder};
 
 /// One row of the tolerance table. A bound of `None` means the case does not
 /// apply to that method.
@@ -29,7 +31,16 @@ use super::{pec_plane_image, AirySlab, MieCylinder};
 /// the measured error is the smaller on almost every row, so the bounds are
 /// regression guards: a change that makes a solver less accurate fails here
 /// even while it still meets the target. A row that measures exactly zero
-/// keeps its target (MoM `transparent`, 1e−6). The order rows
+/// keeps its target (MoM `transparent`, 1e−6; FEM and MoM `bk7_plain`, 1e−9,
+/// where the dispersive and the plain material give the same ε). The metal
+/// and line-source cases also require the FDTD to settle. Around a line
+/// source the error leaves out a disc of λ_b/4, where the singular incident
+/// field would dominate both norms. The detector rows measure readings, not
+/// fields: `detector_plane` the relative error of a line's flux and a box's
+/// mean |E|², `slab_power` |R + T − incident| / incident for a lossless slab,
+/// and `slab_lossy_power` the absorbed fraction against the Airy field's,
+/// which must also be far above zero. Both slab rows also bound how far R and
+/// T are from the Airy values, at final quality (see `slab_rt_bound`). The order rows
 /// (`fdtd_subpixel_order`, `fem_order`) are lower bounds.
 #[derive(Clone, Copy, Debug, Serialize)]
 pub struct CaseSpec {
@@ -55,7 +66,7 @@ const fn case(
     CaseSpec { id, slow, mom, fem, fdtd, fdtd_ppw, description }
 }
 
-pub const CASES: [CaseSpec; 19] = [
+pub const CASES: [CaseSpec; 30] = [
     case("mie_pec", false, Some(6.4e-5), Some(8.6e-4), Some(1.4e-2), Some(30.0), "PEC cylinder r = 1, plane wave 0°"),
     case("mie_pec_37", false, Some(6.3e-5), Some(8.7e-4), Some(8.2e-3), Some(30.0), "PEC cylinder r = 1, plane wave 37°"),
     case(
@@ -113,7 +124,74 @@ pub const CASES: [CaseSpec; 19] = [
         "mie_pec against the same with the domain 4 µm larger (FEM at 25 per λ)",
     ),
     case("balance", false, Some(2.2e-4), Some(1.7e-4), Some(2e-3), None, "energy balance of mie_lossy"),
+    case(
+        "mie_silver",
+        false,
+        Some(6.3e-5),
+        Some(4.4e-4),
+        Some(1.6e-3),
+        None,
+        "silver cylinder (Rakić Lorentz–Drude) r = 0.1 µm at λ0 = 0.5 µm, ε ≈ −7.6 − 0.73j",
+    ),
+    case("mie_gold", false, Some(1.8e-5), Some(4.7e-4), Some(1.5e-3), None, "gold cylinder (Rakić) r = 0.15 µm at λ0 = 0.633 µm, ε ≈ −9.8 − 2.0j"),
+    case(
+        "mie_silver_plasmon",
+        false,
+        Some(1.3e-4),
+        Some(3.1e-4),
+        Some(4.3e-3),
+        None,
+        "silver cylinder r = 0.06 µm at λ0 = 0.345 µm, where ε′ ≈ −1 (the in-plane plasmon condition; Ez sees no resonance)",
+    ),
+    case(
+        "bk7_plain",
+        false,
+        Some(1e-9),
+        Some(1e-9),
+        Some(7.6e-5),
+        None,
+        "BK7 preset cylinder r = 1 against a plain index with the same n at λ0 = 1 µm",
+    ),
+    case("line_pec", false, Some(8.2e-5), Some(1.1e-3), Some(1.4e-2), Some(30.0), "line source 0.9 µm from a PEC cylinder r = 1 (Graf series)"),
+    case("line_diel", false, Some(2.9e-4), Some(9.4e-4), Some(8.9e-3), None, "line source 0.9 µm from a cylinder n = 1.5, r = 1 (Graf series)"),
+    case(
+        "line_plane_diel",
+        false,
+        Some(2.8e-4),
+        Some(8.8e-4),
+        Some(9e-3),
+        None,
+        "plane wave at 30° and a line source (phase 90°) together on a cylinder n = 1.5, r = 1",
+    ),
+    case(
+        "detector_plane",
+        false,
+        Some(5.2e-6),
+        Some(5.2e-6),
+        Some(2e-8),
+        None,
+        "line and box detectors in a plane wave at 30° in n_b = 1.33 against n_b A² L cos θ / 2 and A²",
+    ),
+    case(
+        "slab_power",
+        false,
+        Some(2.5e-6),
+        Some(9.5e-4),
+        Some(1.5e-7),
+        None,
+        "Gaussian beam through a slab (R ≈ 0.15), line detectors in front and behind: |R + T − incident| / incident",
+    ),
+    case(
+        "slab_lossy_power",
+        false,
+        Some(1.3e-6),
+        Some(3.6e-4),
+        Some(4.6e-3),
+        None,
+        "the same slab with k = 0.05: absorbed fraction 1 − (R + T) / incident against the Airy field's",
+    ),
     case("free_beam", false, Some(0.0), Some(0.0), Some(0.0), None, "no elements: the scattered field is exactly zero"),
+    case("line_free", false, Some(0.0), Some(0.0), Some(0.0), None, "a line source alone: the scattered field is exactly zero"),
     case("transparent", false, Some(1e-6), Some(0.0), Some(0.0), None, "cylinder with n = n_b: no scattering"),
 ];
 
@@ -163,28 +241,54 @@ pub struct CaseResult {
     pub detail: String,
 }
 
-// Scenes. All cases use λ0 = 1 µm and n_b = 1.
+// Scenes. All cases use λ0 = 1 µm, and all but `detector_plane` n_b = 1.
 
-fn base(source: Source, elements: Vec<Element>, domain: [f64; 4]) -> Scene {
+fn base(source: SourceKind, elements: Vec<Element>, domain: [f64; 4]) -> Scene {
     Scene {
         version: SCHEMA_VERSION,
         wavelength_um: 1.0,
         background: Background { n: 1.0 },
         polarization: Polarization::Ez,
-        source,
+        sources: vec![Source::new("source-1", source)],
         elements,
+        detectors: Vec::new(),
         domain: Domain { x_min_um: domain[0], x_max_um: domain[1], y_min_um: domain[2], y_max_um: domain[3], pml_wl: 1.0 },
         solver: SolverSettings::default(),
     }
 }
 
-fn plane(angle_deg: f64) -> Source {
-    Source::PlaneWave { angle_deg, amplitude: 1.0, phase_deg: 0.0 }
+fn plane(angle_deg: f64) -> SourceKind {
+    SourceKind::PlaneWave { angle_deg, amplitude: 1.0, phase_deg: 0.0 }
 }
 
-fn gaussian(x: f64, angle_deg: f64) -> Source {
-    Source::GaussianBeam { waist_um: 2.5, waist_x_um: x, waist_y_um: 0.0, angle_deg, amplitude: 1.0, phase_deg: 0.0 }
+fn gaussian(x: f64, angle_deg: f64) -> SourceKind {
+    SourceKind::GaussianBeam { waist_um: 2.5, waist_x_um: x, waist_y_um: 0.0, angle_deg, amplitude: 1.0, phase_deg: 0.0 }
 }
+
+/// The emitter of the line-source cases: 0.9 µm from the surface of the
+/// unit cylinders, off the axis so that the field has no symmetry.
+pub const LINE_SOURCE_POS: [f64; 2] = [-1.8, 0.6];
+
+fn line(amplitude: f64, phase_deg: f64) -> SourceKind {
+    SourceKind::LineSource { x_um: LINE_SOURCE_POS[0], y_um: LINE_SOURCE_POS[1], amplitude, phase_deg }
+}
+
+/// A unit cylinder lit by a line source.
+fn line_cylinder_scene(material: Material) -> Scene {
+    base(line(1.0, 0.0), vec![el("cylinder", material, 0.0, Shape::Cylinder { radius_um: 1.0 })], [-4.0, 4.0, -4.0, 4.0])
+}
+
+fn detector(id: &str, shape: DetectorShape) -> Detector {
+    Detector { id: id.into(), name: String::new(), enabled: true, shape }
+}
+
+/// Slab thickness of the slab power cases: 3 µm plus a quarter wavelength in
+/// the slab (n = 1.5), at the reflection maximum.
+pub const SLAB_POWER_THICKNESS: f64 = 3.0 + 1.0 / 6.0;
+
+/// Background index of `detector_plane`, the one case not in vacuum, so that
+/// the n_b in the flux is checked.
+pub const DETECTOR_PLANE_NB: f64 = 1.33;
 
 fn el(id: &str, material: Material, x: f64, shape: Shape) -> Element {
     Element { id: id.into(), name: id.into(), enabled: true, material, x_um: x, y_um: 0.0, rotation_deg: 0.0, shape }
@@ -214,9 +318,29 @@ fn mirror_scene(angle_deg: f64) -> Scene {
     )
 }
 
+/// A cylinder of preset material `preset` at vacuum wavelength `lambda`.
+fn preset_cylinder(preset: &str, r: f64, lambda: f64, half: f64) -> Scene {
+    let m = crate::scene::materials::preset(preset).expect("a library preset");
+    let mut s = cylinder_scene(m, r, 0.0, half);
+    s.wavelength_um = lambda;
+    s
+}
+
+/// The plain-index scene `bk7_plain` compares against: n of the BK7 preset at
+/// λ0, entered as n + ik.
+pub fn bk7_plain_reference_scene() -> Scene {
+    let s = preset_cylinder("bk7", 1.0, 1.0, 4.0);
+    let n = s.elements[0].material.index_at(s.wavelength_um).expect("a dielectric");
+    cylinder_scene(diel(n.re, -n.im), 1.0, 0.0, 4.0)
+}
+
 /// The base scene of a case (before method and resolution are applied).
 pub fn case_scene(id: &str) -> Option<Scene> {
     Some(match id {
+        "mie_silver" => preset_cylinder("silver", 0.1, 0.5, 1.0),
+        "mie_gold" => preset_cylinder("gold", 0.15, 0.633, 1.2),
+        "mie_silver_plasmon" => preset_cylinder("silver", 0.06, 0.345, 0.7),
+        "bk7_plain" => preset_cylinder("bk7", 1.0, 1.0, 4.0),
         "mie_pec" | "pml_hygiene" => cylinder_scene(Material::Pec, 1.0, 0.0, 4.0),
         "mie_pec_37" => cylinder_scene(Material::Pec, 1.0, 37.0, 4.0),
         "mie_pec_resonance" => cylinder_scene(Material::Pec, RESONANT_RADIUS, 0.0, 2.0),
@@ -236,7 +360,38 @@ pub fn case_scene(id: &str) -> Option<Scene> {
             s
         }
         "free_beam" => base(gaussian(-2.0, 0.0), Vec::new(), [-4.0, 4.0, -4.0, 4.0]),
+        "line_free" => base(line(1.0, 0.0), Vec::new(), [-4.0, 4.0, -4.0, 4.0]),
+        "line_pec" => line_cylinder_scene(Material::Pec),
+        "line_diel" => line_cylinder_scene(diel(1.5, 0.0)),
+        "line_plane_diel" => {
+            let mut s = line_cylinder_scene(diel(1.5, 0.0));
+            s.sources[0].kind = line(0.7, 90.0);
+            s.sources.push(Source::new("source-2", plane(30.0)));
+            s
+        }
         "transparent" => cylinder_scene(diel(1.0, 0.0), 1.0, 0.0, 4.0),
+        "detector_plane" => {
+            let mut s = base(plane(30.0), Vec::new(), [-4.0, 4.0, -4.0, 4.0]);
+            s.background.n = DETECTOR_PLANE_NB;
+            s.sources[0].kind = SourceKind::PlaneWave { angle_deg: 30.0, amplitude: 2.0, phase_deg: 0.0 };
+            // Off the grid nodes, and on the bottom domain edge for one end.
+            s.detectors = vec![
+                detector("line", DetectorShape::Line { x1_um: 1.03, y1_um: -4.0, x2_um: 1.03, y2_um: 2.29 }),
+                detector("box", DetectorShape::Box { x_um: 0.1, y_um: 0.2, width_um: 0.5, height_um: 0.3 }),
+            ];
+            s
+        }
+        "slab_power" | "slab_lossy_power" => {
+            // A sixth of a micrometre thicker than slab_airy_0, which is near a
+            // transmission maximum (R ≈ 3e−4): here R ≈ 0.15.
+            let mut s = slab_scene(0.0, if id == "slab_power" { 0.0 } else { 0.05 });
+            s.elements[0].shape = Shape::Slab { thickness_um: SLAB_POWER_THICKNESS, height_um: 24.0 };
+            s.detectors = vec![
+                detector("front", DetectorShape::Line { x1_um: -4.0, y1_um: -8.0, x2_um: -4.0, y2_um: 8.0 }),
+                detector("back", DetectorShape::Line { x1_um: 4.0, y1_um: -8.0, x2_um: 4.0, y2_um: 8.0 }),
+            ];
+            s
+        }
         _ => return None,
     })
 }
@@ -268,29 +423,53 @@ fn with_method(mut s: Scene, m: Method, ppw: Option<f64>) -> Scene {
     s
 }
 
+type FieldFn = Box<dyn Fn(Vec2) -> C64 + Send + Sync>;
+
 /// The analytic total field of a case at `p`.
-pub fn reference(id: &str, scene: &Scene) -> Option<Box<dyn Fn(Vec2) -> C64 + Send + Sync>> {
+pub fn reference(id: &str, scene: &Scene) -> Option<FieldFn> {
     let k0 = 2.0 * std::f64::consts::PI / scene.wavelength_um;
     let n_b = scene.background.n;
     let outer = scene.domain.rect().expand(scene.domain.pml_wl * scene.wavelength_um / n_b);
     let inc = Incident::from_scene(scene, outer);
     let bodies = bodies_from_scene(scene);
     match id {
-        "free_beam" => Some(Box::new(move |p| inc.eval(p))),
-        id if id.starts_with("mie") || id == "transparent" || id == "balance" || id == "pml_hygiene" => {
+        "free_beam" | "line_free" => Some(Box::new(move |p| inc.eval(p))),
+        id if id.starts_with("mie") || id.starts_with("line") || id == "transparent" || id == "balance" || id == "pml_hygiene" => {
             let e = scene.elements.first()?;
             let Shape::Cylinder { radius_um } = e.shape else { return None };
-            let mie = MieCylinder::new(
-                Vec2::new(e.x_um, e.y_um),
-                radius_um,
-                bodies.first()?.material,
-                n_b,
-                k0,
-                scene.source.angle_deg().to_radians(),
-                scene.source.amplitude(),
-                scene.source.phase_deg().to_radians(),
-            );
-            Some(Box::new(move |p| mie.total(p)))
+            let center = Vec2::new(e.x_um, e.y_um);
+            let material = bodies.first()?.material;
+            // The incident field of every source plus each one's scattered
+            // field: plane waves by the Mie series, line sources by Graf's.
+            let mut scattered: Vec<FieldFn> = Vec::new();
+            let mut interior: Vec<FieldFn> = Vec::new();
+            for s in scene.enabled_sources() {
+                let (a, ph) = (s.kind.amplitude(), s.kind.phase_deg().to_radians());
+                match s.kind {
+                    SourceKind::PlaneWave { angle_deg, .. } => {
+                        let angle = angle_deg.to_radians();
+                        let mie = Arc::new(MieCylinder::new(center, radius_um, material, n_b, k0, angle, a, ph));
+                        let m2 = mie.clone();
+                        scattered.push(Box::new(move |p| mie.scattered(p)));
+                        interior.push(Box::new(move |p| m2.total(p)));
+                    }
+                    SourceKind::LineSource { x_um, y_um, .. } => {
+                        let at = Vec2::new(x_um, y_um);
+                        let lc = Arc::new(LineCylinder::new(center, radius_um, material, n_b, k0, at, a, ph));
+                        let l2 = lc.clone();
+                        scattered.push(Box::new(move |p| lc.scattered(p)));
+                        interior.push(Box::new(move |p| l2.total(p)));
+                    }
+                    SourceKind::GaussianBeam { .. } => return None,
+                }
+            }
+            Some(Box::new(move |p| {
+                if p.dist(center) >= radius_um {
+                    inc.eval(p) + scattered.iter().map(|f| f(p)).sum::<C64>()
+                } else {
+                    interior.iter().map(|f| f(p)).sum::<C64>()
+                }
+            }))
         }
         id if id.starts_with("slab") => {
             let e = scene.elements.first()?;
@@ -313,9 +492,12 @@ pub fn reference(id: &str, scene: &Scene) -> Option<Box<dyn Fn(Vec2) -> C64 + Se
 /// Evaluation mask of a case on the solution grid.
 fn region_mask(id: &str, field: &FieldGrid, method: Method) -> Vec<bool> {
     let g = &field.grid;
+    // The discs about emitters, where the singular incident field would
+    // dominate both norms, are left out.
+    let core = field.emitter_core_mask();
     let mut mask: Vec<bool> = (0..g.len())
         .map(|idx| {
-            if field.is_pec(idx) {
+            if field.is_pec(idx) || core.as_ref().is_some_and(|c| c[idx]) {
                 return false;
             }
             let p = g.point(idx % g.nx, idx / g.nx);
@@ -354,6 +536,103 @@ pub fn field_error(id: &str, field: &FieldGrid) -> f64 {
     rel_l2(&field.total, &refs, Some(&mask))
 }
 
+fn is_metal_case(id: &str) -> bool {
+    matches!(id, "mie_silver" | "mie_gold" | "mie_silver_plasmon")
+}
+
+/// Relative errors of the `detector_plane` readings: the line's flux against
+/// `n_b A² L cos θ / 2` and the box's mean |E|² against A².
+pub fn detector_plane_errors(field: &FieldGrid) -> (f64, f64) {
+    let s = &field.scene;
+    let SourceKind::PlaneWave { angle_deg, amplitude, .. } = s.sources[0].kind else { return (f64::NAN, f64::NAN) };
+    let (mut flux_err, mut box_err) = (f64::NAN, f64::NAN);
+    for r in field.detector_readings() {
+        match &r.measurement {
+            Measurement::Line { flux, length_um, normal } => {
+                let dir = Vec2::from_angle(angle_deg.to_radians());
+                let want = 0.5 * s.background.n * amplitude * amplitude * length_um * dir.dot(Vec2::new(normal[0], normal[1]));
+                flux_err = (flux.total - want).abs() / want.abs();
+            }
+            Measurement::Box { total, .. } => {
+                let want = amplitude * amplitude;
+                box_err = (total.mean - want).abs() / want;
+            }
+        }
+    }
+    (flux_err, box_err)
+}
+
+/// Incident, reflected and transmitted power of the slab power cases, from
+/// the detectors "front" and "back" (both with the normal along +x). In front
+/// of the slab the scattered field is the reflected wave alone, so the
+/// reflected power is minus its flux there; behind it the total flux is the
+/// transmitted power.
+#[derive(Clone, Copy, Debug)]
+pub struct SlabPowers {
+    pub incident: f64,
+    pub reflected: f64,
+    pub transmitted: f64,
+}
+
+pub fn slab_powers(view: &FieldView, detectors: &[Detector]) -> SlabPowers {
+    let readings = crate::detectors::measure_all(view, detectors);
+    let flux = |id: &str| {
+        readings.iter().find(|r| r.id == id).and_then(|r| r.measurement.flux()).unwrap_or(Flux {
+            total: f64::NAN,
+            incident: f64::NAN,
+            scattered: f64::NAN,
+        })
+    };
+    let (front, back) = (flux("front"), flux("back"));
+    SlabPowers { incident: front.incident, reflected: -front.scattered, transmitted: back.total }
+}
+
+/// [`slab_powers`] of the Airy field sampled on the solver's grid, so that the
+/// reference is measured the same way as the solution.
+pub fn slab_reference_powers(id: &str, field: &FieldGrid) -> SlabPowers {
+    let s = &field.scene;
+    let Some(reference) = reference(id, s) else {
+        return SlabPowers { incident: f64::NAN, reflected: f64::NAN, transmitted: f64::NAN };
+    };
+    let outer = s.domain.rect().expand(s.domain.pml_wl * s.wavelength_um / s.background.n);
+    let inc = Incident::from_scene(s, outer);
+    let g = &field.grid;
+    let total: Vec<C64> = (0..g.len()).map(|idx| reference(g.point(idx % g.nx, idx / g.nx))).collect();
+    let incident = inc.eval_grid(g);
+    let view = FieldView { grid: g, total: &total, incident: &incident, wavelength_um: s.wavelength_um };
+    slab_powers(&view, &s.detectors)
+}
+
+/// Bound on max(|R − R_Airy|, |T − T_Airy|) in the slab power cases at final
+/// quality: twice the measured value, as for the error bounds. FDTD's is the
+/// largest: its R is 0.1442 against 0.1484, from the grid's phase error over
+/// the 3 µm slab, while it still conserves energy to 1e−7.
+fn slab_rt_bound(method: Method) -> f64 {
+    match method {
+        Method::Mom => 2.2e-6,
+        Method::Fem => 1.1e-3,
+        Method::Fdtd => 8.5e-3,
+    }
+}
+
+/// Relative L2 error of the scattered field over the case region.
+pub fn scattered_error(id: &str, field: &FieldGrid) -> f64 {
+    let Some(reference) = reference(id, &field.scene) else { return f64::NAN };
+    let s = &field.scene;
+    let outer = s.domain.rect().expand(s.domain.pml_wl * s.wavelength_um / s.background.n);
+    let inc = Incident::from_scene(s, outer);
+    let g = &field.grid;
+    let refs: Vec<C64> = (0..g.len())
+        .map(|idx| {
+            let p = g.point(idx % g.nx, idx / g.nx);
+            reference(p) - inc.eval(p)
+        })
+        .collect();
+    let num: Vec<C64> = (0..g.len()).map(|i| field.value(Part::Scattered, i)).collect();
+    let mask = region_mask(id, field, field.meta.method);
+    rel_l2(&num, &refs, Some(&mask))
+}
+
 fn max_scattered(field: &FieldGrid) -> f64 {
     (0..field.grid.len())
         .filter(|&i| !field.is_pec(i))
@@ -384,11 +663,16 @@ pub fn run_case(id: &str, method: Method, quality: Quality) -> Result<CaseResult
     let mut pass;
 
     match id {
-        "free_beam" | "transparent" => {
+        "free_beam" | "transparent" | "line_free" => {
             let r = run(&with_method(scene0, method, ppw), quality)?;
             let e = max_scattered(&r.field);
             result.error = Some(e);
             result.detail = "max |E_s| / A".into();
+            if id == "line_free" {
+                // The incident field itself: analytic for FEM and MoM, the
+                // Yee-matched Hankel function for FDTD.
+                result.detail += &format!("; incident against H0: {:.2e}", field_error(id, &r.field));
+            }
             result.unknowns = r.field.meta.solver.unknowns;
             result.seconds = r.seconds;
             pass = e <= tol;
@@ -402,6 +686,59 @@ pub fn run_case(id: &str, method: Method, quality: Quality) -> Result<CaseResult
             result.unknowns = r.field.meta.solver.unknowns;
             result.seconds = r.seconds;
             pass = e <= tol;
+        }
+        "detector_plane" => {
+            let r = run(&with_method(scene0, method, ppw), quality)?;
+            let (flux_err, box_err) = detector_plane_errors(&r.field);
+            let e = flux_err.max(box_err);
+            result.error = Some(e);
+            result.detail = format!("flux {flux_err:.2e}, box mean |E|² {box_err:.2e}");
+            result.unknowns = r.field.meta.solver.unknowns;
+            result.seconds = r.seconds;
+            pass = e <= tol;
+        }
+        "slab_power" | "slab_lossy_power" => {
+            let r = run(&with_method(scene0, method, ppw), quality)?;
+            let num = slab_powers(&r.field.view(), &r.field.scene.detectors);
+            let reference = slab_reference_powers(id, &r.field);
+            let absorbed = 1.0 - (num.reflected + num.transmitted) / num.incident;
+            let absorbed_ref = 1.0 - (reference.reflected + reference.transmitted) / reference.incident;
+            let e = if id == "slab_power" { absorbed.abs() } else { (absorbed - absorbed_ref).abs() };
+            // The split between R and T against the Airy field's, with its own
+            // bound: a solver can conserve energy exactly and still put it on
+            // the wrong side (FDTD's phase error shifts the Fabry–Perot fringe).
+            let rt = (num.reflected / num.incident - reference.reflected / reference.incident)
+                .abs()
+                .max((num.transmitted / num.incident - reference.transmitted / reference.incident).abs());
+            let rt_tol = slab_rt_bound(method);
+            result.error = Some(e);
+            result.detail = format!(
+                "R {:.5}, T {:.5} (Airy field {:.5}, {:.5}), R/T off by {rt:.2e} (bound {rt_tol:.1e}), absorbed {absorbed:.2e}",
+                num.reflected / num.incident,
+                num.transmitted / num.incident,
+                reference.reflected / reference.incident,
+                reference.transmitted / reference.incident,
+            );
+            result.unknowns = r.field.meta.solver.unknowns;
+            result.seconds = r.seconds;
+            pass = e <= tol && (quality == Quality::Preview || rt <= rt_tol);
+            if id == "slab_lossy_power" {
+                // The absorbing slab must show the loss, by a margin far above
+                // the error bound.
+                pass &= absorbed > 10.0 * tol;
+            }
+        }
+        "bk7_plain" => {
+            let a = run(&with_method(scene0, method, ppw), quality)?;
+            let b = run(&with_method(bk7_plain_reference_scene(), method, ppw), quality)?;
+            let mask = region_mask(id, &a.field, method);
+            let e = rel_l2(&a.field.total, &b.field.total, Some(&mask));
+            let mie = field_error("mie_diel", &b.field);
+            result.error = Some(e);
+            result.detail = format!("plain index against Mie: {mie:.2e}");
+            result.unknowns = a.field.meta.solver.unknowns;
+            result.seconds = a.seconds + b.seconds;
+            pass = e <= tol && a.field.grid == b.field.grid;
         }
         "mom_self" => {
             let a = run(&with_method(scene0.clone(), method, Some(12.0)), quality)?;
@@ -517,6 +854,18 @@ pub fn run_case(id: &str, method: Method, quality: Quality) -> Result<CaseResult
             result.unknowns = r.field.meta.solver.unknowns;
             result.seconds = r.seconds;
             pass = e <= tol;
+            if is_metal_case(id) || id.starts_with("line") {
+                // The total field is mostly the incident wave around the small
+                // metal cylinders (and dominated by it near an emitter), so the
+                // scattered field's own error is reported too.
+                let meta = &r.field.meta.solver;
+                result.detail = format!(
+                    "scattered-field error {:.2e}{}",
+                    scattered_error(id, &r.field),
+                    if meta.converged { "" } else { "; not settled" }
+                );
+                pass &= meta.converged;
+            }
             if id == "mie_high_index" && method == Method::Fdtd {
                 // The TM5 resonance of this cylinder (Q ≈ 240, 1.8 linewidths
                 // below the drive) rings for longer than the period cap, so the
