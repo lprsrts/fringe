@@ -105,6 +105,7 @@ char* fringe_material_curve(const char* material_json, double lambda_min_um, dou
 // Solving
 // Returns NULL (and sets *error_json_out) on NULL input, parse or validation
 // errors. Later failures surface as FRINGE_JOB_FAILED.
+// quality: 0 preview, 1 final, 2 tracking (a preview with at most 1 M FDTD cells, for drags).
 FringeJob* fringe_job_start(const char* scene_json, uint32_t quality, char** error_json_out);
 void fringe_job_poll(const FringeJob* job, FringeProgress* out);   // lock-free, any rate
 void fringe_job_cancel(FringeJob* job);                          // idempotent, returns immediately
@@ -155,6 +156,16 @@ bool fringe_field_sample(const FringeField* field, double x_um, double y_um, uin
 bool fringe_field_render_rgba(const FringeField* field, const char* view_json,
                             uint32_t width, uint32_t height,
                             uint8_t* out_rgba, size_t out_len, char** error_json_out);
+// Grid of the field: nx * ny nodes, node (i, j) at (x0 + i dx, y0 + j dx) um.
+bool fringe_field_grid(const FringeField* field, uint32_t* nx, uint32_t* ny,
+                       double* x0_um, double* y0_um, double* dx_um);
+// A part (0 total, 1 scattered, 2 incident) as interleaved float32 re, im (nx*ny*2 floats,
+// row 0 = y0), computed in double precision and rounded once, into a caller buffer.
+bool fringe_field_part_f32(const FringeField* field, uint32_t part, float* out, size_t out_len,
+                           char** error_json_out);
+// The colour scale S fringe_field_render_rgba uses for view_json (normalization and part
+// only); 1 for bad input.
+double fringe_field_scale(const FringeField* field, const char* view_json);
 // Renders and writes a PNG atomically (temporary file + rename).
 bool fringe_field_export_png(const FringeField* field, const char* view_json,
                            uint32_t width, uint32_t height, const char* path,
@@ -206,6 +217,9 @@ void fringe_puzzle_result_free(FringePuzzleResult* result);  // NULL is fine
 
 // 256 RGBA8 entries (out_len >= 1024) for a colour legend.
 bool fringe_colormap_lut(const char* name, double wavelength_um, uint8_t* out_rgba, size_t out_len);
+// n RGBA8 entries (n >= 2, out_len >= 4n): with n = 1024, the table fringe_field_render_rgba
+// colours with.
+bool fringe_colormap_lut_n(const char* name, double wavelength_um, uint32_t n, uint8_t* out_rgba, size_t out_len);
 
 #ifdef __cplusplus
 }

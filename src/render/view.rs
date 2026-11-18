@@ -14,7 +14,7 @@ use super::RenderError;
 
 pub const MAX_DIMENSION: u32 = 16384;
 /// Colormap entries used for rendering.
-const LUT_SIZE: usize = 1024;
+pub const LUT_SIZE: usize = 1024;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -217,14 +217,159 @@ pub fn render_rgba(field: &FieldGrid, view: &View, width: u32, height: u32, out:
     let pec_rgba = view.pec_rgba;
     let any_pec = pec_rgba.is_some() && field.bodies.iter().any(|b| b.pec);
     let (w, h) = (width as usize, height as usize);
-    let px = (rect.x_max_um - rect.x_min_um) / w as f64;
     let py = (rect.y_max_um - rect.y_min_um) / h as f64;
-    let last_x = (g.nx - 1) as f64;
     let last_y = (g.ny - 1) as f64;
-    const EDGE: f64 = 1e-9;
 
     // Per-column stencils: first index and Catmull–Rom weights, or None outside.
-    let columns: Vec<Option<(usize, [f64; 4], f64)>> = (0..w)
+    let columns = column_stencils(&g, &rect, w);
+
+    let lut_at = |t: f64| lut[((t * LUT_SIZE as f64) as usize).min(LUT_SIZE - 1)];
+    let frame = Frame { field, g, rect, py, last_y, columns: &columns, values, any_pec, pec_rgba, outside: view.outside_rgba };
+    let out = &mut out[..need];
+
+    // The gamma and log decisions are made here, once, and each combination gets its own
+    // monomorphised pixel loop: with them inside the per-pixel closure LLVM evaluated
+    // `powf` speculatively for every pixel even at gamma 1. The arithmetic per pixel is
+    // the same as before, so the output is bit-identical.
+    let transfer = Transfer::of(view, gamma);
+    let lin = |v: f64| v.clamp(0.0, 1.0).clamp(0.0, 1.0);
+    let gam = |v: f64| v.clamp(0.0, 1.0).powf(gamma).clamp(0.0, 1.0);
+    let (factor, db) = match transfer {
+        Transfer::Log { factor, db } => (factor, db),
+        _ => (1.0, 1.0),
+    };
+    let logt = |v: f64| (if v > 0.0 { 1.0 + factor * v.log10() / db } else { 0.0 }).clamp(0.0, 1.0);
+    let ss = s * s;
+    match (view.quantity, transfer) {
+        (Quantity::Intensity, Transfer::Linear) => frame.shade(out, w, |e| lut_at(lin(e.norm_sqr() / ss))),
+        (Quantity::Intensity, Transfer::Gamma) => frame.shade(out, w, |e| lut_at(gam(e.norm_sqr() / ss))),
+        (Quantity::Intensity, Transfer::Log { .. }) => frame.shade(out, w, |e| lut_at(logt(e.norm_sqr() / ss))),
+        (Quantity::Magnitude, Transfer::Linear) => frame.shade(out, w, |e| lut_at(lin(e.norm() / s))),
+        (Quantity::Magnitude, Transfer::Gamma) => frame.shade(out, w, |e| lut_at(gam(e.norm() / s))),
+        (Quantity::Magnitude, Transfer::Log { .. }) => frame.shade(out, w, |e| lut_at(logt(e.norm() / s))),
+        (Quantity::Real, _) if gamma == 1.0 => frame.shade(out, w, |e| {
+            let v = (e * rot).re / s;
+            let m = v.abs().min(1.0);
+            lut_at(0.5 + 0.5 * m.copysign(v))
+        }),
+        (Quantity::Real, _) => frame.shade(out, w, |e| {
+            let v = (e * rot).re / s;
+            let m = v.abs().min(1.0);
+            lut_at(0.5 + 0.5 * m.powf(gamma).copysign(v))
+        }),
+        (Quantity::Phase, _) if view.phase_weighted => frame.shade(out, w, |e| {
+            let z = e * rot;
+            let mut c = lut_at((z.arg() + PI) / (2.0 * PI));
+            let b = (z.norm() / s).min(1.0).sqrt();
+            for ch in c.iter_mut().take(3) {
+                *ch = (*ch as f64 * b).round() as u8;
+            }
+            c
+        }),
+        (Quantity::Phase, _) => frame.shade(out, w, |e| lut_at(((e * rot).arg() + PI) / (2.0 * PI))),
+    }
+
+    if view.outlines {
+        draw_outlines(field, &rect, w, h, &mut out[..need]);
+    }
+    Ok(())
+}
+
+/// How intensity and magnitude map to [0, 1] before the colormap.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Transfer {
+    Linear,
+    Gamma,
+    /// `factor` 10 for intensity, 20 for magnitude; `db` the range.
+    Log { factor: f64, db: f64 },
+}
+
+impl Transfer {
+    pub fn of(view: &View, gamma: f64) -> Transfer {
+        if let Some(db) = view.log_db.filter(|d| *d > 0.0) {
+            let factor = if view.quantity == Quantity::Intensity { 10.0 } else { 20.0 };
+            Transfer::Log { factor, db }
+        } else if gamma == 1.0 {
+            Transfer::Linear
+        } else {
+            Transfer::Gamma
+        }
+    }
+}
+
+/// A column's or row's stencil: first index, Catmull–Rom weights and the position.
+pub type Stencil = Option<(usize, [f64; 4], f64)>;
+
+/// What every pixel loop of [`render_rgba`] shares.
+struct Frame<'a> {
+    field: &'a FieldGrid,
+    g: crate::solver::GridSpec,
+    rect: ViewRect,
+    py: f64,
+    last_y: f64,
+    columns: &'a [Stencil],
+    values: &'a [C64],
+    any_pec: bool,
+    pec_rgba: Option<[u8; 4]>,
+    outside: [u8; 4],
+}
+
+impl Frame<'_> {
+    /// Resamples the field at every pixel and colours it with `shade`.
+    #[inline(always)]
+    fn shade<F: Fn(C64) -> [u8; 4] + Sync>(&self, out: &mut [u8], w: usize, shade: F) {
+        let g = self.g;
+        out.par_chunks_mut(w * 4).enumerate().for_each(|(row, line)| {
+            let y = self.rect.y_max_um - (row as f64 + 0.5) * self.py;
+            let fy = (y - g.y0) / g.dx;
+            if !(fy >= -EDGE && fy <= self.last_y + EDGE) {
+                for px in line.as_chunks_mut::<4>().0 {
+                    px.copy_from_slice(&self.outside);
+                }
+                return;
+            }
+            let fy = fy.clamp(0.0, self.last_y);
+            let j0 = (fy.floor() as usize).min(g.ny.saturating_sub(2));
+            let wy = catmull_rom(fy - j0 as f64);
+            let rows: [usize; 4] = std::array::from_fn(|b| (j0 as isize + b as isize - 1).clamp(0, g.ny as isize - 1) as usize);
+            let jn = fy.round() as usize;
+            for (col, pxl) in self.columns.iter().zip(line.as_chunks_mut::<4>().0) {
+                let Some((i0, wx, fx)) = *col else {
+                    pxl.copy_from_slice(&self.outside);
+                    continue;
+                };
+                if self.any_pec {
+                    let idx = jn * g.nx + fx.round() as usize;
+                    if self.field.is_pec(idx) {
+                        pxl.copy_from_slice(&self.pec_rgba.unwrap());
+                        continue;
+                    }
+                }
+                let mut e = C64::new(0.0, 0.0);
+                for (b, &r) in rows.iter().enumerate() {
+                    let base = r * g.nx;
+                    let mut acc = C64::new(0.0, 0.0);
+                    for (a, wa) in wx.iter().enumerate() {
+                        let i = (i0 as isize + a as isize - 1).clamp(0, g.nx as isize - 1) as usize;
+                        acc += self.values[base + i] * *wa;
+                    }
+                    e += acc * wy[b];
+                }
+                pxl.copy_from_slice(&shade(e));
+            }
+        });
+    }
+}
+
+/// Edge tolerance of the outside test, in cells.
+pub const EDGE: f64 = 1e-9;
+
+/// The column stencils of a `width`-pixel view of `rect` on grid `g`, exactly as
+/// [`render_rgba`] computes them (also used by the GPU viewport for parity).
+pub fn column_stencils(g: &crate::solver::GridSpec, rect: &ViewRect, width: usize) -> Vec<Stencil> {
+    let px = (rect.x_max_um - rect.x_min_um) / width as f64;
+    let last_x = (g.nx - 1) as f64;
+    (0..width)
         .map(|i| {
             let x = rect.x_min_um + (i as f64 + 0.5) * px;
             let fx = (x - g.x0) / g.dx;
@@ -234,90 +379,29 @@ pub fn render_rgba(field: &FieldGrid, view: &View, width: u32, height: u32, out:
                 (i0, catmull_rom(fx - i0 as f64), fx)
             })
         })
-        .collect();
+        .collect()
+}
 
-    let transfer = |v: f64| -> f64 {
-        let t = if let Some(db) = view.log_db.filter(|d| *d > 0.0) {
-            let factor = if view.quantity == Quantity::Intensity { 10.0 } else { 20.0 };
-            if v > 0.0 {
-                1.0 + factor * v.log10() / db
-            } else {
-                0.0
-            }
-        } else if gamma == 1.0 {
-            v.clamp(0.0, 1.0)
-        } else {
-            v.clamp(0.0, 1.0).powf(gamma)
-        };
-        t.clamp(0.0, 1.0)
-    };
-    let lut_at = |t: f64| lut[((t * LUT_SIZE as f64) as usize).min(LUT_SIZE - 1)];
-
-    out[..need].par_chunks_mut(w * 4).enumerate().for_each(|(row, line)| {
-        let y = rect.y_max_um - (row as f64 + 0.5) * py;
-        let fy = (y - g.y0) / g.dx;
-        if !(fy >= -EDGE && fy <= last_y + EDGE) {
-            for px in line.as_chunks_mut::<4>().0 {
-                px.copy_from_slice(&view.outside_rgba);
-            }
-            return;
-        }
-        let fy = fy.clamp(0.0, last_y);
-        let j0 = (fy.floor() as usize).min(g.ny.saturating_sub(2));
-        let wy = catmull_rom(fy - j0 as f64);
-        let rows: [usize; 4] = std::array::from_fn(|b| (j0 as isize + b as isize - 1).clamp(0, g.ny as isize - 1) as usize);
-        let jn = fy.round() as usize;
-        for (col, pxl) in columns.iter().zip(line.as_chunks_mut::<4>().0) {
-            let Some((i0, wx, fx)) = *col else {
-                pxl.copy_from_slice(&view.outside_rgba);
-                continue;
-            };
-            if any_pec {
-                let idx = jn * g.nx + fx.round() as usize;
-                if field.is_pec(idx) {
-                    pxl.copy_from_slice(&pec_rgba.unwrap());
-                    continue;
-                }
-            }
-            let mut e = C64::new(0.0, 0.0);
-            for (b, &r) in rows.iter().enumerate() {
-                let base = r * g.nx;
-                let mut acc = C64::new(0.0, 0.0);
-                for (a, wa) in wx.iter().enumerate() {
-                    let i = (i0 as isize + a as isize - 1).clamp(0, g.nx as isize - 1) as usize;
-                    acc += values[base + i] * *wa;
-                }
-                e += acc * wy[b];
-            }
-            let rgba = match view.quantity {
-                Quantity::Intensity => lut_at(transfer(e.norm_sqr() / (s * s))),
-                Quantity::Magnitude => lut_at(transfer(e.norm() / s)),
-                Quantity::Real => {
-                    let v = (e * rot).re / s;
-                    let m = v.abs().min(1.0);
-                    let u = if gamma == 1.0 { m } else { m.powf(gamma) }.copysign(v);
-                    lut_at(0.5 + 0.5 * u)
-                }
-                Quantity::Phase => {
-                    let z = e * rot;
-                    let mut c = lut_at((z.arg() + PI) / (2.0 * PI));
-                    if view.phase_weighted {
-                        let b = (z.norm() / s).min(1.0).sqrt();
-                        for ch in c.iter_mut().take(3) {
-                            *ch = (*ch as f64 * b).round() as u8;
-                        }
-                    }
-                    c
-                }
-            };
-            pxl.copy_from_slice(&rgba);
+/// The displayed part as interleaved f32 (re, im), row-major with row 0 at y0, computed
+/// in f64 (scattered = total − incident) and rounded once.
+pub fn part_f32(field: &FieldGrid, part: Part, out: &mut [f32]) -> Result<(), RenderError> {
+    let n = field.grid.len();
+    if out.len() < 2 * n {
+        return Err(RenderError::BufferTooSmall { need: 2 * n, got: out.len() });
+    }
+    out[..2 * n].par_chunks_mut(2 * 4096).enumerate().for_each(|(k, chunk)| {
+        let base = k * 4096;
+        for (j, pair) in chunk.as_chunks_mut::<2>().0.iter_mut().enumerate() {
+            let v = field.value(part, base + j);
+            *pair = [v.re as f32, v.im as f32];
         }
     });
-
-    if view.outlines {
-        draw_outlines(field, &rect, w, h, &mut out[..need]);
-    }
     Ok(())
+}
+
+/// The LUT [`render_rgba`] colours with: [`LUT_SIZE`] sRGB RGBA8 entries.
+pub fn render_lut(colormap: Colormap, wavelength_um: f64, n: usize) -> Vec<[u8; 4]> {
+    colormap.lut(wavelength_um * 1000.0, n)
 }
 
 /// Body outlines in white at 60 % alpha, 1.5 px wide, with distance-based

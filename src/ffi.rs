@@ -278,10 +278,35 @@ pub unsafe extern "C" fn fringe_scene_outlines(scene_json: *const c_char) -> *mu
 
 fn quality_from(q: u32) -> Option<Quality> {
     match q {
-        0 => Some(Quality::Preview),
+        0 | 2 => Some(Quality::Preview),
         1 => Some(Quality::Final),
         _ => None,
     }
+}
+
+/// Most FDTD cells of a tracking preview (quality 2): the previews a drag starts.
+pub const MAX_CELLS_TRACKING: usize = 1_000_000;
+
+/// `scene` with its FDTD preview resolution lowered, if need be, so that a preview has at
+/// most [`MAX_CELLS_TRACKING`] cells. Other methods are left as they are (their preview
+/// limits are already small).
+pub fn tracking_scene(scene: &crate::Scene) -> crate::Scene {
+    use crate::problem::compile_unchecked;
+    use crate::solver::fdtd::grid::Layout;
+    let mut s = scene.clone();
+    if s.solver.method != crate::Method::Fdtd {
+        return s;
+    }
+    for _ in 0..4 {
+        let p = compile_unchecked(&s, Quality::Preview);
+        let cells = Layout::new(&p).cells();
+        if cells <= MAX_CELLS_TRACKING {
+            break;
+        }
+        let ppw = p.settings.ppw * (MAX_CELLS_TRACKING as f64 / cells as f64).sqrt() * 0.97;
+        s.solver.fdtd.preview_ppw = Some((ppw * 10.0).floor() / 10.0);
+    }
+    s
 }
 
 /// # Safety
@@ -310,6 +335,7 @@ pub unsafe extern "C" fn fringe_job_start(scene_json: *const c_char, quality: u3
             set_error(error_json_out, "invalid", msg, &issues);
             return ptr::null_mut();
         }
+        let scene = if quality == 2 { tracking_scene(&scene) } else { scene };
         Box::into_raw(Box::new(FringeJob(JobKind::Solve(Job::spawn(scene, q)))))
     })
 }
@@ -470,6 +496,100 @@ pub unsafe extern "C" fn fringe_field_render_rgba(
                 false
             }
         }
+    })
+}
+
+/// # Safety
+/// `field` must be NULL or live; the outputs NULL or writable.
+#[no_mangle]
+pub unsafe extern "C" fn fringe_field_grid(
+    field: *const FringeField,
+    nx: *mut u32,
+    ny: *mut u32,
+    x0_um: *mut f64,
+    y0_um: *mut f64,
+    dx_um: *mut f64,
+) -> bool {
+    if field.is_null() {
+        return false;
+    }
+    guard(false, || {
+        let f: &FringeField = &*field;
+        let g = f.0.grid;
+        let (Ok(gx), Ok(gy)) = (u32::try_from(g.nx), u32::try_from(g.ny)) else { return false };
+        for (p, v) in [(x0_um, g.x0), (y0_um, g.y0), (dx_um, g.dx)] {
+            if !p.is_null() {
+                *p = v;
+            }
+        }
+        if !nx.is_null() {
+            *nx = gx;
+        }
+        if !ny.is_null() {
+            *ny = gy;
+        }
+        true
+    })
+}
+
+/// # Safety
+/// `field` must be NULL or live; `out` must hold `out_len` floats.
+#[no_mangle]
+pub unsafe extern "C" fn fringe_field_part_f32(
+    field: *const FringeField,
+    part: u32,
+    out: *mut f32,
+    out_len: usize,
+    error_json_out: *mut *mut c_char,
+) -> bool {
+    if field.is_null() || out.is_null() {
+        set_error(error_json_out, "buffer", "field or output buffer is NULL", &[]);
+        return false;
+    }
+    guard(false, || {
+        let Some(part) = Part::from_u32(part) else {
+            set_error(error_json_out, "invalid", format!("unknown part {part}"), &[]);
+            return false;
+        };
+        let out = std::slice::from_raw_parts_mut(out, out_len);
+        match crate::render::view::part_f32(&(*field).0, part, out) {
+            Ok(()) => true,
+            Err(e) => {
+                set_error(error_json_out, e.code(), e.to_string(), &[]);
+                false
+            }
+        }
+    })
+}
+
+/// # Safety
+/// `field` must be NULL or live; `view_json` NULL or valid.
+#[no_mangle]
+pub unsafe extern "C" fn fringe_field_scale(field: *const FringeField, view_json: *const c_char) -> f64 {
+    if field.is_null() {
+        return 1.0;
+    }
+    guard(1.0, || match view_arg(view_json, ptr::null_mut()) {
+        Some(view) => crate::render::view::scale(&(*field).0, &view),
+        None => 1.0,
+    })
+}
+
+/// # Safety
+/// `name` must be NULL or valid; `out_rgba` must hold `out_len` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn fringe_colormap_lut_n(name: *const c_char, wavelength_um: f64, n: u32, out_rgba: *mut u8, out_len: usize) -> bool {
+    let n = n as usize;
+    if out_rgba.is_null() || n < 2 || out_len < 4 * n {
+        return false;
+    }
+    guard(false, || {
+        let Some(cm) = str_arg(name).and_then(|n| n.parse::<Colormap>().ok()) else { return false };
+        let out = std::slice::from_raw_parts_mut(out_rgba, 4 * n);
+        for (dst, c) in out.as_chunks_mut::<4>().0.iter_mut().zip(crate::render::view::render_lut(cm, wavelength_um, n)) {
+            dst.copy_from_slice(&c);
+        }
+        true
     })
 }
 
