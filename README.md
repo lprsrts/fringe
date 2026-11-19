@@ -503,6 +503,24 @@ site/               fringe.lprsrts.com: the app page, privacy and support (a sta
 tests/              integration tests; tests/fixtures holds example scenes and Bessel references
 ```
 
+## Citing Fringe
+
+If you use Fringe in a paper, a thesis or course material, please cite it.
+[CITATION.cff](CITATION.cff) has the details, and GitHub's "Cite this repository"
+button (in the sidebar) turns it into APA or BibTeX:
+
+```bibtex
+@software{saritas_fringe,
+  author  = {Sarıtaş, Alper},
+  title   = {Fringe: full-wave 2D optics simulator},
+  version = {0.3.0},
+  year    = {2026},
+  url     = {https://github.com/lprsrts/fringe}
+}
+```
+
+Please give the version you used, since results can change between releases.
+
 ## License
 
 Fringe is licensed under either of

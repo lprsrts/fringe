@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use Fringe in your work, please cite it as below."
+type: software
+title: "Fringe: full-wave 2D optics simulator"
+abstract: >-
+  Fringe solves 2D optics scenes with full-wave electromagnetics (FDTD, FEM and
+  MoM solvers for the out-of-plane field Ez) and renders the field. It is a Rust
+  library with a C ABI, a command-line tool and a native macOS app with puzzles.
+authors:
+  - given-names: Alper
+    family-names: Sarıtaş
+version: 0.3.0
+date-released: 2026-11-19
+license:
+  - MIT
+  - Apache-2.0
+repository-code: "https://github.com/lprsrts/fringe"
+url: "https://fringe.lprsrts.com"
+keywords:
+  - optics
+  - electromagnetics
+  - FDTD
+  - finite element method
+  - method of moments
+  - photonics
+  - simulation
+  - education
