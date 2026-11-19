@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {Fragment, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {Button} from '@astryxdesign/core/Button';
 import {Dialog} from '@astryxdesign/core/Dialog';
 import {Divider} from '@astryxdesign/core/Divider';
@@ -293,21 +293,25 @@ export function App() {
     ...(error ? [{severity: 'error' as const, text: error}] : []),
     ...issues.map((i) => ({severity: i.severity, text: i.message})),
   ];
+  const statusParts = solvingLong
+    ? [`Solving with ${METHOD_LABEL[effectiveMethod]}…`, fmtTime(elapsed)]
+    : meta
+      ? [METHOD_LABEL[meta.method] ?? meta.method, `${meta.nx} × ${meta.ny} grid`, `Solved in ${fmtTime(meta.wall_s)}`]
+      : [scene ? 'Solving…' : 'Loading the solver…'];
   const MESSAGE_ICON = {error: XCircleIcon, warning: ExclamationTriangleIcon, info: InformationCircleIcon};
   const status = (
     <LayoutFooter hasDivider padding={0} label="Status">
       <div className="statusbar">
         <span className="statusbar-solve">
           {solvingLong && <Spinner size="sm" />}
-          <Text type="supporting" hasTabularNumbers>
-            {solvingLong
-              ? `Solving with ${METHOD_LABEL[effectiveMethod]}… ${fmtTime(elapsed)}`
-              : meta
-                ? `${METHOD_LABEL[meta.method] ?? meta.method} · ${meta.nx} × ${meta.ny} grid · solved in ${fmtTime(meta.wall_s)}`
-                : scene
-                  ? 'Solving…'
-                  : 'Loading the solver…'}
-          </Text>
+          {statusParts.map((part, n) => (
+            <Fragment key={n}>
+              {n > 0 && <Divider orientation="vertical" />}
+              <Text type="supporting" hasTabularNumbers>
+                {part}
+              </Text>
+            </Fragment>
+          ))}
           {solvingLong && <Button label="Stop" size="sm" variant="ghost" onClick={stop} />}
         </span>
         <span className="statusbar-messages" role="status">

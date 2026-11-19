@@ -28,7 +28,8 @@ body { background: var(--color-background-body, var(--color-background-surface))
   display: flex; align-items: center; gap: 16px;
   min-height: 32px; padding: 4px 16px;
 }
-.statusbar-solve { display: flex; align-items: center; gap: 8px; flex: none; white-space: nowrap; }
+.statusbar-solve { display: flex; align-items: center; gap: 12px; flex: none; white-space: nowrap; align-self: stretch; }
+.statusbar-solve .astryx-divider { height: 14px; align-self: center; }
 .statusbar-messages { display: flex; align-items: center; gap: 16px; flex: 1; min-width: 0; justify-content: flex-end; }
 .statusbar-message { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .statusbar-message > :last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
