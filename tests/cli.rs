@@ -40,7 +40,7 @@ fn example(name: &str) -> String {
 fn help_version_and_usage_errors() {
     assert_eq!(code(&cli(&[], None)), 0);
     let o = cli(&["--version"], None);
-    assert!(String::from_utf8_lossy(&o.stdout).starts_with("fringe-cli 0.2"));
+    assert!(String::from_utf8_lossy(&o.stdout).starts_with(concat!("fringe-cli ", env!("CARGO_PKG_VERSION"))));
     assert_eq!(code(&cli(&["frobnicate"], None)), 2);
     assert_eq!(code(&cli(&["solve", "-"], Some(&example("lens")))), 2);
     let o = cli(&["info", "--waist", "1mm"], None);
