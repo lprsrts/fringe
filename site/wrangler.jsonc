@@ -1,13 +1,13 @@
 // The site is a Worker that only serves public/ (static files, no code), like
 // pi-voice.lprsrts.com. Deploy: npx wrangler@4 deploy (from this folder).
-// The build step compiles the solver to WebAssembly for the browser viewer
-// (public/web/, its module in public/web/pkg/, which git ignores); see
-// wasm/build.sh for the toolchain it needs.
+// The build step compiles the solver to WebAssembly and builds the browser
+// viewer (web/, a Vite + React app on Astryx) into public/web/, which git
+// ignores. It needs Node and the Rust toolchain described in wasm/build.sh.
 {
   "name": "fringe",
   "account_id": "ec2b62f1cfa6f470e81a948bff6191a9",
   "compatibility_date": "2026-11-01",
-  "build": { "command": "sh ../wasm/build.sh" },
+  "build": { "command": "sh ../wasm/build.sh && cd ../web && npm ci --no-audit --no-fund && npm run build" },
   "assets": { "directory": "./public" },
   "workers_dev": false,
   "routes": [{ "pattern": "fringe.lprsrts.com", "custom_domain": true }]
