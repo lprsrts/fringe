@@ -23,5 +23,14 @@ li { margin: 0.3rem 0; }
 /* the field: a double slit drawn live, the same physics the app solves properly */
 .field { display: block; width: 100%; aspect-ratio: 2 / 1; margin-top: 1.5rem; border-radius: 10px; background: #0b0d0f; }
 
+/* loops rendered by the solver, two per row, one on a phone */
+.gallery { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem 1rem; margin-top: 1rem; }
+.gallery figure { margin: 0; }
+.gallery video, .gallery img { display: block; width: 100%; height: auto; border-radius: 8px; background: #000; }
+.gallery figure:last-child { grid-column: 1 / -1; }
+.gallery img { border: 1px solid #2e3237; }
+.gallery figcaption { color: var(--muted); font-size: 0.8rem; line-height: 1.5; margin-top: 0.4rem; }
+@media (max-width: 560px) { .gallery { grid-template-columns: 1fr; } }
+
 /* the app's own window, captured with its title bar */
 .shot { display: block; width: 100%; height: auto; margin-top: 1.5rem; border-radius: 10px; border: 1px solid #2e3237; }

@@ -32,16 +32,49 @@
 <canvas class="field" aria-label="a plane wave passing through two slits"></canvas>
 <p class="small">^ a double slit, computed in your browser as a sum of huygens wavelets. it's a rough approximation; the app uses a full solver.</p>
 
-<img class="shot" src="assets/screenshot.jpg" alt="the fringe window with a lens focusing a gaussian beam" width="1600" height="1000" loading="lazy">
+<img class="shot" src="assets/simulator.jpg" alt="the fringe window in simulator mode: a lens focusing a gaussian beam onto two detectors, with their readings and a profile plot" width="1600" height="1000" loading="lazy">
+<p class="small">^ the simulator in the next version. you drag elements around and the field re-solves as you go.</p>
+
+<h2>what it can do</h2>
+<p>every frame of these loops is its own solve. nothing between the frames is interpolated.</p>
+
+<div class="gallery">
+<figure>
+  <video src="assets/gallery/crystal.mp4" poster="assets/gallery/crystal.jpg" width="720" height="900" autoplay muted loop playsinline aria-label="light following a channel through a grid of rods as the rods are removed one at a time"></video>
+  <figcaption>light at this wavelength can't travel through a grid of rods (a photonic crystal). take rods out one at a time and it follows the gap around every corner.</figcaption>
+</figure>
+<figure>
+  <video src="assets/gallery/wgm_adddrop.mp4" poster="assets/gallery/wgm_adddrop.jpg" width="720" height="720" autoplay muted loop playsinline aria-label="a glass disk between two waveguides switching light to the other waveguide"></video>
+  <figcaption>a glass disk between two waveguides. shorten the wavelength by 1% and the light jumps into the disk and leaves backwards along the other waveguide.</figcaption>
+</figure>
+<figure>
+  <video src="assets/gallery/phc_z_rainbow.mp4" poster="assets/gallery/phc_z_rainbow.jpg" width="720" height="720" autoplay muted loop playsinline aria-label="a beam sweeping through the visible spectrum into a rod lattice with a z-shaped channel"></video>
+  <figcaption>the same kind of grid with a z-shaped channel, swept from violet to red. only green to gold light takes the corners. (lossless rods, a scaled model.)</figcaption>
+</figure>
+<figure>
+  <video src="assets/gallery/mandala.mp4" poster="assets/gallery/mandala.jpg" width="720" height="720" autoplay muted loop playsinline aria-label="a point source inside three rings of glass rods, two of them turning"></video>
+  <figcaption>one point source inside three rings of glass rods. the two outer rings turn in opposite directions.</figcaption>
+</figure>
+<figure>
+  <video src="assets/gallery/gold_ellipse.mp4" poster="assets/gallery/gold_ellipse.jpg" width="720" height="720" autoplay muted loop playsinline aria-label="a point source moving inside an elliptical gold mirror"></video>
+  <figcaption>a point source moving inside an ellipse of real gold. at one focus, the light gathers at the other.</figcaption>
+</figure>
+<figure>
+  <img src="assets/puzzle.jpg" alt="the fringe window in puzzle mode: an xor gate built from one glass slab, with its truth table" width="1600" height="1000" loading="lazy">
+  <figcaption>puzzle mode: 20 puzzles where you place parts to steer light, make interference work for you and build logic gates. this one is an xor gate from a single glass slab.</figcaption>
+</figure>
+</div>
+<p class="small">these use point emitters, gold and the puzzles, which are in the next version. the download below is 0.2.0, which doesn't have them yet.</p>
 
 <h2>what's in it</h2>
 <ul>
   <li>three solvers: fdtd, fem and mom. you can run the same scene with each and compare.</li>
-  <li>sources: a gaussian beam or a plane wave, at any wavelength and angle.</li>
-  <li>materials: a refractive index with absorption, or a perfect conductor.</li>
+  <li>sources: a gaussian beam or a plane wave, at any wavelength and angle. next version: point emitters.</li>
+  <li>materials: a refractive index with absorption, or a perfect conductor. next version: real metals and glasses with dispersion (gold, silver, aluminium and more).</li>
   <li>views: intensity, magnitude, real part and phase, and an animation over one optical cycle.</li>
   <li>export: png at any size, animation frames, and the complex field as numpy data.</li>
   <li>ten example scenes, including a nanojet, a talbot carpet and a slab waveguide.</li>
+  <li>next version: detectors that measure power, and 20 puzzles.</li>
 </ul>
 
 <h2>why i made it</h2>

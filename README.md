@@ -1,6 +1,6 @@
 # Fringe
 
-![Interference fringes behind a double slit, solved with Fringe](art/hero/hero.png)
+![Interference fringes behind a double slit, solved with Fringe](https://fringe.lprsrts.com/assets/social.png)
 
 Fringe solves 2D optics scenes with full-wave electromagnetics and draws the
 field. You place lenses, slabs, prisms, mirrors, slits, gratings, cylinders
@@ -15,6 +15,47 @@ solves scene files and writes PNG and NumPy output, and a native macOS app
 for editing scenes and exporting images. I use it to make cover images, so
 some colormaps (`laser_glow`, `asympton`, `spectral_glow`) are there to look
 good as much as to read well.
+
+## Gallery
+
+Each frame of these loops is a separate solve, drawn as intensity with a fixed
+colour scale. Nothing between the frames is interpolated.
+
+<table>
+<tr>
+<td width="50%"><img src="https://fringe.lprsrts.com/assets/gallery/crystal.gif" width="320" alt="Light following a channel through a grid of rods as the rods are removed one at a time"></td>
+<td width="50%"><img src="https://fringe.lprsrts.com/assets/gallery/wgm_adddrop.gif" width="320" alt="A glass disk between two waveguides switching light from one waveguide to the other as the wavelength changes"></td>
+</tr>
+<tr>
+<td><b>Photonic crystal.</b> Light at this wavelength can't travel through a
+grid of rods (n = 3.4, spacing 0.38 λ). Removing rods one at a time opens a
+channel, and the light follows it around six corners.</td>
+<td><b>Disk resonator.</b> Off resonance the beam runs straight along the top
+waveguide. Shorten the wavelength by 1% and it fills a whispering-gallery mode
+of the disk, then leaves backwards along the bottom waveguide.</td>
+</tr>
+<tr>
+<td><img src="https://fringe.lprsrts.com/assets/gallery/phc_z_rainbow.gif" width="320" alt="A beam sweeping through the visible spectrum into a rod lattice with a Z-shaped channel"></td>
+<td><img src="https://fringe.lprsrts.com/assets/gallery/mandala.gif" width="320" alt="A point source inside three rings of glass rods, two of them turning"></td>
+</tr>
+<tr>
+<td><b>Wavelength sweep.</b> The same kind of lattice with a Z-shaped channel,
+from 412 to 665 nm, each frame in the colour of its wavelength. Green to gold
+light can only go around the corners, violet leaks through the grid and red gets
+into the rods. The rods are a lossless n = 3.4, so this is a scaled model, not
+silicon.</td>
+<td><b>Rotating rings.</b> One point emitter inside three rings of glass rods
+(n = 2.4). The two outer rings turn in opposite directions, so the pattern
+twists into a pinwheel and back.</td>
+</tr>
+</table>
+
+The app has a simulator for building your own scenes and 20 puzzles where you
+place parts to steer light, build interference effects and make logic gates:
+
+![The Fringe window in simulator mode: a lens focusing a Gaussian beam onto two detectors, with their readings and a profile plot](https://fringe.lprsrts.com/assets/simulator.jpg)
+
+![The Fringe window in puzzle mode: an XOR gate built from one glass slab, with its truth table and contrast chart](https://fringe.lprsrts.com/assets/puzzle.jpg)
 
 ## Install
 
@@ -369,17 +410,8 @@ icon with `actool` into `icon/compiled` and renders `icon/preview.png`; it needs
 Xcode, or open the `.icon` in Icon Composer. The compiled files are checked in,
 so `scripts/bundle.sh` works with the command-line tools alone.
 
-The header image, `art/hero/hero.png` (2560 × 1280, with a 1280 × 640 copy for
-GitHub's social preview), is Fringe's own FDTD solution of a Gaussian beam through two
-slits; `art/hero/build.sh` solves `art/hero/scene.json` and colours it with
-`art/hero/compose.py`.
-
-The LinkedIn cover, `art/banner/banner.png` (1584 × 396, with a 2× copy), is a
-solved field: a Gaussian beam through five glass beads that pass a nanojet down
-the chain, next to the icon, the wordmark and the equation the solvers answer,
-`∇²Ez + k0² n(x, y)² Ez = 0`. `art/banner/build.sh` solves `art/banner/scene.json`
-with the release `fringe-cli` and composes the banner with
-`art/banner/compose.swift`.
+The images in this README (the header, the gallery GIFs and the app screenshots)
+are served by the website from `site/public/assets/`, so they live in one place.
 
 `scripts/release.sh` builds with the build machine's paths remapped
 (`FRINGE_RELEASE=1`), signs the app and `fringe-cli` with the Developer ID
@@ -441,9 +473,7 @@ swift/              SwiftUI app (Swift package "Fringe")
 scripts/            build, bundle, release, App Store, tap and schema-check scripts
 appstore/           App Sandbox entitlements for the Mac App Store build
 icon/               app icon: the Icon Composer document, its layer generator and the compiled icon
-art/hero/           README and social-preview header: its scene, compose script and the image
-art/banner/         LinkedIn cover (4:1): its scene, compose script and the rendered banner
-site/               fringe.lprsrts.com: the app page, privacy and support (a static Worker)
+site/               fringe.lprsrts.com: the app page, privacy and support (a static Worker), and the README's images
 tests/              integration tests; tests/fixtures holds example scenes and Bessel references
 ```
 

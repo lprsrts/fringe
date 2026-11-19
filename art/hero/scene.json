@@ -1,6 +1,0 @@
-{"version":2,"wavelength_um":1.0,"background":{"n":1.0},"polarization":"ez",
- "source":{"type":"gaussian_beam","waist_um":4.0,"waist_x_um":0.0,"waist_y_um":0.0,"angle_deg":0.0},
- "elements":[{"id":"slits","name":"Double slit","material":{"type":"pec"},"x_um":0.0,"y_um":0.0,"rotation_deg":0.0,
-   "shape":{"kind":"slits","count":2,"slit_width_um":0.7,"pitch_um":5.0,"screen_height_um":50.0,"thickness_um":0.3}}],
- "domain":{"x_min_um":-3.0,"x_max_um":97.0,"y_min_um":-26.0,"y_max_um":26.0,"pml_wl":1.0},
- "solver":{"method":"fdtd"}}
