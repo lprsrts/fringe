@@ -1,7 +1,7 @@
 // The solved field, drawn by the core's renderer, with the scene's elements
 // and sources as things you can pick up and move. The canvas always shows
 // exactly the scene's domain, so a pointer position maps straight to µm.
-import {useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode} from 'react';
+import {useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
 import type {Solver} from './solver';
 import {extentOf, itemsOf, objectOf, reachOf, round, sameItem, type Item, type Scene} from './scene';
 
@@ -17,17 +17,14 @@ interface Props {
   onSelect: (item: Item | null) => void;
   onMove: (item: Item, x: number, y: number) => void;
   label: string;
-  /** Shown right under the field (the status line). */
-  footer?: ReactNode;
   /** Fit inside the box's height too; off where the page scrolls (phones). */
   fitHeight?: boolean;
 }
 
-export function FieldCanvas({solver, scene, fieldVersion, view, animate, selected, onSelect, onMove, label, footer, fitHeight = true}: Props) {
+export function FieldCanvas({solver, scene, fieldVersion, view, animate, selected, onSelect, onMove, label, fitHeight = true}: Props) {
   const box = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLCanvasElement>(null);
   const marks = useRef<HTMLCanvasElement>(null);
-  const foot = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({w: 0, h: 0, dpr: 1});
   const [hover, setHover] = useState<Item | null>(null);
   const drag = useRef<{item: Item; dx: number; dy: number} | null>(null);
@@ -41,8 +38,7 @@ export function FieldCanvas({solver, scene, fieldVersion, view, animate, selecte
     if (!el) return;
     const fit = () => {
       const {width, height} = el.getBoundingClientRect();
-      const reserved = foot.current ? foot.current.getBoundingClientRect().height + 8 : 0;
-      const scale = fitHeight && height ? Math.min(width / spanX, (height - reserved) / spanY) : width / spanX;
+      const scale = fitHeight && height ? Math.min(width / spanX, height / spanY) : width / spanX;
       const w = Math.max(1, Math.floor(spanX * scale));
       const h = Math.max(1, Math.floor(spanY * scale));
       setSize({w, h, dpr: Math.min(window.devicePixelRatio || 1, 2)});
@@ -50,7 +46,6 @@ export function FieldCanvas({solver, scene, fieldVersion, view, animate, selecte
     fit();
     const ro = new ResizeObserver(fit);
     ro.observe(el);
-    if (foot.current) ro.observe(foot.current);
     return () => ro.disconnect();
   }, [spanX, spanY, fitHeight]);
 
@@ -237,7 +232,6 @@ export function FieldCanvas({solver, scene, fieldVersion, view, animate, selecte
 
   return (
     <div className="field-box" ref={box}>
-      <div className="field-column" style={{width: size.w || undefined}}>
       <div className="field-frame" style={{width: size.w, height: size.h}}>
         <canvas ref={field} className="field" aria-hidden="true" />
         <canvas
@@ -254,12 +248,6 @@ export function FieldCanvas({solver, scene, fieldVersion, view, animate, selecte
           onPointerLeave={() => setHover(null)}
           onKeyDown={onKeyDown}
         />
-      </div>
-      {footer && (
-        <div className="field-footer" ref={foot}>
-          {footer}
-        </div>
-      )}
       </div>
     </div>
   );

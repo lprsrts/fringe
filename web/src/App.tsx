@@ -1,11 +1,10 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
 import {Dialog} from '@astryxdesign/core/Dialog';
 import {Divider} from '@astryxdesign/core/Divider';
 import {useMediaQuery} from '@astryxdesign/core/hooks';
 import {Icon} from '@astryxdesign/core/Icon';
-import {HStack, Layout, LayoutContent, LayoutHeader, LayoutPanel, VStack} from '@astryxdesign/core/Layout';
+import {HStack, Layout, LayoutContent, LayoutFooter, LayoutHeader, LayoutPanel, VStack} from '@astryxdesign/core/Layout';
 import {NumberInput} from '@astryxdesign/core/NumberInput';
 import {Section} from '@astryxdesign/core/Section';
 import {SegmentedControl, SegmentedControlItem} from '@astryxdesign/core/SegmentedControl';
@@ -17,6 +16,7 @@ import {Heading, Text} from '@astryxdesign/core/Text';
 import {TextArea} from '@astryxdesign/core/TextArea';
 import {useToast} from '@astryxdesign/core/Toast';
 import {ArrowDownTrayIcon, ArrowTopRightOnSquareIcon, CodeBracketIcon, LinkIcon} from '@heroicons/react/24/outline';
+import {ExclamationTriangleIcon, InformationCircleIcon, XCircleIcon} from '@heroicons/react/20/solid';
 
 import {FieldCanvas} from './FieldCanvas';
 import {Inspector} from './Inspector';
@@ -88,7 +88,7 @@ export function App() {
     if (!s) return;
     const json = JSON.stringify(s);
     const report = await solver.check(json);
-    setIssues(report.issues.filter((i) => i.severity !== 'info'));
+    setIssues(report.issues);
     if (!report.ok) return;
     const result = await solver.solve(json, m);
     setMeta(result);
@@ -270,25 +270,42 @@ export function App() {
     });
   };
 
+  // The status bar: what the solver did on the left, the scene's errors,
+  // warnings and notes on the right, one line each.
+  const solvingLong = solvingSince !== null && elapsed > 0.4;
+  const messages: {severity: 'error' | 'warning' | 'info'; text: string}[] = [
+    ...(error ? [{severity: 'error' as const, text: error}] : []),
+    ...issues.map((i) => ({severity: i.severity, text: i.message})),
+  ];
+  const MESSAGE_ICON = {error: XCircleIcon, warning: ExclamationTriangleIcon, info: InformationCircleIcon};
   const status = (
-    <VStack gap={2}>
-    <HStack gap={2} vAlign="center" hAlign="between" wrap="wrap">
-      <Text type="supporting" hasTabularNumbers>
-        {solvingSince !== null && elapsed > 0.4
-          ? `Solving with ${METHOD_LABEL[effectiveMethod]}… ${fmtTime(elapsed)}`
-          : meta
-            ? `${METHOD_LABEL[meta.method] ?? meta.method} · ${meta.nx} × ${meta.ny} grid · solved in ${fmtTime(meta.wall_s)}`
-            : scene
-              ? 'Solving…'
-              : 'Loading the solver…'}
-      </Text>
-      {solvingSince !== null && elapsed > 0.4 && <Button label="Stop" size="sm" variant="ghost" onClick={stop} />}
-    </HStack>
-      {error && <Banner status="error" title={error} />}
-      {issues.map((i, n) => (
-        <Banner key={n} status={i.severity === 'error' ? 'error' : 'warning'} title={i.message} />
-      ))}
-    </VStack>
+    <LayoutFooter hasDivider padding={0} label="Status">
+      <div className="statusbar">
+        <span className="statusbar-solve">
+          {solvingLong && <Spinner size="sm" />}
+          <Text type="supporting" hasTabularNumbers>
+            {solvingLong
+              ? `Solving with ${METHOD_LABEL[effectiveMethod]}… ${fmtTime(elapsed)}`
+              : meta
+                ? `${METHOD_LABEL[meta.method] ?? meta.method} · ${meta.nx} × ${meta.ny} grid · solved in ${fmtTime(meta.wall_s)}`
+                : scene
+                  ? 'Solving…'
+                  : 'Loading the solver…'}
+          </Text>
+          {solvingLong && <Button label="Stop" size="sm" variant="ghost" onClick={stop} />}
+        </span>
+        <span className="statusbar-messages" role="status">
+          {messages.map((m, n) => (
+            <span key={n} className="statusbar-message" title={m.text}>
+              <Icon icon={MESSAGE_ICON[m.severity]} size="xsm" color={m.severity} />
+              <Text type="supporting" color={m.severity === 'info' ? 'secondary' : 'primary'}>
+                {m.text}
+              </Text>
+            </span>
+          ))}
+        </span>
+      </div>
+    </LayoutFooter>
   );
 
   // ---- pieces
@@ -304,7 +321,6 @@ export function App() {
       onSelect={setSelected}
       onMove={move}
       label={canvasLabel}
-      footer={link.embed ? undefined : status}
       fitHeight={link.embed || !isNarrow}
     />
   );
@@ -476,6 +492,7 @@ export function App() {
         height={isNarrow ? 'auto' : 'fill'}
         style={isNarrow ? undefined : {height: '100dvh'}}
         header={header}
+        footer={status}
         content={
           <LayoutContent padding={4}>
             {main}

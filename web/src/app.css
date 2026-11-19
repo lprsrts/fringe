@@ -14,9 +14,6 @@ body { background: var(--color-background-body, var(--color-background-surface))
   flex: 1; min-width: 0; min-height: 0;
   display: flex; align-items: center; justify-content: center;
 }
-.field-column { display: flex; flex-direction: column; gap: 8px; max-width: 100%; }
-.field-footer { min-height: 32px; display: flex; align-items: center; }
-.field-footer > * { flex: 1; }
 .field-frame {
   position: relative; flex: none; overflow: hidden;
   border-radius: var(--radius-container, 8px);
@@ -26,6 +23,28 @@ body { background: var(--color-background-body, var(--color-background-surface))
 .field-frame canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .field-frame .marks { touch-action: none; }
 .field-frame .marks:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+/* The status bar along the bottom: one thin line, messages truncate and show
+   in full on hover. It stays in view while a phone scrolls the page. */
+.statusbar {
+  display: flex; align-items: center; gap: 16px;
+  min-height: 32px; padding: 4px 16px;
+}
+.statusbar-solve { display: flex; align-items: center; gap: 8px; flex: none; white-space: nowrap; }
+.statusbar-messages { display: flex; align-items: center; gap: 16px; flex: 1; min-width: 0; justify-content: flex-end; }
+.statusbar-message { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.statusbar-message > :last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 860px) {
+  .statusbar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+    background: var(--color-background-body);
+    border-top: 1px solid var(--color-border);
+    padding-bottom: max(4px, env(safe-area-inset-bottom));
+  }
+  body { padding-bottom: 72px; }
+  .statusbar { flex-wrap: wrap; gap: 4px 12px; }
+  .statusbar-messages { justify-content: flex-start; flex-basis: 100%; }
+}
 
 /* Two number fields per row in the inspector. */
 .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
