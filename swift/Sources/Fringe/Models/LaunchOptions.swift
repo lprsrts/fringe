@@ -13,7 +13,11 @@ import os
 /// - `FringeLaunchQuantity`: `intensity`, `magnitude`, `real` or `phase`.
 /// - `FringeLaunchColormap`: a colormap name, such as `inferno` or `rdbu`.
 /// - `FringeLaunchPhase`: φ in degrees.
-/// - `FringeLaunchSelection`: `source`, `simulation`, `display`, `output`, or an element index.
+/// - `FringeLaunchSelection`: `illumination`, `source:N`, `element:N`, `detector:N` (N an
+///   index), `simulation`, `display`, `output`, or a bare element index. `source` alone
+///   selects the first source.
+/// - `FringeLaunchMode`: `simulator` or `puzzles`.
+/// - `FringeLaunchPuzzle`: a puzzle id to open in puzzle mode, such as `logic-xor`.
 ///
 /// Overrides are not saved: after a launch with overrides, the saved document changes only
 /// once the user edits.
@@ -26,6 +30,8 @@ struct LaunchOptions {
     static let colormapKey = "FringeLaunchColormap"
     static let phaseKey = "FringeLaunchPhase"
     static let selectionKey = "FringeLaunchSelection"
+    static let modeKey = "FringeLaunchMode"
+    static let puzzleKey = "FringeLaunchPuzzle"
 
     var scene: SimScene?
     var suggested: ExampleInfo?
@@ -35,6 +41,8 @@ struct LaunchOptions {
     var colormap: ColormapName?
     var phaseDeg: Double?
     var selectionText: String?
+    var mode: AppMode?
+    var puzzleID: String?
 
     /// Whether any override changes the document (a selection alone does not).
     var hasOverrides: Bool {
@@ -65,6 +73,9 @@ struct LaunchOptions {
             options.phaseDeg = defaults.double(forKey: phaseKey)
         }
         options.selectionText = defaults.string(forKey: selectionKey)
+        options.puzzleID = defaults.string(forKey: puzzleKey)
+        options.mode = defaults.string(forKey: modeKey).flatMap(AppMode.init(rawValue:))
+            ?? (options.puzzleID != nil ? .puzzles : nil)
         return options
     }
 
@@ -84,11 +95,21 @@ struct LaunchOptions {
 
     func selection(in scene: SimScene) -> SidebarItem? {
         switch selectionText {
-        case "source": return .source
+        case "illumination": return .illumination
+        case "source": return scene.sources.first.map { .source($0.id) }
         case "simulation": return .simulation
         case "display": return .display
         case "output": return .output
         case let text?:
+            let parts = text.split(separator: ":", maxSplits: 1).map(String.init)
+            if parts.count == 2, let index = Int(parts[1]) {
+                switch parts[0] {
+                case "source": return scene.sources.indices.contains(index) ? .source(scene.sources[index].id) : nil
+                case "element": return scene.elements.indices.contains(index) ? .element(scene.elements[index].id) : nil
+                case "detector": return scene.detectors.indices.contains(index) ? .detector(scene.detectors[index].id) : nil
+                default: return nil
+                }
+            }
             if let index = Int(text), scene.elements.indices.contains(index) {
                 return .element(scene.elements[index].id)
             }

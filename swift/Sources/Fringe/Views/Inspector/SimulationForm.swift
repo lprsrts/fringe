@@ -4,6 +4,7 @@ struct SimulationForm: View {
     let model: AppState
 
     var body: some View {
+        let _ = PerfProbe.body("SimulationForm")
         let scene = model.scene
         let method = scene.solver.method
         let domain = scene.domain
@@ -86,6 +87,7 @@ private struct EstimateSection: View {
     let model: AppState
 
     var body: some View {
+        let _ = PerfProbe.body("EstimateSection")
         let estimates = model.checkReport?.estimates
         Section("Estimates") {
             row("Preview", estimates?.preview, quality: .preview)
@@ -121,6 +123,7 @@ private struct AdvancedSection: View {
     @UIState private var isExpanded = false
 
     var body: some View {
+        let _ = PerfProbe.body("AdvancedSection")
         let settings = model.scene.solver
         Section {
             DisclosureGroup("Advanced \(method.title) Settings", isExpanded: $isExpanded) {
@@ -240,6 +243,7 @@ private struct ResultSection: View {
     let model: AppState
 
     var body: some View {
+        let _ = PerfProbe.body("ResultSection")
         if let shown = model.solver.shown {
             let meta = shown.info.meta
             Section("Last Result") {

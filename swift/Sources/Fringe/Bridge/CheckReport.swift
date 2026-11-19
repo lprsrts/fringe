@@ -63,12 +63,17 @@ public struct Issue: Decodable, Hashable, Sendable {
         self.quality == nil || self.quality == quality
     }
 
-    /// The element index of an `elements[i]…` path.
-    public var elementIndex: Int? {
-        guard path.hasPrefix("elements[") else { return nil }
-        let digits = path.dropFirst("elements[".count).prefix { $0.isNumber }
+    /// The index of a `<collection>[i]…` path: 2 for `elements[2].shape.r1_um` in
+    /// "elements".
+    public func index(in collection: String) -> Int? {
+        let prefix = collection + "["
+        guard path.hasPrefix(prefix) else { return nil }
+        let digits = path.dropFirst(prefix.count).prefix { $0.isNumber }
         return Int(digits)
     }
+
+    /// The element index of an `elements[i]…` path.
+    public var elementIndex: Int? { index(in: "elements") }
 
     /// The last key of the path: `r1_um` for `elements[0].shape.r1_um`, `waist_um` for
     /// `source.waist_um`.
@@ -130,12 +135,22 @@ public struct Estimates: Decodable, Equatable, Sendable {
 /// Paraxial and textbook quantities for the inspector. Not solver output.
 public struct Derived: Decodable, Equatable, Sendable {
     public struct SourceInfo: Decodable, Equatable, Sendable {
+        /// Empty in the version 2 `source` object.
+        public var id: String
         public var rayleighRangeUm: Double?
         public var divergenceDeg: Double?
 
         enum CodingKeys: String, CodingKey {
+            case id
             case rayleighRangeUm = "rayleigh_range_um"
             case divergenceDeg = "divergence_deg"
+        }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decodeIfPresent(String.self, forKey: .id) ?? ""
+            rayleighRangeUm = try c.decodeIfPresent(Double.self, forKey: .rayleighRangeUm)
+            divergenceDeg = try c.decodeIfPresent(Double.self, forKey: .divergenceDeg)
         }
     }
 
@@ -220,22 +235,40 @@ public struct Derived: Decodable, Equatable, Sendable {
         public var cylinder: CylinderInfo?
         public var waveguide: WaveguideInfo?
         public var prism: PrismInfo?
+        /// n + ik and ε at λ0 of a dielectric or Lorentz–Drude element; nil for PEC.
+        public var material: EffectiveIndex?
     }
 
     public var lambdaBUm: Double
     public var lambdaMinUm: Double
-    public var source: SourceInfo?
+    /// Per source, by id.
+    public var sources: [SourceInfo]
     public var elements: [ElementInfo]
 
     enum CodingKeys: String, CodingKey {
         case lambdaBUm = "lambda_b_um"
         case lambdaMinUm = "lambda_min_um"
         case source
+        case sources
         case elements
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        lambdaBUm = try c.decode(Double.self, forKey: .lambdaBUm)
+        lambdaMinUm = try c.decode(Double.self, forKey: .lambdaMinUm)
+        // An older core sends only `source`.
+        sources = try c.decodeIfPresent([SourceInfo].self, forKey: .sources)
+            ?? c.decodeIfPresent(SourceInfo.self, forKey: .source).map { [$0] } ?? []
+        elements = try c.decodeIfPresent([ElementInfo].self, forKey: .elements) ?? []
     }
 
     public func element(_ id: String) -> ElementInfo? {
         elements.first { $0.id == id }
+    }
+
+    public func source(_ id: String) -> SourceInfo? {
+        sources.first { $0.id == id }
     }
 }
 
@@ -286,6 +319,16 @@ public struct CheckReport: Decodable, Equatable, Sendable {
         issues.filter { $0.elementIndex == index }
     }
 
+    /// Issues about source `index` (paths `sources[i]…`).
+    public func issues(forSource index: Int) -> [Issue] {
+        issues.filter { $0.index(in: "sources") == index }
+    }
+
+    /// Issues about detector `index` (paths `detectors[i]…`).
+    public func issues(forDetector index: Int) -> [Issue] {
+        issues.filter { $0.index(in: "detectors") == index }
+    }
+
     /// Issues whose path starts with `prefix` (for example `source` or `solver`).
     public func issues(withPrefix prefix: String) -> [Issue] {
         issues.filter { $0.path == prefix || $0.path.hasPrefix(prefix + ".") || $0.path.hasPrefix(prefix + "[") }
@@ -326,6 +369,8 @@ public struct SolveMeta: Decodable, Equatable, Sendable {
     public var ppw: Double
     public var incidentKind: String
     public var wallS: Double
+    /// Peak memory of the solve, when the core reports it.
+    public var memoryMb: Double?
 
     enum CodingKeys: String, CodingKey {
         case unknowns
@@ -339,6 +384,7 @@ public struct SolveMeta: Decodable, Equatable, Sendable {
         case ppw
         case incidentKind = "incident_kind"
         case wallS = "wall_s"
+        case memoryMb = "memory_mb"
     }
 
     public init(from decoder: Decoder) throws {
@@ -354,6 +400,7 @@ public struct SolveMeta: Decodable, Equatable, Sendable {
         ppw = try c.decodeIfPresent(Double.self, forKey: .ppw) ?? 0
         incidentKind = try c.decodeIfPresent(String.self, forKey: .incidentKind) ?? "analytic"
         wallS = try c.decodeIfPresent(Double.self, forKey: .wallS) ?? 0
+        memoryMb = try c.decodeIfPresent(Double.self, forKey: .memoryMb)
     }
 }
 
@@ -385,6 +432,8 @@ public struct FieldInfo: Decodable, Equatable, Sendable {
     public var method: SolverMethod
     public var meta: SolveMeta
     public var bodies: [BodyInfo]
+    /// One per enabled detector, in scene order.
+    public var detectors: [DetectorReading]
 
     enum CodingKeys: String, CodingKey {
         case grid
@@ -398,6 +447,27 @@ public struct FieldInfo: Decodable, Equatable, Sendable {
         case method
         case meta
         case bodies
+        case detectors
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        grid = try c.decode(GridInfo.self, forKey: .grid)
+        domain = try c.decode(Domain.self, forKey: .domain)
+        pmlUm = try c.decode(Double.self, forKey: .pmlUm)
+        wavelengthUm = try c.decode(Double.self, forKey: .wavelengthUm)
+        backgroundN = try c.decode(Double.self, forKey: .backgroundN)
+        incidentPeak = try c.decode(Double.self, forKey: .incidentPeak)
+        totalPeak = try c.decode(Double.self, forKey: .totalPeak)
+        quality = try c.decode(QualityName.self, forKey: .quality)
+        method = try c.decode(SolverMethod.self, forKey: .method)
+        meta = try c.decode(SolveMeta.self, forKey: .meta)
+        bodies = try c.decode([BodyInfo].self, forKey: .bodies)
+        detectors = try c.decodeIfPresent([DetectorReading].self, forKey: .detectors) ?? []
+    }
+
+    public func reading(_ detectorID: String) -> DetectorReading? {
+        detectors.first { $0.id == detectorID }
     }
 }
 
@@ -420,11 +490,13 @@ public struct SceneOutlines: Decodable, Equatable, Sendable {
         }
     }
 
+    /// The first enabled source in the version 2 shape. The app draws sources from the
+    /// scene, so this is not used for drawing.
     public struct SourceGlyph: Decodable, Equatable, Sendable {
         public var kind: SourceKind
         /// Waist centre for a Gaussian beam, the domain centre for a plane wave.
         public var waistUm: [Double]
-        public var angleDeg: Double
+        public var angleDeg: Double?
         public var w0Um: Double?
 
         enum CodingKeys: String, CodingKey {
@@ -438,13 +510,22 @@ public struct SceneOutlines: Decodable, Equatable, Sendable {
     public var domain: Domain
     public var pmlUm: Double
     public var bodies: [Body]
-    public var source: SourceGlyph
+    /// Optional: a later core may drop it, and a scene without an enabled source has none.
+    public var source: SourceGlyph?
 
     enum CodingKeys: String, CodingKey {
         case domain
         case pmlUm = "pml_um"
         case bodies
         case source
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        domain = try c.decode(Domain.self, forKey: .domain)
+        pmlUm = try c.decode(Double.self, forKey: .pmlUm)
+        bodies = try c.decode([Body].self, forKey: .bodies)
+        source = try? c.decodeIfPresent(SourceGlyph.self, forKey: .source)
     }
 
     public func bodies(of elementID: String) -> [Body] {

@@ -11,6 +11,8 @@ public struct SolveResult {
     public var scene: SimScene
     public var quality: QualityName
     public var finishedAt: Date
+    /// A drag's preview, at a capped resolution: the scene still owes a full preview.
+    public var tracking = false
 
     public var id: ObjectIdentifier { ObjectIdentifier(field) }
 }
@@ -69,9 +71,21 @@ public enum SolveStatus: Equatable {
 @MainActor
 @Observable
 public final class SolveController {
+    /// The scene check's report as the views see it, and the check revision it belongs to
+    /// (`SimScene.checkRevision`). While `holdsReport` is set, a new report reaches these
+    /// only when its verdict or issues differ; the controller's own decisions use the
+    /// newest one (`latestReport`).
     public private(set) var report: CheckReport?
-    /// The revision `report` belongs to.
     public private(set) var reportRevision: Data?
+    @ObservationIgnored private var latestReport: CheckReport?
+    @ObservationIgnored private var latestReportRevision: Data?
+    /// Set during a canvas drag: the solver checks the dragged scene several times a second,
+    /// and its derived values (focal points, estimates) change at each step. Publishing
+    /// each report re-evaluated every view that shows an issue. The views see the newest
+    /// report again when this is cleared.
+    @ObservationIgnored public var holdsReport = false {
+        didSet { if holdsReport != oldValue { publishReport() } }
+    }
     public private(set) var lastPreview: SolveResult?
     public private(set) var lastFinal: SolveResult?
     public private(set) var failure: SolveFailure?
@@ -86,6 +100,9 @@ public final class SolveController {
 
     @ObservationIgnored private var scene = SimScene()
     @ObservationIgnored public private(set) var revision = Data()
+    /// The revision checks are keyed by: `revision` plus the detectors, which the core
+    /// validates but which do not change the field.
+    @ObservationIgnored public private(set) var checkRevision = Data()
     @ObservationIgnored private var tracking = false
     @ObservationIgnored private var previewDue = false
     @ObservationIgnored private var debounce: Task<Void, Never>?
@@ -103,7 +120,13 @@ public final class SolveController {
 
     private static let log = Logger(subsystem: "com.asympton.fringe", category: "solve")
     public static let debounceInterval: Duration = .milliseconds(250)
-    public static let pollInterval: Duration = .milliseconds(50)
+    /// Polling runs only while a job does; 10 Hz is enough for the progress bar.
+    public static let pollInterval: Duration = .milliseconds(100)
+    /// The least time between two previews a drag starts.
+    public static let trackingInterval: Duration = .milliseconds(500)
+    @ObservationIgnored private var lastTrackingStart: ContinuousClock.Instant?
+    @ObservationIgnored private var trackingRetry: Task<Void, Never>?
+    @ObservationIgnored private var jobTracking = false
 
     public init() {}
 
@@ -116,12 +139,30 @@ public final class SolveController {
         self.tracking = tracking
         self.scene = scene
         let newRevision = scene.physicsRevision
+        let newCheckRevision = scene.checkRevision
         guard newRevision != revision else {
-            // The end of a drag with no further change still owes the drag's last scene a solve.
-            if wasTracking && !tracking && previewDue { schedulePreview() }
+            if newCheckRevision != checkRevision {
+                // Only the detectors changed: check again (they may now be outside the
+                // domain), but the field stays. A scene that was blocked by a detector and
+                // has no result yet gets its preview once the check passes.
+                checkRevision = newCheckRevision
+                requestCheck()
+                if lastFinal?.revision != revision, lastPreview?.revision != revision, runningQuality == nil {
+                    previewDue = true
+                    if !tracking { schedulePreview() }
+                }
+            }
+            // The end of a drag with no further change still owes the drag's last scene a
+            // solve, also when a drag preview (capped resolution) already showed it.
+            if wasTracking && !tracking {
+                if let p = lastPreview, p.tracking, p.revision == revision, lastFinal?.revision != revision { previewDue = true }
+                if previewDue { schedulePreview() }
+            }
             return
         }
         revision = newRevision
+        checkRevision = newCheckRevision
+        PerfProbe.count("solve.newRevision")
 
         if runningQuality == .final {
             cancelJob()
@@ -160,7 +201,7 @@ public final class SolveController {
         debounce?.cancel()
         debounceFired = true
         previewDue = true
-        if report == nil || reportRevision != revision { requestCheck() }
+        if latestReport == nil || latestReportRevision != checkRevision { requestCheck() }
         maybeStartPreview()
     }
 
@@ -169,7 +210,8 @@ public final class SolveController {
     public var isRunning: Bool { runningQuality != nil }
 
     public var currentReport: CheckReport? {
-        reportRevision == revision ? report : nil
+        // While held, the shown report stands for the dragged scene.
+        holdsReport || reportRevision == checkRevision ? report : nil
     }
 
     /// The final, when it shows the current scene; otherwise the newest result.
@@ -241,19 +283,30 @@ public final class SolveController {
             return
         }
         checkInFlight = true
+        PerfProbe.count("solve.check")
         let scene = self.scene
-        let revision = self.revision
+        let revision = self.checkRevision
         Task {
             let report = await Task.detached(priority: .userInitiated) { FringeBridge.check(scene) }.value
             self.checkInFlight = false
-            self.report = report
-            self.reportRevision = revision
+            self.latestReport = report
+            self.latestReportRevision = revision
+            self.publishReport()
             if self.checkPending {
                 self.checkPending = false
                 self.requestCheck()
             }
             self.maybeStartPreview()
         }
+    }
+
+    /// Hands the newest report to the views, unless held and its verdict and issues are
+    /// those already shown. Unchanged values are not written, so they invalidate nothing.
+    private func publishReport() {
+        guard let latest = latestReport else { return }
+        if holdsReport, let shown = report, shown.ok == latest.ok, shown.issues == latest.issues { return }
+        if report != latest { report = latest }
+        if reportRevision != latestReportRevision { reportRevision = latestReportRevision }
     }
 
     // MARK: Previews
@@ -273,17 +326,30 @@ public final class SolveController {
         guard previewDue, runningQuality != .final else { return }
         // Outside a drag, wait for the quiet period after the last edit.
         if !tracking, !debounceFired { return }
-        // A result for this scene already exists (for example after undoing back to it).
-        if lastFinal?.revision == revision || lastPreview?.revision == revision {
+        // A result for this scene already exists (for example after undoing back to it); a
+        // drag's capped preview counts only while the drag goes on.
+        if lastFinal?.revision == revision || (lastPreview?.revision == revision && (tracking || lastPreview?.tracking == false)) {
             previewDue = false
             return
         }
         if tracking {
-            // Never cancel during a drag; the newest scene runs when this one ends.
+            // Never cancel during a drag; the newest scene runs when this one ends, and
+            // drag previews start at most every `trackingInterval`.
             if job != nil { return }
-            if let report, !report.ok, reportRevision == revision { return }
+            if let report = latestReport, !report.ok, latestReportRevision == checkRevision { return }
+            if let last = lastTrackingStart, ContinuousClock.now - last < Self.trackingInterval {
+                guard trackingRetry == nil else { return }
+                let wait = Self.trackingInterval - (ContinuousClock.now - last)
+                trackingRetry = Task { [weak self] in
+                    try? await Task.sleep(for: wait)
+                    guard let self else { return }
+                    self.trackingRetry = nil
+                    self.maybeStartPreview()
+                }
+                return
+            }
         } else {
-            guard reportRevision == revision, let report else { return }
+            guard latestReportRevision == checkRevision, let report = latestReport else { return }
             guard report.ok else {
                 previewDue = false
                 return
@@ -297,17 +363,18 @@ public final class SolveController {
             }
         }
         previewDue = false
-        start(.preview)
+        if tracking { lastTrackingStart = .now }
+        start(.preview, tracking: tracking)
     }
 
     // MARK: Jobs
 
-    private func start(_ quality: QualityName) {
+    private func start(_ quality: QualityName, tracking: Bool = false) {
         let scene = self.scene
         let revision = self.revision
         let job: JobHandle
         do {
-            job = try JobHandle(scene: scene, quality: quality)
+            job = try tracking ? JobHandle(trackingScene: scene) : JobHandle(scene: scene, quality: quality)
         } catch let error as FringeError {
             recordFailure(error, quality: quality, revision: revision)
             return
@@ -315,7 +382,9 @@ public final class SolveController {
             recordFailure(FringeError(code: "internal", message: error.localizedDescription), quality: quality, revision: revision)
             return
         }
+        PerfProbe.count("solve.start.\(tracking ? "tracking" : quality.rawValue)")
         self.job = job
+        jobTracking = tracking
         jobRevision = revision
         jobScene = scene
         runningQuality = quality
@@ -326,6 +395,7 @@ public final class SolveController {
             while !Task.isCancelled {
                 try? await Task.sleep(for: SolveController.pollInterval)
                 guard let self, self.job === job else { return }
+                PerfProbe.count("solve.poll")
                 let progress = job.poll()
                 self.progress = progress
                 if progress.state != FRINGE_JOB_RUNNING {
@@ -352,7 +422,8 @@ public final class SolveController {
                 Self.log.error("Unreadable field info: \(field.infoJSON, privacy: .public)")
                 throw FringeError(code: "internal", message: "Could not read the solved field's info.")
             }
-            let result = SolveResult(field: field, info: info, revision: revision, scene: scene, quality: quality, finishedAt: Date())
+            var result = SolveResult(field: field, info: info, revision: revision, scene: scene, quality: quality, finishedAt: Date())
+            result.tracking = jobTracking
             if quality == .final { lastFinal = result } else { lastPreview = result }
             if failure?.revision == revision || failure?.quality == quality { failure = nil }
             Self.log.debug("Finished \(quality.rawValue) in \(info.meta.wallS) s")
@@ -369,8 +440,12 @@ public final class SolveController {
         if previewDue { maybeStartPreview() }
     }
 
+    /// Set by `restoreResults` when the parked results had a final running.
+    @ObservationIgnored private var resumesFinal = false
+
     private func cancelJob() {
         guard let job else { return }
+        PerfProbe.count("solve.cancel")
         job.cancel()
         poller?.cancel()
         poller = nil
@@ -398,5 +473,86 @@ public final class SolveController {
 
     public func dismissFailure() {
         failure = nil
+    }
+
+    // MARK: Results from elsewhere
+
+    /// Shows `field` as the preview of `scene`, as if it had been solved for it: a field
+    /// combined from a puzzle's per-source fields. Call it before the document takes
+    /// `scene`, so the coming update finds a result and starts no preview.
+    public func adopt(_ field: FieldHandle, for scene: SimScene) {
+        guard let info = field.info else { return }
+        let revision = scene.physicsRevision
+        if job != nil, jobRevision == revision { cancelJob() }
+        lastPreview = SolveResult(field: field, info: info, revision: revision, scene: scene, quality: info.quality, finishedAt: Date())
+        if failure?.revision == revision { failure = nil }
+        if revision == self.revision { previewDue = false }
+        publishShown(force: true)
+    }
+
+    /// The results kept for one document while another one is shown.
+    public struct Results {
+        var preview: SolveResult?
+        var final: SolveResult?
+        var failure: SolveFailure?
+        /// A final was solving when the results were parked; it runs again on return.
+        var finalWasRunning = false
+    }
+
+    /// Stops any solve and hands over the results, leaving none: for switching to a
+    /// document of another mode. `restoreResults` puts them back.
+    public func parkResults() -> Results {
+        debounce?.cancel()
+        debounceFired = true
+        previewDue = false
+        let finalWasRunning = runningQuality == .final
+        cancelJob()
+        let parked = Results(preview: lastPreview, final: lastFinal, failure: failure, finalWasRunning: finalWasRunning)
+        lastPreview = nil
+        lastFinal = nil
+        failure = nil
+        publishShown(force: true)
+        return parked
+    }
+
+    /// Puts parked results back. Call it before the document they belong to comes back,
+    /// so the coming update finds them and solves nothing again.
+    public func restoreResults(_ results: Results) {
+        cancelJob()
+        lastPreview = results.preview
+        lastFinal = results.final
+        failure = results.failure
+        resumesFinal = results.finalWasRunning
+        publishShown(force: true)
+    }
+
+    /// After `restoreResults` and the document's return: starts a preview when the parked
+    /// results hold none for the current scene (the parked solve was cancelled, or an edit
+    /// came after it) and no solve is running or due.
+    public func resumeIfUnsolved() {
+        guard !revision.isEmpty, !isRunning else { return }
+        // A final the switch stopped runs again, unless one for this scene is already here.
+        if resumesFinal {
+            resumesFinal = false
+            if lastFinal?.revision != revision, canRunFinal {
+                runFinal()
+                return
+            }
+        }
+        if lastFinal?.revision == revision || lastPreview?.revision == revision { return }
+        if failure?.revision == revision { return }
+        if previewDue, !debounceFired { return }
+        previewNow()
+    }
+
+    /// Peak memory of the shown solve in MB: what the core measured, or else the check's
+    /// estimate for the shown quality (`estimated` is then true).
+    public var shownMemoryMb: (value: Double, estimated: Bool)? {
+        guard let shown else { return nil }
+        if let measured = shown.info.meta.memoryMb, measured.isFinite, measured > 0 { return (measured, false) }
+        let estimates = currentReport?.estimates
+        let estimate = shown.quality == .final ? estimates?.final : estimates?.preview
+        guard let mb = estimate?.memoryMb, mb.isFinite, mb > 0 else { return nil }
+        return (mb, true)
     }
 }

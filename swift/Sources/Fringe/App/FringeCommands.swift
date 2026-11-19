@@ -26,6 +26,61 @@ struct FringeCommands: Commands {
         CommandMenu("Display") {
             DisplayMenuItems(model: model)
         }
+
+        // Always in the menu bar, so it keeps its shape; its items are disabled outside a puzzle.
+        CommandMenu("Puzzle") {
+            PuzzleMenuItems(model: model)
+        }
+    }
+}
+
+/// Check, hints, Reset, moving between puzzles and switching inputs (puzzle mode).
+private struct PuzzleMenuItems: View {
+    let model: AppState
+
+    var body: some View {
+        let inPuzzle = model.isInPuzzle
+        let puzzles = model.puzzles
+        // ⌘R is Run Final in the simulator and Check in puzzle mode: one owner at a time.
+        Button("Check") { model.checkPuzzle() }
+            .keyboardShortcut(model.mode == .puzzles ? KeyboardShortcut("r") : nil)
+            .disabled(!inPuzzle || puzzles.isChecking)
+        Button("Show Hint") { puzzles.showHint() }
+            .keyboardShortcut("h", modifiers: [.command, .shift])
+            .disabled(!inPuzzle || puzzles.hintsShown >= (puzzles.session?.puzzle.hints.count ?? 0))
+        Button("Reset…") { puzzles.isResetConfirmationPresented = true }
+            .disabled(!inPuzzle)
+
+        Divider()
+
+        Button("All Puzzles") { model.closePuzzle() }
+            .keyboardShortcut("[")
+            .disabled(!inPuzzle)
+        let id = puzzles.session?.id ?? ""
+        Button("Previous Puzzle") { model.openNeighbourPuzzle(-1) }
+            .keyboardShortcut("[", modifiers: [.command, .shift])
+            .disabled(!inPuzzle || puzzles.neighbour(of: id, by: -1) == nil)
+        Button("Next Puzzle") { model.openNeighbourPuzzle(1) }
+            .keyboardShortcut("]", modifiers: [.command, .shift])
+            .disabled(!inPuzzle || puzzles.neighbour(of: id, by: 1) == nil)
+
+        // ⌃⌥ digits: free in the existing set (⌃ digits are the quantities, ⌥⌘ the
+        // colormaps, ⌃⌥⌘ the solvers).
+        let inputs = puzzles.session?.puzzle.inputs ?? []
+        let bits = model.puzzleInputBits
+        // Only the open puzzle's inputs: no disabled Input C and D in a two-input puzzle.
+        if inPuzzle, !inputs.isEmpty {
+            Divider()
+        }
+        ForEach(0..<(inPuzzle ? min(4, inputs.count) : 0), id: \.self) { i in
+            let letter = String(UnicodeScalar(UInt8(65 + i)))
+            Toggle("Input \(letter)", isOn: Binding(
+                get: { bits.indices.contains(i) && bits[i] },
+                set: { model.setPuzzleInput(i, on: $0) }
+            ))
+            .keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: [.control, .option])
+            .disabled(!inPuzzle || i >= inputs.count)
+        }
     }
 }
 
@@ -33,28 +88,34 @@ private struct FileMenuItems: View {
     let model: AppState
 
     var body: some View {
+        // Scenes are the simulator's: puzzle mode neither opens nor saves them, and its
+        // images are not for export.
+        let simulator = model.mode == .simulator
         Button("Open Scene…") { model.isSceneImporterPresented = true }
             .keyboardShortcut("o")
+            .disabled(!simulator)
         Button("Save Scene…") { model.isSceneExporterPresented = true }
             .keyboardShortcut("s")
+            .disabled(!simulator)
         Menu("Templates") {
             ForEach(model.examples, id: \.name) { example in
                 Button(example.menuTitle) { model.loadExample(example) }
             }
         }
+        .disabled(!simulator)
 
         Divider()
 
         Button("Export Image…") { model.requestExportImage() }
             .keyboardShortcut("e")
-            .disabled(model.solver.shown == nil)
+            .disabled(!simulator || model.solver.shown == nil)
         Button("Export Again") { model.exportAgain() }
             .keyboardShortcut("e", modifiers: [.command, .option])
-            .disabled(model.lastExportURL?.pathExtension.lowercased() != "png")
+            .disabled(!simulator || model.lastExportURL?.pathExtension.lowercased() != "png")
         Button("Export Field Data (.npz)…") { model.exportFieldData() }
-            .disabled(model.solver.shown == nil)
+            .disabled(!simulator || model.solver.shown == nil)
         Button("Export Animation Frames…") { model.exportAnimationFrames() }
-            .disabled(model.solver.shown == nil)
+            .disabled(!simulator || model.solver.shown == nil)
         Button("Show Last Export in Finder") {
             if let url = model.lastExportURL {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
@@ -71,14 +132,15 @@ private struct EditMenuItems: View {
         Divider()
         Button("Copy Image") { model.copyImage() }
             .keyboardShortcut("c", modifiers: [.command, .shift])
-            .disabled(model.solver.shown == nil)
-        Button("Duplicate Element") { model.duplicateSelectedElement() }
+            .disabled(model.isPuzzleBrowser || model.solver.shown == nil)
+        let noun = model.selectedItem?.noun ?? "Item"
+        Button("Duplicate \(noun)") { model.duplicateSelectedItem() }
             .keyboardShortcut("d")
-            .disabled(model.selectedElementID == nil)
-        // No ⌘⌫ here: menu shortcuts win over text fields, so it would delete the element
+            .disabled(!(model.selectedItem.map(model.canDuplicate) ?? false))
+        // No ⌘⌫ here: menu shortcuts win over text fields, so it would delete the item
         // while the user is deleting text in the inspector. Plain ⌫ in the sidebar works.
-        Button("Delete Element") { model.deleteSelectedElement() }
-            .disabled(model.selectedElementID == nil)
+        Button("Delete \(noun)") { model.deleteSelectedItem() }
+            .disabled(!(model.selectedItem.map(model.isPlayerItem) ?? false))
     }
 }
 
@@ -90,12 +152,25 @@ private struct ViewMenuItems: View {
     }
 
     var body: some View {
+        // ⌘1 / ⌘2: free in the existing set (⌃⌘, ⌥⌘ and ⌃⌥⌘ digits are taken).
+        Toggle("Simulator", isOn: Binding(get: { model.mode == .simulator }, set: { if $0 { model.setMode(.simulator) } }))
+            .keyboardShortcut("1")
+        Toggle("Puzzles", isOn: Binding(get: { model.mode == .puzzles }, set: { if $0 { model.setMode(.puzzles) } }))
+            .keyboardShortcut("2")
+
+        Divider()
+
+        // A puzzle's domain is fixed: it is part of the score.
+        let simulator = model.mode == .simulator
         Button("Zoom In") { model.zoom(by: AppState.zoomStep) }
             .keyboardShortcut("=")
+            .disabled(!simulator)
         Button("Zoom Out") { model.zoom(by: 1 / AppState.zoomStep) }
             .keyboardShortcut("-")
+            .disabled(!simulator)
         Button("Fit Domain to Elements") { model.fitDomainToElements() }
             .keyboardShortcut("0")
+            .disabled(!simulator)
 
         Divider()
 
@@ -117,10 +192,16 @@ private struct ViewMenuItems: View {
                 }
             ))
         }
+        .disabled(!simulator)
 
         Menu("Overlays") {
             OverlayToggles(model: model, showsShortcut: true)
         }
+
+        Divider()
+
+        Button(model.isResultsPresented ? "Hide Results" : "Show Results") { model.toggleResults() }
+            .keyboardShortcut("r", modifiers: [.command, .option])
     }
 }
 
@@ -128,12 +209,15 @@ private struct SimulationMenuItems: View {
     let model: AppState
 
     var body: some View {
+        // ⌘R is Check in puzzle mode (Puzzle menu).
         Button("Run Final") { model.runFinal() }
-            .keyboardShortcut("r")
-            .disabled(!model.solver.canRunFinal)
-        Button("Cancel") { model.cancelSolve() }
-            .keyboardShortcut(".")
-            .disabled(!model.solver.isRunning)
+            .keyboardShortcut(model.mode == .simulator ? KeyboardShortcut("r") : nil)
+            .disabled(model.mode != .simulator || !model.solver.canRunFinal)
+        Button("Cancel") {
+            if model.puzzles.isChecking { model.cancelPuzzleCheck() } else { model.cancelSolve() }
+        }
+        .keyboardShortcut(".")
+        .disabled(!model.solver.isRunning && !model.puzzles.isChecking)
 
         Divider()
 
@@ -146,18 +230,24 @@ private struct SimulationMenuItems: View {
                 .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: [.control, .option, .command])
             }
         }
+        .disabled(model.mode != .simulator)
 
         Divider()
 
-        Menu("Add Element") {
-            AddElementItems(model: model)
+        // In a puzzle, parts come from the palette in the sidebar (the Puzzle menu has no
+        // other way to add one).
+        Menu("Add") {
+            AddItemSections(model: model)
         }
-        Button(model.selectedElement?.enabled == false ? "Enable Element" : "Disable Element") {
-            model.toggleSelectedElementEnabled()
+        .disabled(model.mode != .simulator)
+        let selected = model.selectedItem
+        let noun = selected?.noun ?? "Item"
+        Button(selected.map { model.isEnabled($0) } == false ? "Enable \(noun)" : "Disable \(noun)") {
+            model.toggleSelectedItemEnabled()
         }
         // ⇧⌘D: ⌥⌘D belongs to the system (Dock hiding) and never reaches the app.
         .keyboardShortcut("d", modifiers: [.command, .shift])
-        .disabled(model.selectedElementID == nil)
+        .disabled(!(selected.map(model.isPlayerItem) ?? false))
     }
 }
 

@@ -18,6 +18,7 @@ struct LengthField: View {
     @FocusState private var isFocused: Bool
 
     var body: some View {
+        let _ = PerfProbe.body("LengthField")
         VStack(alignment: .leading, spacing: 4) {
             LabeledContent {
                 HStack(spacing: 4) {
@@ -77,7 +78,7 @@ struct LengthField: View {
     }
 
     static func format(_ um: Double) -> String {
-        Format.number(um, digits: 0...4).replacingOccurrences(of: "−", with: "-")
+        Format.number(um, digits: 0...4)
     }
 
     /// Parses "3.2", "3.2 µm", "450nm", "2λ", "0,5 mm" to micrometres.
@@ -105,6 +106,7 @@ struct IssueLines: View {
     let issues: [Issue]
 
     var body: some View {
+        let _ = PerfProbe.body("IssueLines")
         ForEach(issues, id: \.self) { issue in
             Label {
                 MathText(issue.mathSentence)

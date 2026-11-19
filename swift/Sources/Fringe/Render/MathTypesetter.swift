@@ -50,7 +50,9 @@ enum MathTypesetter {
         "beta": ("β", .italic), "pi": ("π", .italic), "omega": ("ω", .italic), "varepsilon": ("ε", .italic),
         "epsilon": ("ϵ", .italic), "mu": ("µ", .upright), "angle": ("∠", .symbol), "cdot": ("·", .upright),
         "times": ("×", .upright), "approx": ("≈", .symbol), "pm": ("±", .upright), "infty": ("∞", .symbol),
-        "dagger": ("†", .upright),
+        "dagger": ("†", .upright), "gamma": ("γ", .italic), "Gamma": ("Γ", .upright), "Delta": ("Δ", .upright),
+        "oplus": ("⊕", .symbol), "wedge": ("∧", .symbol), "vee": ("∨", .symbol), "neg": ("¬", .symbol),
+        "hbar": ("ħ", .italic),
     ]
 
     private static let functions: Set<String> = ["exp", "arg", "Re", "Im", "sin", "cos", "log", "ln"]
@@ -63,6 +65,19 @@ enum MathTypesetter {
     private static let thinSpace = "\u{2009}"
     /// Italic correction: an italic letter leans into a superscript after it.
     private static let hairSpace = "\u{200A}"
+    /// Word joiner: keeps a line from breaking at the spaces added inside math, so
+    /// "$k > 0$" never wraps after "k".
+    private static let joiner = "\u{2060}"
+
+    /// `run` with no line break allowed at the spaces math adds (medium, thick, thin and
+    /// "\\ "), so a formula stays on one line.
+    private static func unbreakable(_ run: Run) -> Run {
+        var run = run
+        for space in [mediumSpace, thickSpace, thinSpace, " "] {
+            run.text = run.text.replacingOccurrences(of: space, with: joiner + space + joiner)
+        }
+        return run
+    }
 
     /// One parsed atom before spacing: an operator name gets a thin space before an
     /// ordinary atom that follows it.
@@ -106,7 +121,7 @@ enum MathTypesetter {
     static func runs(_ tex: String) -> [Run] {
         var chars = Array(tex)[...]
         let atoms = parseList(&chars, position: .base, upright: false, closing: nil)
-        return merged(spaced(atoms))
+        return merged(spaced(atoms)).map(unbreakable)
     }
 
     private static func parseList(_ chars: inout ArraySlice<Character>, position: Position, upright: Bool, closing: Character?) -> [Atom] {
@@ -245,6 +260,7 @@ enum MathTypesetter {
                         .replacingOccurrences(of: thickSpace, with: " ")
                         .replacingOccurrences(of: thinSpace, with: " ")
                         .replacingOccurrences(of: hairSpace, with: "")
+                        .replacingOccurrences(of: joiner, with: "")
                     switch run.position {
                     case .base: return text
                     case .superscript: return scripted(text, superscripts) ?? "^" + (text.count > 1 ? "(\(text))" : text)

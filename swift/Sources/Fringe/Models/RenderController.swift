@@ -44,6 +44,7 @@ public final class RenderController {
     public init() {}
 
     public func submit(_ request: RenderRequest) {
+        PerfProbe.count("render.submit")
         if let last, last.same(as: request), pending == nil { return }
         guard !inFlight else {
             pending = request
@@ -60,6 +61,7 @@ public final class RenderController {
     }
 
     private func run(_ request: RenderRequest) {
+        PerfProbe.count("render.run")
         inFlight = true
         last = request
         Task {
@@ -74,6 +76,8 @@ public final class RenderController {
             }.value
             lastDuration = ContinuousClock.now - start
             if let image {
+                PerfProbe.count("render.publish")
+                PerfProbe.count("render.total_ns", by: Int(lastDuration.components.seconds) * 1_000_000_000 + Int(lastDuration.components.attoseconds / 1_000_000_000))
                 rendered = RenderedImage(image: image, viewRect: request.viewRect, field: request.field)
             }
             inFlight = false

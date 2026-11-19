@@ -4,18 +4,44 @@ struct InspectorView: View {
     @Environment(AppState.self) private var model
 
     var body: some View {
+        let _ = PerfProbe.body("InspectorView")
         Form {
+            if model.isInPuzzle {
+                PuzzleInspector(model: model)
+            } else {
+                simulatorForms
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    @ViewBuilder
+    private var simulatorForms: some View {
             switch model.selection {
-            case .source:
-                SourceForm(model: model)
+            case .illumination:
+                IlluminationForm(model: model)
+            case .source(let id):
+                if model.scene[source: id] != nil {
+                    // A fresh identity per item, so text fields never show another item's
+                    // half-typed value.
+                    SourceForm(model: model, id: id)
+                        .id(id)
+                } else {
+                    IlluminationForm(model: model)
+                }
             case .element(let id):
                 if model.scene[element: id] != nil {
-                    // A fresh identity per element, so text fields never show another
-                    // element's half-typed value.
                     ElementForm(model: model, id: id)
                         .id(id)
                 } else {
-                    SourceForm(model: model)
+                    IlluminationForm(model: model)
+                }
+            case .detector(let id):
+                if model.scene[detector: id] != nil {
+                    DetectorForm(model: model, id: id)
+                        .id(id)
+                } else {
+                    IlluminationForm(model: model)
                 }
             case .simulation:
                 SimulationForm(model: model)
@@ -24,8 +50,18 @@ struct InspectorView: View {
             case .output:
                 OutputForm(model: model)
             }
-        }
-        .formStyle(.grouped)
+    }
+}
+
+/// Fields that follow a canvas drag (bindings made with `live: true`). A binding reads its
+/// value when it is made, so the fields are made here, in this view's own body: the drag's
+/// updates then re-evaluate these fields, not the form around them.
+struct LiveFields<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        let _ = PerfProbe.body("LiveFields")
+        content()
     }
 }
 
@@ -44,6 +80,24 @@ extension AppState {
             return !isWhole && issue.fieldKey == key
         }
     }
+
+    /// Issues for source `index`, as `elementIssues` does for elements.
+    func sourceIssues(_ index: Int, key: String?) -> [Issue] {
+        itemIssues(checkReport?.issues(forSource: index) ?? [], whole: "sources[\(index)]", key: key)
+    }
+
+    /// Issues for detector `index`, as `elementIssues` does for elements.
+    func detectorIssues(_ index: Int, key: String?) -> [Issue] {
+        itemIssues(checkReport?.issues(forDetector: index) ?? [], whole: "detectors[\(index)]", key: key)
+    }
+
+    private func itemIssues(_ issues: [Issue], whole: String, key: String?) -> [Issue] {
+        issues.filter { issue in
+            let isWhole = issue.path == whole
+            guard let key else { return isWhole }
+            return !isWhole && issue.fieldKey == key
+        }
+    }
 }
 
 /// A numeric override that is either a number or the default, shown as a placeholder.
@@ -58,6 +112,7 @@ struct OptionalNumberField: View {
     @FocusState private var isFocused: Bool
 
     var body: some View {
+        let _ = PerfProbe.body("OptionalNumberField")
         LabeledContent {
             HStack(spacing: 4) {
                 TextField(MathTypesetter.plain(title), text: $text, prompt: Text(placeholder))
@@ -92,6 +147,7 @@ struct OptionalNumberField: View {
             return
         }
         let normalized = trimmed.replacingOccurrences(of: Locale.current.decimalSeparator ?? ".", with: ".")
+            .replacingOccurrences(of: "\u{2212}", with: "-")
         if let number = Double(normalized), number.isFinite {
             let v = min(limits.upperBound, max(limits.lowerBound, number))
             if v != value.wrappedValue { value.wrappedValue = v }
@@ -104,8 +160,9 @@ struct OptionalNumberField: View {
     static func format(_ value: Double?) -> String {
         guard let value else { return "" }
         if value != 0, abs(value) < 1e-3 || abs(value) >= 1e6 {
-            return String(format: "%g", value)
+            let text = String(format: "%g", value)
+            return text.hasPrefix("-") ? "\u{2212}" + text.dropFirst() : text
         }
-        return Format.number(value, digits: 0...4).replacingOccurrences(of: "−", with: "-")
+        return Format.number(value, digits: 0...4)
     }
 }

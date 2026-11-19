@@ -197,6 +197,9 @@ public struct DisplaySettings: Codable, Equatable, Sendable {
     public var showOverlays = true
     public var showOutlines = true
     public var showSourceGlyph = true
+    public var showDetectors = true
+    /// Each detector's name and reading in a plate beside it.
+    public var showReadings = true
     public var showParaxialFocus = true
     public var showScaleBar = true
     public var showCaption = true
@@ -224,6 +227,8 @@ public struct DisplaySettings: Codable, Equatable, Sendable {
         case showOverlays = "show_overlays"
         case showOutlines = "show_outlines"
         case showSourceGlyph = "show_source_glyph"
+        case showDetectors = "show_detectors"
+        case showReadings = "show_readings"
         case showParaxialFocus = "show_paraxial_focus"
         case showScaleBar = "show_scale_bar"
         case showCaption = "show_caption"
@@ -254,6 +259,8 @@ public struct DisplaySettings: Codable, Equatable, Sendable {
         showOverlays = try c.decodeIfPresent(Bool.self, forKey: .showOverlays) ?? d.showOverlays
         showOutlines = try c.decodeIfPresent(Bool.self, forKey: .showOutlines) ?? d.showOutlines
         showSourceGlyph = try c.decodeIfPresent(Bool.self, forKey: .showSourceGlyph) ?? d.showSourceGlyph
+        showDetectors = try c.decodeIfPresent(Bool.self, forKey: .showDetectors) ?? d.showDetectors
+        showReadings = try c.decodeIfPresent(Bool.self, forKey: .showReadings) ?? d.showReadings
         showParaxialFocus = try c.decodeIfPresent(Bool.self, forKey: .showParaxialFocus) ?? d.showParaxialFocus
         showScaleBar = try c.decodeIfPresent(Bool.self, forKey: .showScaleBar) ?? d.showScaleBar
         showCaption = try c.decodeIfPresent(Bool.self, forKey: .showCaption) ?? d.showCaption
@@ -276,6 +283,8 @@ public struct DisplaySettings: Codable, Equatable, Sendable {
         try c.encode(showOverlays, forKey: .showOverlays)
         try c.encode(showOutlines, forKey: .showOutlines)
         try c.encode(showSourceGlyph, forKey: .showSourceGlyph)
+        try c.encode(showDetectors, forKey: .showDetectors)
+        try c.encode(showReadings, forKey: .showReadings)
         try c.encode(showParaxialFocus, forKey: .showParaxialFocus)
         try c.encode(showScaleBar, forKey: .showScaleBar)
         try c.encode(showCaption, forKey: .showCaption)
@@ -296,6 +305,7 @@ public struct DisplaySettings: Codable, Equatable, Sendable {
             && logDb == o.logDb && phaseDeg == o.phaseDeg && phaseWeighted == o.phaseWeighted
             && playbackSpeed == o.playbackSpeed && showOverlays == o.showOverlays
             && showOutlines == o.showOutlines && showSourceGlyph == o.showSourceGlyph
+            && showDetectors == o.showDetectors && showReadings == o.showReadings
             && showParaxialFocus == o.showParaxialFocus && showScaleBar == o.showScaleBar
             && showCaption == o.showCaption && showLegend == o.showLegend && showPML == o.showPML
     }
@@ -332,7 +342,7 @@ public struct DisplaySettings: Codable, Equatable, Sendable {
             // Conductors are filled with vector outlines over the raster instead.
             pecRgba: nil
         )
-        return (try? SimScene.jsonEncoder.encode(view)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+        return PerfProbe.time("display.viewJSON") { (try? SimScene.jsonEncoder.encode(view)).map { String(decoding: $0, as: UTF8.self) } ?? "{}" }
     }
 }
 

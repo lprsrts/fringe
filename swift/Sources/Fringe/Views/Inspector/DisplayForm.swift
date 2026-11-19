@@ -4,6 +4,7 @@ struct DisplayForm: View {
     let model: AppState
 
     var body: some View {
+        let _ = PerfProbe.body("DisplayForm")
         let display = model.display
         let quantity = display.quantity
 
@@ -138,7 +139,8 @@ struct OverlayToggles: View {
     var showsShortcut = false
 
     var body: some View {
-        Toggle(title("Show Overlays", "Show overlays"), isOn: showHide("Overlays", \.display.showOverlays))
+        let _ = PerfProbe.body("OverlayToggles")
+        Toggle(title("Show Overlays", "Show overlays"), isOn: showHide("Overlays", \.showOverlays))
             .keyboardShortcut(showsShortcut ? KeyboardShortcut("o", modifiers: [.command, .shift]) : nil)
 
         if inMenu {
@@ -146,26 +148,42 @@ struct OverlayToggles: View {
         }
 
         Group {
-            Toggle(title("Outlines", "Outlines"), isOn: model.binding("Change Overlays", \.display.showOutlines))
-            Toggle(title("Source", "Source"), isOn: model.binding("Change Overlays", \.display.showSourceGlyph))
-            Toggle(title("Paraxial Focus", "Paraxial focus"), isOn: model.binding("Change Overlays", \.display.showParaxialFocus))
-            Toggle(title("Scale Bar", "Scale bar"), isOn: model.binding("Change Overlays", \.display.showScaleBar))
-            Toggle(title("Caption", "Caption"), isOn: model.binding("Change Overlays", \.display.showCaption))
-            Toggle(title("Color Legend", "Color legend"), isOn: model.binding("Change Overlays", \.display.showLegend))
+            Toggle(title("Outlines", "Outlines"), isOn: toggle(\.showOutlines))
+            Toggle(title("Sources", "Sources"), isOn: toggle(\.showSourceGlyph))
+            Toggle(title("Detectors", "Detectors"), isOn: toggle(\.showDetectors))
+                .help("Draw line and box detectors on the canvas")
+            Toggle(title("Detector Readings", "Detector readings"), isOn: toggle(\.showReadings))
+                .help("Label each detector with its name and reading")
+                .disabled(!display.showDetectors)
+            Toggle(title("Paraxial Focus", "Paraxial focus"), isOn: toggle(\.showParaxialFocus))
+            Toggle(title("Scale Bar", "Scale bar"), isOn: toggle(\.showScaleBar))
+            Toggle(title("Caption", "Caption"), isOn: toggle(\.showCaption))
+            Toggle(title("Color Legend", "Color legend"), isOn: toggle(\.showLegend))
         }
-        .disabled(!model.display.showOverlays)
+        .disabled(!display.showOverlays)
 
         if inMenu {
             Divider()
         }
-        Toggle(title("Show PML", "Show absorbing layer (PML)"), isOn: showHide("PML", \.display.showPML))
+        Toggle(title("Show PML", "Show absorbing layer (PML)"), isOn: showHide("PML", \.showPML))
+    }
+
+    /// What the toggles show. In a menu (the toolbar's), the toolbar's stored copy of the
+    /// display settings, so a document change that leaves them alone (a drag step)
+    /// re-evaluates nothing in the toolbar.
+    private var display: DisplaySettings { inMenu ? model.toolbarDocument.display : model.display }
+
+    private func toggle(_ keyPath: WritableKeyPath<DisplaySettings, Bool>) -> Binding<Bool> {
+        let set = model.binding("Change Overlays", (\FringeDocument.display).appending(path: keyPath))
+        return Binding(get: { display[keyPath: keyPath] }, set: { set.wrappedValue = $0 })
     }
 
     /// A binding whose undo name says what the change did: "Show PML" or "Hide PML".
-    private func showHide(_ what: String, _ keyPath: WritableKeyPath<FringeDocument, Bool>) -> Binding<Bool> {
-        Binding(
-            get: { model.binding("Show \(what)", keyPath).wrappedValue },
-            set: { newValue in model.binding(newValue ? "Show \(what)" : "Hide \(what)", keyPath).wrappedValue = newValue }
+    private func showHide(_ what: String, _ keyPath: WritableKeyPath<DisplaySettings, Bool>) -> Binding<Bool> {
+        let path = (\FringeDocument.display).appending(path: keyPath)
+        return Binding(
+            get: { display[keyPath: keyPath] },
+            set: { newValue in model.binding(newValue ? "Show \(what)" : "Hide \(what)", path).wrappedValue = newValue }
         )
     }
 

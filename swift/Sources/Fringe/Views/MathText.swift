@@ -23,6 +23,7 @@ struct MathText: View {
     }
 
     var body: some View {
+        let _ = PerfProbe.body("MathText")
         let size = font.map { $0.resolve(in: fontContext).pointSize }
             ?? defaultPointSize
             ?? Font.body.resolve(in: fontContext).pointSize

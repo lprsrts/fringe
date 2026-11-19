@@ -1,153 +1,171 @@
 import SwiftUI
 
+/// One source: a Gaussian beam, a plane wave or a point emitter.
 struct SourceForm: View {
     let model: AppState
-
-    private static let laserLines: [(nm: Double, name: String)] = [
-        (405, "405 nm"), (488, "488 nm"), (532, "532 nm"), (633, "633 nm (He-Ne)"),
-        (780, "780 nm"), (1064, "1064 nm (Nd:YAG)"), (1550, "1550 nm"),
-    ]
+    let id: String
 
     var body: some View {
-        let scene = model.scene
-        let source = scene.source
-        let lambda = scene.lambdaB
-        let domain = scene.domain
+        let _ = PerfProbe.body("SourceForm")
+        if let source = model.scene[source: id], let index = model.scene.sourceIndex(id) {
+            let scene = model.scene
+            let lambda = scene.lambdaB
+            let domain = scene.domain
 
-        Section("Source") {
-            Picker("Kind", selection: model.binding("Change Source", \.scene.source.kind)) {
-                ForEach(SourceKind.allCases) { Text($0.title).tag($0) }
-            }
-            .pickerStyle(.segmented)
-
-            ValueRow(
-                title: "Wavelength",
-                value: model.binding("Change Wavelength", \.scene.wavelengthUm).scaled(by: 1000),
-                range: 380...1600,
-                limits: 100...100_000,
-                unit: "nm",
-                digits: 1,
-                ticks: Self.laserLines.map(\.nm),
-                onEditingChanged: model.editingChanged("Change Wavelength")
-            )
-            IssueLines(issues: model.issues(at: "wavelength_um"))
-            LabeledContent("Laser Line") {
-                Menu(currentLine ?? "Other") {
-                    ForEach(Self.laserLines, id: \.nm) { line in
-                        Button(line.name) {
-                            model.edit("Change Wavelength") { $0.scene.wavelengthUm = line.nm / 1000 }
-                        }
-                    }
-                }
-                .fixedSize()
-            }
-            ValueRow(
-                title: "Background Index",
-                value: model.binding("Change Background Index", \.scene.background.n),
-                range: 1...2.5,
-                limits: 1...4,
-                digits: 3,
-                onEditingChanged: model.editingChanged("Change Background Index")
-            )
-            IssueLines(issues: model.issues(at: "background.n"))
-        }
-
-        if source.kind == .gaussianBeam {
-            Section("Gaussian Beam") {
-                LengthField(
-                    title: "Waist Radius $w_0$",
-                    value: model.binding("Change Waist Radius", \.scene.source.waistUm),
-                    lambda: lambda,
-                    range: 0.1 * lambda...max(10 * lambda, min(domain.width, domain.height) / 2),
-                    limits: 0.01...1e4,
-                    issues: model.issues(at: "source.waist_um"),
-                    onEditingChanged: model.editingChanged("Change Waist Radius")
-                )
-                LengthField(
-                    title: "Waist $x$",
-                    value: model.binding("Move Waist", \.scene.source.waistXUm),
-                    lambda: lambda,
-                    range: domain.xMinUm...domain.xMaxUm,
-                    issues: model.issues(at: "source.waist_x_um"),
-                    onEditingChanged: model.editingChanged("Move Waist")
-                )
-                LengthField(
-                    title: "Waist $y$",
-                    value: model.binding("Move Waist", \.scene.source.waistYUm),
-                    lambda: lambda,
-                    range: domain.yMinUm...domain.yMaxUm,
-                    issues: model.issues(at: "source.waist_y_um"),
-                    onEditingChanged: model.editingChanged("Move Waist")
-                )
-                angleRow
-            }
-        } else {
-            Section("Plane Wave") {
-                angleRow
-            }
-        }
-
-        Section {
-            ValueRow(
-                title: "Amplitude",
-                value: model.binding("Change Amplitude", \.scene.source.amplitude),
-                range: 0.1...5,
-                limits: 1e-6...1e6,
-                digits: 2,
-                neutral: 1,
-                onEditingChanged: model.editingChanged("Change Amplitude")
-            )
-            ValueRow(
-                title: "Phase",
-                value: model.binding("Change Source Phase", \.scene.source.phaseDeg),
-                range: 0...360,
-                limits: -360...720,
-                unit: "°",
-                digits: 0,
-                onEditingChanged: model.editingChanged("Change Source Phase")
-            )
-            IssueLines(issues: model.issues(at: "source.amplitude") + model.issues(at: "source"))
-        } footer: {
-            MathText.footer("Defined in the background as if no elements were present. $E_z$ polarization (out of plane, s). 2D: elements are infinite extrusions.")
-                .foregroundStyle(.secondary)
-        }
-
-        if source.kind == .gaussianBeam, let derived = model.checkReport?.derived?.source {
             Section {
-                if let zR = derived.rayleighRangeUm {
-                    LabeledContent { Text(Format.micrometres(zR)) } label: { MathText("Rayleigh Range $z_R$") }
+                TextField("Name", text: model.sourceBinding(id, "Rename Source", \.name, fallback: ""), prompt: Text(source.kind.rowTitle))
+                Toggle("Enabled", isOn: model.sourceBinding(id, source.enabled ? "Disable Source" : "Enable Source", \.enabled, fallback: true))
+                    .toggleStyle(.switch)
+                    .help("Disabled sources stay in the scene but are left out of the solve (⇧⌘D)")
+                Picker("Kind", selection: model.sourceBinding(id, "Change Source Kind", \.kind, fallback: .gaussianBeam)) {
+                    ForEach(SourceKind.allCases) { Text(Self.shortTitle($0)).tag($0) }
                 }
-                if let theta = derived.divergenceDeg {
-                    LabeledContent { Text(Format.degrees(theta, digits: 2)) } label: { MathText(#"Divergence $\theta_0$"#) }
-                }
+                .pickerStyle(.segmented)
+                .help("Switching keeps the amplitude, phase, angle and position")
+                // An emitter's placement problems sit under its position instead.
+                IssueLines(issues: (source.kind == .lineSource ? [] : model.sourceIssues(index, key: nil)) + model.sourceIssues(index, key: "id"))
             } header: {
-                Text("Derived")
+                Label(source.kind.title, systemImage: source.kind.symbol)
+            }
+
+            switch source.kind {
+            case .gaussianBeam:
+                Section("Beam") {
+                    LengthField(
+                        title: "Waist Radius $w_0$",
+                        value: model.sourceBinding(id, "Change Waist Radius", \.waistUm, fallback: 3),
+                        lambda: lambda,
+                        range: 0.1 * lambda...max(10 * lambda, min(domain.width, domain.height) / 2),
+                        limits: 0.01...1e4,
+                        issues: model.sourceIssues(index, key: "waist_um"),
+                        onEditingChanged: model.editingChanged("Change Waist Radius")
+                    )
+                    position(index, xTitle: "Waist $x$", yTitle: "Waist $y$", xKey: "waist_x_um", yKey: "waist_y_um", name: "Move Waist")
+                    angleRow(index)
+                }
+            case .planeWave:
+                Section("Plane Wave") {
+                    angleRow(index)
+                }
+            case .lineSource:
+                Section {
+                    position(index, xTitle: "Position $x$", yTitle: "Position $y$", xKey: "x_um", yKey: "y_um", name: "Move Source")
+                    IssueLines(issues: model.sourceIssues(index, key: nil))
+                } header: {
+                    Text("Emitter")
+                } footer: {
+                    MathText.footer(#"An $E_z$ line current: a point in the plane radiating cylindrical waves. $|E|$ is about $A$ one background wavelength away. Keep it 0.1 $\lambda_b$ from every body."#)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section {
+                ValueRow(
+                    title: "Amplitude $A$",
+                    value: model.sourceBinding(id, "Change Amplitude", \.amplitude, fallback: 1),
+                    range: 0.1...5,
+                    limits: 1e-6...1e6,
+                    digits: 2,
+                    neutral: 1,
+                    onEditingChanged: model.editingChanged("Change Amplitude")
+                )
+                IssueLines(issues: model.sourceIssues(index, key: "amplitude"))
+                ValueRow(
+                    title: #"Phase $\varphi$"#,
+                    value: model.sourceBinding(id, "Change Source Phase", \.phaseDeg, fallback: 0),
+                    range: 0...360,
+                    limits: -360...720,
+                    unit: "°",
+                    digits: 0,
+                    onEditingChanged: model.editingChanged("Change Source Phase")
+                )
+                IssueLines(issues: model.sourceIssues(index, key: "phase_deg"))
+            } header: {
+                Text("Strength")
             } footer: {
-                Text("Paraxial estimates, not solver output.")
+                Text(scene.sources.count > 1
+                     ? "Sources are coherent: the field is the sum of all enabled sources."
+                     : "Defined in the background as if no elements were present.")
                     .foregroundStyle(.secondary)
             }
-            .monospacedDigit()
+
+            if source.kind == .gaussianBeam, let derived = model.checkReport?.derived?.source(id),
+               derived.rayleighRangeUm != nil || derived.divergenceDeg != nil {
+                Section {
+                    if let zR = derived.rayleighRangeUm {
+                        LabeledContent { Text(Format.micrometres(zR)) } label: { MathText("Rayleigh Range $z_R$") }
+                    }
+                    if let theta = derived.divergenceDeg {
+                        LabeledContent { Text(Format.degrees(theta, digits: 2)) } label: { MathText(#"Divergence $\theta_0$"#) }
+                    }
+                } header: {
+                    Text("Derived")
+                } footer: {
+                    Text("Paraxial estimates, not solver output.")
+                        .foregroundStyle(.secondary)
+                }
+                .monospacedDigit()
+            }
+
+            Section {
+                Button("Duplicate Source") { model.duplicate(.source(id)) }
+                    .help("Add a copy of this source (⌘D)")
+                Button("Delete Source", role: .destructive) { model.delete(.source(id)) }
+                    .help("Remove this source from the scene; ⌫ in the sidebar does the same")
+            }
         }
     }
 
-    private var angleRow: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            ValueRow(
-                title: "Angle",
-                value: model.binding("Change Beam Angle", \.scene.source.angleDeg),
-                range: -90...90,
-                limits: -360...360,
-                unit: "°",
-                digits: 1,
-                neutral: 0,
-                onEditingChanged: model.editingChanged("Change Beam Angle")
+    /// Segment titles short enough for three in the inspector.
+    static func shortTitle(_ kind: SourceKind) -> String {
+        switch kind {
+        case .gaussianBeam: return "Gaussian Beam"
+        case .planeWave: return "Plane Wave"
+        case .lineSource: return "Emitter"
+        }
+    }
+
+    @ViewBuilder
+    private func position(_ index: Int, xTitle: String, yTitle: String, xKey: String, yKey: String, name: String) -> some View {
+        let domain = model.scene.domain
+        let lambda = model.scene.lambdaB
+        let xIssues = model.sourceIssues(index, key: xKey)
+        let yIssues = model.sourceIssues(index, key: yKey)
+        LiveFields {
+            LengthField(
+                title: xTitle,
+                value: model.sourceBinding(id, name, \.xUm, fallback: 0, live: true),
+                lambda: lambda,
+                range: domain.xMinUm...domain.xMaxUm,
+                issues: xIssues,
+                onEditingChanged: model.editingChanged(name)
             )
-            IssueLines(issues: model.issues(at: "source.angle_deg"))
+            LengthField(
+                title: yTitle,
+                value: model.sourceBinding(id, name, \.yUm, fallback: 0, live: true),
+                lambda: lambda,
+                range: domain.yMinUm...domain.yMaxUm,
+                issues: yIssues,
+                onEditingChanged: model.editingChanged(name)
+            )
         }
     }
 
-    private var currentLine: String? {
-        let nm = model.scene.wavelengthUm * 1000
-        return Self.laserLines.first { abs($0.nm - nm) < 0.05 }?.name
+    private func angleRow(_ index: Int) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            LiveFields {
+                ValueRow(
+                    title: "Angle",
+                    value: model.sourceBinding(id, "Change Beam Angle", \.angleDeg, fallback: 0, live: true),
+                    range: -90...90,
+                    limits: -360...360,
+                    unit: "°",
+                    digits: 1,
+                    neutral: 0,
+                    onEditingChanged: model.editingChanged("Change Beam Angle")
+                )
+            }
+            IssueLines(issues: model.sourceIssues(index, key: "angle_deg"))
+        }
     }
 }

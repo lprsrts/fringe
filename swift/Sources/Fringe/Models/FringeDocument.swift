@@ -32,8 +32,8 @@ public struct FringeDocument: Codable, Equatable, Sendable {
         output.aspect = OutputAspect.matching(ratio: ratio)
     }
 
-    /// Fits the domain around every enabled body outline and the waist, with a margin of
-    /// max(2 λ_b, 10 %), at `imageAspect`.
+    /// Fits the domain around every enabled body outline, Gaussian waist, emitter and
+    /// detector, with a margin of max(2 λ_b, 10 %), at `imageAspect`.
     public mutating func fitDomain(outlines: SceneOutlines?, imageAspect: Double) {
         var box: RectUm?
         func include(_ x: Double, _ y: Double) {
@@ -45,8 +45,14 @@ public struct FringeDocument: Codable, Equatable, Sendable {
                 include(point[0], point[1])
             }
         }
-        if scene.source.kind == .gaussianBeam {
-            include(scene.source.waistXUm, scene.source.waistYUm)
+        // A plane wave has no position; a beam's waist and an emitter's point do.
+        for source in scene.sources where source.enabled && source.kind != .planeWave {
+            include(source.xUm, source.yUm)
+        }
+        for detector in scene.detectors where detector.enabled {
+            for point in detector.points {
+                include(point.x, point.y)
+            }
         }
         guard var rect = box else { return }
         let lambdaB = scene.lambdaB

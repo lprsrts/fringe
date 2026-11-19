@@ -3,8 +3,11 @@ import SwiftUI
 struct ElementForm: View {
     let model: AppState
     let id: String
+    /// In a puzzle: the materials its palette allows for this kind; nil allows any.
+    var choices: MaterialChoices? = nil
 
     var body: some View {
+        let _ = PerfProbe.body("ElementForm")
         if let element = model.scene[element: id], let index = model.scene.elementIndex(id) {
             let lambda = model.scene.lambdaB
             let domain = model.scene.domain
@@ -14,22 +17,26 @@ struct ElementForm: View {
                 Toggle("Enabled", isOn: model.elementBinding(id, element.enabled ? "Disable Element" : "Enable Element", \.enabled, fallback: true))
                     .toggleStyle(.switch)
                 IssueLines(issues: model.elementIssues(index, key: nil))
-                LengthField(
-                    title: "Position $x$",
-                    value: model.elementBinding(id, "Move Element", \.xUm, fallback: 0),
-                    lambda: lambda,
-                    range: domain.xMinUm...domain.xMaxUm,
-                    issues: model.elementIssues(index, key: "x_um"),
-                    onEditingChanged: model.editingChanged("Move Element")
-                )
-                LengthField(
-                    title: "Position $y$",
-                    value: model.elementBinding(id, "Move Element", \.yUm, fallback: 0),
-                    lambda: lambda,
-                    range: domain.yMinUm...domain.yMaxUm,
-                    issues: model.elementIssues(index, key: "y_um"),
-                    onEditingChanged: model.editingChanged("Move Element")
-                )
+                let xIssues = model.elementIssues(index, key: "x_um")
+                let yIssues = model.elementIssues(index, key: "y_um")
+                LiveFields {
+                    LengthField(
+                        title: "Position $x$",
+                        value: model.elementBinding(id, "Move Element", \.xUm, fallback: 0, live: true),
+                        lambda: lambda,
+                        range: domain.xMinUm...domain.xMaxUm,
+                        issues: xIssues,
+                        onEditingChanged: model.editingChanged("Move Element")
+                    )
+                    LengthField(
+                        title: "Position $y$",
+                        value: model.elementBinding(id, "Move Element", \.yUm, fallback: 0, live: true),
+                        lambda: lambda,
+                        range: domain.yMinUm...domain.yMaxUm,
+                        issues: yIssues,
+                        onEditingChanged: model.editingChanged("Move Element")
+                    )
+                }
                 ValueRow(
                     title: "Rotation",
                     value: model.elementBinding(id, "Rotate Element", \.rotationDeg, fallback: 0),
@@ -44,7 +51,11 @@ struct ElementForm: View {
                 Label(element.kind.title, systemImage: element.kind.symbol)
             }
 
-            MaterialSection(model: model, id: id, element: element, index: index)
+            if let choices {
+                PuzzleMaterialSection(model: model, id: id, element: element, choices: choices)
+            } else {
+                MaterialEditor(model: model, id: id, element: element, index: index)
+            }
 
             Section("Shape") {
                 ShapeFields(model: model, id: id, element: element, index: index)
@@ -53,81 +64,11 @@ struct ElementForm: View {
             DerivedSection(model: model, element: element)
 
             Section {
-                Button("Duplicate Element") {
-                    model.selection = .element(id)
-                    model.duplicateSelectedElement()
-                }
+                Button("Duplicate Element") { model.duplicate(.element(id)) }
+                    .disabled(!model.canDuplicate(.element(id)))
                 Button("Delete Element", role: .destructive) {
                     model.deleteElement(id)
                 }
-            }
-        }
-    }
-}
-
-// MARK: - Material
-
-private struct MaterialSection: View {
-    let model: AppState
-    let id: String
-    let element: Element
-    let index: Int
-
-    var body: some View {
-        let material = element.material
-        Section {
-            Picker("Material", selection: model.elementBinding(id, "Change Material", \.material.kind, fallback: .dielectric)) {
-                Text("Dielectric").tag(MaterialKind.dielectric)
-                Text("PEC").tag(MaterialKind.pec)
-            }
-            .pickerStyle(.segmented)
-            .disabled(element.requiresPEC)
-
-            if !material.isPEC {
-                LabeledContent("Preset") {
-                    Menu(MaterialPreset.matching(material)?.name ?? "Custom") {
-                        ForEach(MaterialPreset.all) { preset in
-                            Button("\(preset.name) (n \(SceneFormat.fixed(preset.n, 3)))") {
-                                model.edit("Change Material") { doc in
-                                    doc.scene[element: id]?.material = .glass(preset.n)
-                                }
-                            }
-                        }
-                    }
-                    .fixedSize()
-                }
-                ValueRow(
-                    title: "Refractive Index $n$",
-                    value: model.elementBinding(id, "Change Refractive Index", \.material.n, fallback: 1.5),
-                    range: 1...4,
-                    limits: 1...6,
-                    digits: 3,
-                    onEditingChanged: model.editingChanged("Change Refractive Index")
-                )
-                IssueLines(issues: model.elementIssues(index, key: "n"))
-                ValueRow(
-                    title: "Extinction $k$",
-                    value: model.elementBinding(id, "Change Extinction", \.material.k, fallback: 0),
-                    range: 0...0.2,
-                    limits: 0...1,
-                    digits: 3,
-                    onEditingChanged: model.editingChanged("Change Extinction")
-                )
-                IssueLines(issues: model.elementIssues(index, key: "k"))
-            }
-            IssueLines(issues: model.elementIssues(index, key: "material"))
-        } header: {
-            Text("Material")
-        } footer: {
-            if element.requiresPEC {
-                Text("\(element.kind.title) elements are perfect electric conductors.")
-                    .foregroundStyle(.secondary)
-            } else if material.isPEC {
-                Text("A perfect electric conductor: the field is zero inside.")
-                    .foregroundStyle(.secondary)
-            } else {
-                MathText.footer("Indices are approximate, near 633 nm. $k > 0$ absorbs.")
-                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -170,6 +111,7 @@ private struct ShapeFields: View {
     private var span: Double { max(model.scene.domain.width, model.scene.domain.height) }
 
     var body: some View {
+        let _ = PerfProbe.body("ShapeFields")
         switch element.shape {
         case .lens(let lens):
             LensPresetRow(model: model, id: id, lens: lens)
@@ -251,6 +193,7 @@ private struct CountRow: View {
     let range: ClosedRange<Int>
 
     var body: some View {
+        let _ = PerfProbe.body("CountRow")
         Stepper(value: value, in: range) {
             LabeledContent(title, value: "\(value.wrappedValue)")
                 .monospacedDigit()
@@ -271,6 +214,7 @@ private struct OptionalRadiusField: View {
     var issues: [Issue] = []
 
     var body: some View {
+        let _ = PerfProbe.body("OptionalRadiusField")
         let radius = model.elementBinding(id, "Change \(MathTypesetter.plain(title))", path, fallback: nil)
         let isFlat = radius.wrappedValue == nil
         VStack(alignment: .leading, spacing: 4) {
@@ -331,6 +275,7 @@ private struct LensPresetRow: View {
     }
 
     var body: some View {
+        let _ = PerfProbe.body("LensPresetRow")
         LabeledContent("Lens Shape") {
             Menu(Preset.matching(lens)?.rawValue ?? "Custom") {
                 ForEach(Preset.allCases, id: \.self) { preset in
@@ -360,6 +305,7 @@ private struct PolygonVerticesField: View {
     @FocusState private var isFocused: Bool
 
     var body: some View {
+        let _ = PerfProbe.body("PolygonVerticesField")
         VStack(alignment: .leading, spacing: 4) {
             Text("Vertices (µm, element frame)")
             TextField("Vertices", text: $text, axis: .vertical)
@@ -416,6 +362,7 @@ private struct DerivedSection: View {
     let element: Element
 
     var body: some View {
+        let _ = PerfProbe.body("DerivedSection")
         if let info = model.checkReport?.derived?.element(element.id) {
             let rows = Self.rows(info, element: element)
             if !rows.isEmpty {

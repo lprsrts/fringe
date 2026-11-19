@@ -18,16 +18,22 @@ struct ValueRow: View {
     var ticks: [Double] = []
     /// Maps the slider logarithmically, for ranges that span decades.
     var logarithmic = false
+    /// False for a bare field with its unit, as in `CompactNumberField`.
+    var showsSlider = true
     var onEditingChanged: (Bool) -> Void = { _ in }
 
     /// The title without math markup, for the field's and slider's accessibility labels.
     private var plainTitle: String { MathTypesetter.plain(title) }
 
     var body: some View {
+        let _ = PerfProbe.body("ValueRow")
         VStack(alignment: .leading, spacing: 4) {
             LabeledContent {
-                HStack(spacing: 4) {
-                    TextField(plainTitle, value: fieldValue, format: .number.precision(.fractionLength(digits)).grouping(.never))
+                // "°" follows the number with no space (style 6.2): it closes up on the field,
+                // keeping the unit column's width.
+                let isDegree = unit == "°"
+                HStack(spacing: isDegree ? 0 : 4) {
+                    TextField(plainTitle, value: fieldValue, format: LenientMinusFormat(digits: digits))
                         .labelsHidden()
                         .monospacedDigit()
                         .multilineTextAlignment(.trailing)
@@ -35,14 +41,17 @@ struct ValueRow: View {
                     if !unit.isEmpty {
                         MathText(unit)
                             .foregroundStyle(.secondary)
-                            .frame(minWidth: 20, alignment: .leading)
+                            .padding(.leading, isDegree ? -3 : 0)
+                            .frame(minWidth: isDegree ? 24 : 20, alignment: .leading)
                     }
                 }
             } label: {
                 MathText(title)
             }
-            slider
-                .labelsHidden()
+            if showsSlider {
+                slider
+                    .labelsHidden()
+            }
         }
     }
 
@@ -112,5 +121,45 @@ extension Binding where Value == Double {
             get: { wrappedValue * factor },
             set: { wrappedValue = $0 / factor }
         )
+    }
+}
+
+/// A labelled number with its unit and no slider, for values with no natural range such as
+/// the parameters of a Lorentz–Drude pole.
+struct CompactNumberField: View {
+    let title: String
+    let value: Binding<Double>
+    var limits: ClosedRange<Double> = -Double.greatestFiniteMagnitude...Double.greatestFiniteMagnitude
+    var unit = ""
+    var digits = 3
+
+    var body: some View {
+        let _ = PerfProbe.body("CompactNumberField")
+        ValueRow(title: title, value: value, range: limits, limits: limits, unit: unit, digits: digits, showsSlider: false)
+    }
+}
+
+/// The fields' number format: negatives show the U+2212 minus like every other number in
+/// the app, and both it and a typed "-" read back.
+struct LenientMinusFormat: ParseableFormatStyle {
+    var digits: Int
+
+    private var base: FloatingPointFormatStyle<Double> {
+        .number.precision(.fractionLength(digits)).grouping(.never)
+    }
+
+    func format(_ value: Double) -> String {
+        let text = base.format(value)
+        return text.hasPrefix("-") ? "\u{2212}" + text.dropFirst() : text
+    }
+
+    var parseStrategy: Strategy { Strategy(base: base.parseStrategy) }
+
+    struct Strategy: ParseStrategy {
+        var base: FloatingPointParseStrategy<FloatingPointFormatStyle<Double>>
+
+        func parse(_ value: String) throws -> Double {
+            try base.parse(value.replacingOccurrences(of: "\u{2212}", with: "-"))
+        }
     }
 }

@@ -64,7 +64,7 @@ public struct ExampleInfo: Decodable, Hashable, Sendable {
     /// contain capitals (PEC, Talbot) are left alone.
     static func titleCased(_ text: String) -> String {
         let minor: Set<String> = ["a", "an", "the", "and", "but", "or", "nor", "for", "so", "yet",
-                                  "as", "at", "by", "in", "of", "on", "to", "up", "via"]
+                                  "as", "at", "by", "in", "of", "on", "to", "up", "via", "with", "into", "from"]
         let words = text.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
         return words.enumerated().map { index, word in
             let isEdge = index == 0 || index == words.count - 1
@@ -88,7 +88,7 @@ public typealias SolveQuality = QualityName
 public typealias FieldPart = FieldPartName
 
 /// Swift wrappers for the `fringe_core` C interface. Scenes travel as JSON (schema
-/// version 2) and come back as the typed models in `SimScene.swift` and `CheckReport.swift`.
+/// version 3) and come back as the typed models in `SimScene.swift` and `CheckReport.swift`.
 public enum FringeBridge {
     /// The colormap tables are sRGB, so the raster and the exported PNG are tagged as such
     /// and look the same on a wide-gamut display as in the preview.
@@ -159,7 +159,7 @@ public enum FringeBridge {
     }
 
     public static func check(_ scene: SimScene) -> CheckReport {
-        check(json: scene.jsonString())
+        PerfProbe.time("core.check") { check(json: scene.jsonString()) }
     }
 
     /// Body outlines and source placement for overlays, without solving.
@@ -169,7 +169,78 @@ public enum FringeBridge {
 
     /// nil when the core cannot read the scene.
     public static func outlines(_ scene: SimScene) -> SceneOutlines? {
-        try? decode(SceneOutlines.self, from: outlinesJSON(scene.jsonString()))
+        PerfProbe.time("core.outlines") { try? decode(SceneOutlines.self, from: outlinesJSON(scene.jsonString())) }
+    }
+
+    // MARK: Materials
+
+    /// The core's Lorentz–Drude presets (metals and glasses); empty if the core sends
+    /// nothing readable.
+    public static func materialLibrary() -> [MaterialLibraryEntry] {
+        (try? decode([MaterialLibraryEntry].self, from: materialLibraryJSON())) ?? []
+    }
+
+    /// The preset library as the core sends it.
+    public static func materialLibraryJSON() -> String {
+        takeString(fringe_material_presets()) ?? "[]"
+    }
+
+    private struct EvaluateRequest: Encodable {
+        var material: Material
+        var wavelengthsUm: [Double]
+
+        enum CodingKeys: String, CodingKey {
+            case material
+            case wavelengthsUm = "wavelengths_um"
+        }
+    }
+
+    private struct EvaluateResponse: Decodable {
+        var n: [Double?]
+        var k: [Double?]
+        var eps1: [Double?]
+        var eps2: [Double?]
+    }
+
+    /// n + ik and ε1 + iε2 of `material` at each wavelength (optics convention, k ≥ 0
+    /// absorbs); nil for PEC or when the core cannot evaluate it.
+    public static func evaluate(_ material: Material, wavelengthsUm: [Double]) -> [EffectiveIndex]? {
+        guard !material.isPEC, !wavelengthsUm.isEmpty,
+              let request = try? encode(EvaluateRequest(material: material, wavelengthsUm: wavelengthsUm)),
+              let json = takeString(fringe_material_evaluate(request)),
+              let response = try? decode(EvaluateResponse.self, from: json),
+              response.n.count == wavelengthsUm.count, response.k.count == wavelengthsUm.count,
+              response.eps1.count == wavelengthsUm.count, response.eps2.count == wavelengthsUm.count else {
+            return nil
+        }
+        var values: [EffectiveIndex] = []
+        values.reserveCapacity(wavelengthsUm.count)
+        // A sample the core cannot evaluate (one landing exactly on a lossless pole) is NaN,
+        // a gap in the curve; only a model with no value anywhere fails.
+        for i in wavelengthsUm.indices {
+            values.append(EffectiveIndex(n: response.n[i] ?? .nan, k: response.k[i] ?? .nan,
+                                         eps1: response.eps1[i] ?? .nan, eps2: response.eps2[i] ?? .nan))
+        }
+        guard values.contains(where: { $0.n.isFinite && $0.k.isFinite }) else { return nil }
+        return values
+    }
+
+    /// n and k at `count` wavelengths evenly spread over `range` (µm), and the value at
+    /// `lambda0`, for the material chart. Built on `fringe_material_evaluate`; one call.
+    public static func materialCurve(_ material: Material, range: ClosedRange<Double>, count: Int, lambda0: Double) -> MaterialCurve? {
+        guard count >= 2, range.lowerBound > 0 else { return nil }
+        let step = (range.upperBound - range.lowerBound) / Double(count - 1)
+        let wavelengths = (0..<count).map { range.lowerBound + Double($0) * step }
+        guard let values = evaluate(material, wavelengthsUm: wavelengths + [lambda0]) else { return nil }
+        let curve = values.dropLast()
+        return MaterialCurve(
+            wavelengthUm: wavelengths,
+            n: curve.map(\.n),
+            k: curve.map(\.k),
+            eps1: curve.map(\.eps1),
+            eps2: curve.map(\.eps2),
+            at: values.last.flatMap { [$0.n, $0.k, $0.eps1, $0.eps2].allSatisfy(\.isFinite) ? $0 : nil }
+        )
     }
 
     /// 256 RGBA8 entries for a colour legend; empty for an unknown name.
@@ -190,9 +261,18 @@ public final class JobHandle: @unchecked Sendable {
         try self.init(sceneJSON: scene.jsonString(), quality: quality)
     }
 
-    public init(sceneJSON: String, quality: SolveQuality) throws {
+    public convenience init(sceneJSON: String, quality: SolveQuality) throws {
+        try self.init(sceneJSON: sceneJSON, code: quality.code)
+    }
+
+    /// A preview while a drag is in progress: at most 1 M FDTD cells (core quality 2).
+    public convenience init(trackingScene scene: SimScene) throws {
+        try self.init(sceneJSON: scene.jsonString(), code: 2)
+    }
+
+    private init(sceneJSON: String, code: UInt32) throws {
         var error: UnsafeMutablePointer<CChar>?
-        guard let job = fringe_job_start(sceneJSON, quality.code, &error) else {
+        guard let job = fringe_job_start(sceneJSON, code, &error) else {
             throw FringeError.take(error)
         }
         self.job = job
@@ -231,7 +311,7 @@ public final class JobHandle: @unchecked Sendable {
 
 /// A solved field. Immutable, so it can be sampled and rendered from any thread.
 public final class FieldHandle: @unchecked Sendable {
-    private let field: OpaquePointer
+    let field: OpaquePointer
 
     /// Grid, scene context and diagnostics as JSON.
     public let infoJSON: String
@@ -252,6 +332,7 @@ public final class FieldHandle: @unchecked Sendable {
     public func sample(x: Double, y: Double, part: FieldPart = .total) -> (re: Double, im: Double)? {
         var re = 0.0
         var im = 0.0
+        PerfProbe.count("field.sample")
         guard fringe_field_sample(field, x, y, part.code, &re, &im) else { return nil }
         return (re, im)
     }
@@ -267,22 +348,28 @@ public final class FieldHandle: @unchecked Sendable {
         guard !overflow0, !overflow1 else {
             throw FringeError(code: "buffer", message: "The image is too large.")
         }
-        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: byteCount)
+        // Recycled: a released image hands its buffer back for the next render of the same
+        // size, so playback does not allocate a new raster for every frame.
+        let buffer = RasterPool.take(byteCount)
         var error: UnsafeMutablePointer<CChar>?
-        guard fringe_field_render_rgba(field, viewJSON, uWidth, uHeight, buffer, byteCount, &error) else {
-            buffer.deallocate()
+        PerfProbe.count("render.bytes", by: byteCount)
+        let renderedOK = PerfProbe.time("render.rgba_core") { fringe_field_render_rgba(field, viewJSON, uWidth, uHeight, buffer, byteCount, &error) }
+        guard renderedOK else {
+            RasterPool.give(buffer, byteCount)
             throw FringeError.take(error)
         }
+        let cgStart = DispatchTime.now().uptimeNanoseconds
+        defer { if PerfProbe.enabled { PerfProbe.count("render.cgimage_ns", by: Int(DispatchTime.now().uptimeNanoseconds - cgStart)); PerfProbe.count("render.cgimage") } }
         // The provider takes ownership of the buffer and frees it when released.
         guard let provider = CGDataProvider(
             dataInfo: nil,
             data: buffer,
             size: byteCount,
-            releaseData: { _, data, _ in
-                UnsafeMutableRawPointer(mutating: data).deallocate()
+            releaseData: { _, data, size in
+                RasterPool.give(UnsafeMutableRawPointer(mutating: data).assumingMemoryBound(to: UInt8.self), size)
             }
         ) else {
-            buffer.deallocate()
+            RasterPool.give(buffer, byteCount)
             throw FringeError(code: "internal", message: "Could not wrap the rendered pixels in an image.")
         }
         guard let image = CGImage(
@@ -325,5 +412,41 @@ public final class FieldHandle: @unchecked Sendable {
         return Data(bytesNoCopy: bytes, count: length, deallocator: .custom { pointer, count in
             fringe_bytes_free(pointer.assumingMemoryBound(to: UInt8.self), count)
         })
+    }
+}
+
+/// Raster buffers handed back by released images, reused for the next render of the same
+/// size. Holds at most `limit` buffers; any other size is freed.
+enum RasterPool {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var free: [(pointer: UnsafeMutablePointer<UInt8>, size: Int)] = []
+    private static let limit = 3
+
+    static func take(_ size: Int) -> UnsafeMutablePointer<UInt8> {
+        lock.lock()
+        if let i = free.firstIndex(where: { $0.size == size }) {
+            let p = free.remove(at: i).pointer
+            lock.unlock()
+            PerfProbe.count("render.poolHit")
+            return p
+        }
+        lock.unlock()
+        return UnsafeMutablePointer<UInt8>.allocate(capacity: size)
+    }
+
+    static func give(_ pointer: UnsafeMutablePointer<UInt8>, _ size: Int) {
+        lock.lock()
+        // Buffers of another size belong to an older canvas size: drop them.
+        free.removeAll { old in
+            if old.size != size { old.pointer.deallocate(); return true }
+            return false
+        }
+        if free.count < limit {
+            free.append((pointer, size))
+            lock.unlock()
+        } else {
+            lock.unlock()
+            pointer.deallocate()
+        }
     }
 }

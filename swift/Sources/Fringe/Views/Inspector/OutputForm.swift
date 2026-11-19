@@ -4,6 +4,7 @@ struct OutputForm: View {
     let model: AppState
 
     var body: some View {
+        let _ = PerfProbe.body("OutputForm")
         let output = model.output
         let size = model.outputPixelSize
         let megapixels = Double(size.width * size.height) / 1_000_000
