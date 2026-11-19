@@ -20,3 +20,8 @@ serde_json = "1"
 opt-level = 3
 lto = true
 codegen-units = 1
+
+# Build scripts run on the host; skip stripping them, which needs llvm-tools
+# (rust-objcopy) that a minimal rustup toolchain lacks.
+[profile.release.build-override]
+strip = false

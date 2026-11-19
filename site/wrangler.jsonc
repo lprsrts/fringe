@@ -1,9 +1,13 @@
 // The site is a Worker that only serves public/ (static files, no code), like
 // pi-voice.lprsrts.com. Deploy: npx wrangler@4 deploy (from this folder).
+// The build step compiles the solver to WebAssembly for the browser viewer
+// (public/web/, its module in public/web/pkg/, which git ignores); see
+// wasm/build.sh for the toolchain it needs.
 {
   "name": "fringe",
   "account_id": "ec2b62f1cfa6f470e81a948bff6191a9",
   "compatibility_date": "2026-11-01",
+  "build": { "command": "sh ../wasm/build.sh" },
   "assets": { "directory": "./public" },
   "workers_dev": false,
   "routes": [{ "pattern": "fringe.lprsrts.com", "custom_domain": true }]
