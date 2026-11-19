@@ -21,7 +21,7 @@ import {ExclamationTriangleIcon, InformationCircleIcon, XCircleIcon} from '@hero
 import {FieldCanvas} from './FieldCanvas';
 import {Inspector} from './Inspector';
 import {pageUrl, readLink, writeLink, decompress} from './link';
-import {objectOf, type Item, type Scene} from './scene';
+import {fitDomain, objectOf, type Item, type Scene} from './scene';
 import {Solver, type Example, type Issue, type SolveMeta} from './solver';
 
 const QUANTITIES = [
@@ -76,10 +76,26 @@ export function App() {
 
   const effectiveMethod = method || scene?.solver.method || 'fdtd';
 
+  // The field fills the space it is shown in: the solve uses the scene's
+  // domain grown to that space's shape (phones scroll instead, so there the
+  // scene's own shape stays). The scene itself, and its links, keep the domain
+  // they had. The shape settles for a moment before it re-solves.
+  const [aspect, setAspect] = useState<number | null>(null);
+  const aspectTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const reportAspect = useCallback((a: number) => {
+    clearTimeout(aspectTimer.current);
+    aspectTimer.current = setTimeout(() => setAspect((old) => (old && Math.abs(old - a) / a < 0.02 ? old : a)), 200);
+  }, []);
+  const fills = link.embed || !isNarrow;
+  const solveScene = useMemo(
+    () => (scene && aspect && fills ? {...scene, domain: {...scene.domain, ...fitDomain(scene.domain, aspect)}} : scene),
+    [scene, aspect, fills],
+  );
+
   // ---- solving: at most one solve at a time; edits during a solve coalesce
   // into one more solve with the newest scene.
-  const latest = useRef({scene, method: effectiveMethod});
-  latest.current = {scene, method: effectiveMethod};
+  const latest = useRef({scene: solveScene, method: effectiveMethod});
+  latest.current = {scene: solveScene, method: effectiveMethod};
   const busy = useRef(false);
   const dirty = useRef(false);
 
@@ -183,8 +199,8 @@ export function App() {
 
   // Solve whenever the scene or the solver changes.
   useEffect(() => {
-    if (scene) requestSolve();
-  }, [scene, effectiveMethod, requestSolve]);
+    if (solveScene) requestSolve();
+  }, [solveScene, effectiveMethod, requestSolve]);
 
   // Keep the URL shareable.
   useEffect(() => {
@@ -313,7 +329,7 @@ export function App() {
   const fieldView = scene && (
     <FieldCanvas
       solver={solver}
-      scene={scene}
+      scene={solveScene!}
       fieldVersion={fieldVersion}
       view={view}
       animate={animate && canAnimate}
@@ -321,7 +337,8 @@ export function App() {
       onSelect={setSelected}
       onMove={move}
       label={canvasLabel}
-      fitHeight={link.embed || !isNarrow}
+      fitHeight={fills}
+      onAspect={reportAspect}
     />
   );
 
