@@ -26,6 +26,9 @@ struct UIShot {
     var scrollInspectorFraction: Double? = nil
     /// Light appearance for the window (the capture's glass stand-ins follow it).
     var light = false
+    /// Another window content than FringeWindow (the Settings pane), and its title.
+    var content: (@MainActor (AppState) -> AnyView)? = nil
+    var title = "Fringe"
 }
 
 @MainActor let shots: [UIShot] = [
@@ -337,6 +340,38 @@ struct UIShot {
         try require(m.document == before, "a material the palette lacks is refused")
         await settle(m)
     },
+    // Reveals, held at moments of their timeline. logic-xor (four cases): nothing measured
+    // yet, case 0 1 counting, case 1 1 (the cancellation), the meter with two stars landed,
+    // the verdict with its extras; then a made-up near miss at its stop.
+    revealShot("puzzle-xor-reveal-0040", "logic-xor", at: 40),
+    revealShot("puzzle-xor-reveal-0400", "logic-xor", at: 400),
+    revealShot("puzzle-xor-reveal-0900", "logic-xor", at: 900),
+    revealShot("puzzle-xor-reveal-1300", "logic-xor", at: 1300),
+    revealShot("puzzle-xor-reveal-1700", "logic-xor", at: 1700),
+    revealShot("puzzle-xor-reveal-nearmiss-1600", "logic-xor", at: 1600, nearMiss: true),
+    // A single-case goal (the Bragg mirror, maximize): before, mid-count, the verdict, and
+    // a made-up near miss at its stop.
+    revealShot("puzzle-bragg-reveal-0040", "interference-bragg-mirror", at: 40),
+    revealShot("puzzle-bragg-reveal-0500", "interference-bragg-mirror", at: 500),
+    revealShot("puzzle-bragg-reveal-1000", "interference-bragg-mirror", at: 1000),
+    revealShot("puzzle-bragg-reveal-nearmiss-0950", "interference-bragg-mirror", at: 950, nearMiss: true),
+    // Settings ▸ Sound as it opens, and with the system's sound effects off (the footnote
+    // and "Play anyway" show only then).
+    UIShot(name: "settings-sound", size: CGSize(width: 460, height: 470), setup: { m in
+        try require(!m.sound.isEngineBuilt, "no audio engine at launch")
+        try? await Task.sleep(for: .milliseconds(200))
+    }, content: { m in AnyView(SettingsView(model: m)) }, title: "Sound"),
+    UIShot(name: "settings-sound-system-off", size: CGSize(width: 460, height: 540), setup: { m in
+        m.soundSettings.systemForTesting = SystemUISoundsSetting(isReadable: true, isEnabled: false)
+        m.soundSettings.volume = 0.35
+        try? await Task.sleep(for: .milliseconds(200))
+    }, content: { m in AnyView(SettingsView(model: m)) }, title: "Sound"),
+    // The same in light appearance.
+    UIShot(name: "settings-sound-system-off-light", size: CGSize(width: 460, height: 540), setup: { m in
+        m.soundSettings.systemForTesting = SystemUISoundsSetting(isReadable: true, isEnabled: false)
+        m.soundSettings.volume = 0.35
+        try? await Task.sleep(for: .milliseconds(200))
+    }, light: true, content: { m in AnyView(SettingsView(model: m)) }, title: "Sound"),
     // C3: logic-xor with the reference slab, checked: every case solved and scored.
     UIShot(name: "puzzle-xor-checked") { m in
         let e = try await openChecked("logic-xor", in: m)
@@ -468,7 +503,10 @@ struct UIShot {
         await settle(m)
         _ = await wait(5) { m.puzzleLiveValue("target") != nil }
         let live = m.puzzleLiveValue("target") ?? .nan
-        try require(m.detectorLabels["target"]?.contains("≈") == true, "the plate shows the live share (\(m.detectorLabels["target"] ?? "-"))")
+        // A goal detector shows no number before a Check (the reveal's M1); the value is
+        // still known to the model.
+        let plate = m.detectorLabels["target"] ?? "-"
+        try require(!plate.contains("≈") && !plate.contains("%"), "the plate shows no number before a Check (\(plate))")
         try await checkPuzzle(m)
         let scored = m.puzzles.session?.evaluation?.cases.first?.outputs.first?.value ?? .nan
         try require(abs(live - scored) < 0.005 * scored, "the live value \(live) is the checked value \(scored)")
@@ -514,12 +552,54 @@ struct UIShot {
     return evaluation
 }
 
-/// Runs Check and waits for it and the shown case.
+/// Runs Check and waits for it, its reveal and the shown case.
 @MainActor func checkPuzzle(_ m: AppState) async throws {
     m.checkPuzzle()
     try require(m.puzzles.isChecking || m.puzzles.session?.evaluation != nil, "Check starts")
     _ = await wait(120) { !m.puzzles.isChecking }
+    if m.reveal.frozenTime == nil {
+        let ended = await wait(6) { !m.reveal.isActive }
+        if !ended { print("  the reveal did not end by itself within 6 s") }
+    }
     await settle(m)
+}
+
+// MARK: - Reveal shots
+
+/// A Check of `id`'s reference design with its reveal held at `ms` milliseconds (sound on,
+/// so the times are the design's). With `nearMiss`, the shown result is replaced by a
+/// made-up one scoring 4 % under the pass (no real design is that close), and its reveal
+/// plays in full.
+@MainActor func revealShot(_ name: String, _ id: String, at ms: Double, nearMiss: Bool = false) -> UIShot {
+    UIShot(name: name) { m in
+        m.revealAssumesSoundForTesting = true
+        m.setMode(.puzzles, puzzle: id)
+        guard let puzzle = m.puzzles.session?.puzzle else { throw ShotError(description: "\(id) did not open") }
+        m.edit("Add Reference") { $0.scene.elements = puzzle.compose(design: puzzle.reference).elements }
+        m.selection = .illumination
+        await settle(m)
+        if !nearMiss { m.reveal.frozenTime = ms / 1000 }
+        m.checkPuzzle()
+        _ = await wait(120) { !m.puzzles.isChecking }
+        guard let real = m.puzzles.session?.evaluation, real.valid else { throw ShotError(description: "\(id): no scored result") }
+        if nearMiss {
+            _ = await wait(6) { !m.reveal.isActive }
+            let pass = puzzle.passScore ?? 0
+            guard let made = RevealSelfTest.evaluation(puzzle, score: pass - 0.04 * abs(pass)),
+                  let revision = m.puzzles.session?.evaluatedRevision else { throw ShotError(description: "no made-up result") }
+            m.puzzles.updateSession { $0.evaluation = made }
+            m.reveal.frozenTime = ms / 1000
+            m.beginReveal(CheckOutcome(puzzleID: id, evaluation: made, revision: revision, before: PuzzleProgress(),
+                                       after: PuzzleProgress(bestScore: made.score), record: .init(), previous: nil,
+                                       firstCheckThisSession: true, chapterCompleted: false))
+        }
+        try require(m.reveal.isActive, "the reveal is held at \(Int(ms)) ms")
+        guard let plan = m.reveal.plan else { return }
+        let f = plan.frame(at: ms / 1000)
+        print("  \(name): \(plan.kind.rawValue) verdict \(Format.number(plan.verdictAt, digits: 2...2)) s, end \(Format.number(plan.visualEnd, digits: 2...2)) s; at \(Int(ms)) ms: case \(f.highlightedCase.map(String.init) ?? "-"), canvas \(f.canvasCase.map(String.init) ?? "-"), fill \(f.meterX.map { Format.number($0, digits: 3...3) } ?? "empty"), stars \(f.starLand.map { Format.number($0, digits: 1...1) }), verdict \(Format.number(f.verdictOpacity, digits: 2...2)), extras \(f.extrasShown.map { "\($0)" }.sorted()), near miss \(plan.meter.nearMiss) \(plan.shortfall ?? "")")
+        // The canvas's case field uploads on its own: give it a moment.
+        try? await Task.sleep(for: .milliseconds(800))
+    }
 }
 
 /// Progress for the browser shots: three passed (3, 2, 1 stars) and one tried.
@@ -963,6 +1043,8 @@ enum UIShots {
             exit(2)
         }
         setvbuf(stdout, nil, _IOLBF, 0)
+        // Shots never make a sound, whatever the arguments say.
+        LaunchOptions.sound = .off
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.prohibited)
         NSApp.appearance = NSAppearance(named: .darkAqua)
@@ -1046,7 +1128,7 @@ struct ShotError: Error, CustomStringConvertible { var description: String }
     defer { NSApp.appearance = NSAppearance(named: .darkAqua); Appearance.light = false }
     let model = AppState()
 
-    let host = NSHostingView(rootView: FringeWindow().environment(model))
+    let host = NSHostingView(rootView: shot.content?(model) ?? AnyView(FringeWindow().environment(model)))
     host.sceneBridgingOptions = [.toolbars, .title]
     let window = OffscreenKeyWindow(
         contentRect: NSRect(origin: .zero, size: shot.size),
@@ -1056,7 +1138,7 @@ struct ShotError: Error, CustomStringConvertible { var description: String }
     window.isReleasedWhenClosed = false
     window.appearance = NSAppearance(named: shot.light ? .aqua : .darkAqua)
     window.toolbarStyle = .unified
-    window.title = "Fringe"
+    window.title = shot.title
     window.contentView = host
     window.setContentSize(shot.size)
     // Never ordered front: the window lives offscreen and is only drawn into a bitmap.
@@ -1065,7 +1147,7 @@ struct ShotError: Error, CustomStringConvertible { var description: String }
         window.close()
     }
 
-    _ = await wait(10) { model.containerSize.width > 0 }
+    if shot.content == nil { _ = await wait(10) { model.containerSize.width > 0 } }
     try? await Task.sleep(for: .milliseconds(400))
     try await shot.setup(model)
     if let label = shot.scrollInspectorTo, let sv = inspectorScrollView(host), let doc = sv.documentView {

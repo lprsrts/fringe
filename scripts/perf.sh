@@ -14,7 +14,8 @@
 #              resize-floor-nocanvas resize-floor-notoolbar resize-floor-noinspector diag-minsize diag-extension
 #              parity (GPU vs CPU colouring, §12 of the viewport design; no time limit)
 #              look (the invalid-scene grey against SwiftUI's .saturation(0)), export (full-size exports),
-#              transform (the pan/pinch overlay shift against a fresh draw)
+#              transform (the pan/pinch overlay shift against a fresh draw),
+#              sound (puzzle sound with the engine output at 0: when the engine starts and stops)
 # FRINGE_PERF_NOSAMPLE=1 skips `sample`. Display-tick statistics always leave out sample's run.
 # Each scenario prints PASS/FAIL per budget; harness-null runs first so the others can
 # subtract the harness's own CPU. The exit status is non-zero if any budget failed.

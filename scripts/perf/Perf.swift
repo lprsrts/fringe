@@ -47,6 +47,9 @@ struct Scenario {
     var kind: Kind = .idle
     /// A different window content, for the resize floor diagnostics (`diagRoot`).
     var root: String?
+    /// Puzzle sound: off in every scenario but the sound probe, which runs the engine with
+    /// its output at 0 (nothing is heard).
+    var sound: SoundEngine.Output = .off
 
     enum Kind { case null, idle, play, playInactive, playHidden, playOcclusion, drag, pan, resize, resizeFixed, hover, puzzle, colours, other }
 }
@@ -65,6 +68,12 @@ nonisolated(unsafe) var dragState: (id: String, x: Double, y: Double)?
 nonisolated(unsafe) var panStart: RectUm?
 nonisolated(unsafe) var puzzleTick = -1
 nonisolated(unsafe) var resizeEdits = (during: 0, after: 0)
+/// The sound probe: what it did, when the last voice was heard, and when the engine stopped.
+nonisolated(unsafe) var soundStep = -1
+nonisolated(unsafe) var soundLastHeard: Double?
+nonisolated(unsafe) var soundWasRunning = false
+nonisolated(unsafe) var soundStops: [(heard: Double, stopped: Double)] = []
+nonisolated(unsafe) var soundLog: [String] = []
 
 @MainActor let scenarios: [Scenario] = [
     Scenario(name: "harness-null", summary: "The harness's display cycle with no window: its own cost, subtracted from the others", noWindow: true, kind: .null),
@@ -242,8 +251,10 @@ nonisolated(unsafe) var resizeEdits = (during: 0, after: 0)
         await settle(m)
         m.checkPuzzle()
         _ = await wait(180) { !m.puzzles.isChecking }
+        // The Check's reveal plays out before the measurement (its clock stops at the end).
+        let revealEnded = await wait(6) { !m.reveal.isActive }
         await settle(m)
-        print("  checked: \(m.puzzles.session?.evaluation != nil)")
+        print("  checked: \(m.puzzles.session?.evaluation != nil), reveal ended by itself: \(revealEnded)")
     }, tick: { m, _, _, t in
         let step = Int(t / 2)
         guard step != puzzleTick, let puzzle = m.activePuzzle, !puzzle.inputs.isEmpty else { return }
@@ -252,6 +263,60 @@ nonisolated(unsafe) var resizeEdits = (during: 0, after: 0)
         let bits = (0..<n).map { (step + 1) >> $0 & 1 == 1 }
         m.setPuzzleInputs(bits)
     }, kind: .puzzle),
+    Scenario(name: "puzzle-reveal", summary: "logic-xor with the reference design, Check every 3 s with the slab nudged in between, so each Check plays a reveal (full or delta)", setup: { m in
+        m.setMode(.puzzles, puzzle: "logic-xor")
+        guard let puzzle = m.puzzles.session?.puzzle else { throw PerfError("logic-xor did not open") }
+        m.edit("Add Reference") { $0.scene.elements = puzzle.compose(design: puzzle.reference).elements }
+        await settle(m)
+    }, tick: { m, _, _, t in
+        let step = Int(t / 3)
+        guard step != puzzleTick, !m.puzzles.isChecking, let id = m.puzzleDesign.first?.id else { return }
+        puzzleTick = step
+        // A small move changes the design, so the Check is a new result each time.
+        m.edit("Nudge") { $0.scene[element: id]?.xUm += step % 2 == 0 ? 0.02 : -0.02 }
+        m.checkPuzzle()
+    }, kind: .puzzle),
+    Scenario(name: "sound", summary: "Puzzle sound with the engine's output at 0 (--sound mute): logic-xor with the reference design; no engine at launch; a Check at 0 s and 20 s (each a reveal), an input switch at 10 s (a toggle tone); when the engine stops after each", setup: { m in
+        soundLog.append("engine built at launch: \(m.sound.isEngineBuilt)")
+        m.setMode(.puzzles, puzzle: "logic-xor")
+        guard let puzzle = m.puzzles.session?.puzzle else { throw PerfError("logic-xor did not open") }
+        m.edit("Add Reference") { $0.scene.elements = puzzle.compose(design: puzzle.reference).elements }
+        await settle(m)
+        soundLog.append("engine built after opening a puzzle: \(m.sound.isEngineBuilt)")
+    }, tick: { m, _, _, t in
+        let step = t < 10 ? 0 : (t < 20 ? 1 : 2)
+        if step != soundStep {
+            soundStep = step
+            switch step {
+            case 1:
+                let bits = m.puzzleInputBits
+                let wasRevealing = m.reveal.isActive
+                if !bits.isEmpty { m.setPuzzleInputs(bits.indices.map { $0 == 0 ? !bits[0] : bits[$0] }) }
+                soundLog.append(String(format: "%.2f s: input switch (a reveal running before it: %@)", t, "\(wasRevealing)"))
+            default:
+                if let id = m.puzzleDesign.first?.id {
+                    m.edit("Nudge") { $0.scene[element: id]?.xUm += step == 0 ? 0.02 : -0.02 }
+                }
+                m.checkPuzzle()
+                soundLog.append(String(format: "%.2f s: Check (engine built %@, running %@)", t,
+                                       "\(m.sound.isEngineBuilt)", "\(m.sound.isEngineRunning)"))
+            }
+        }
+        if m.sound.isSounding { soundLastHeard = t }
+        let running = m.sound.isEngineRunning
+        if running != soundWasRunning {
+            soundWasRunning = running
+            if !running, let heard = soundLastHeard { soundStops.append((heard, t)) }
+            soundLog.append(String(format: "%.2f s: engine %@", t, running ? "running" : "stopped"))
+        }
+    }, teardown: { m in
+        for line in soundLog { print("  sound: \(line)") }
+        for s in soundStops {
+            print(String(format: "  sound: last voice at %.2f s, engine stopped at %.2f s: %.2f s after it", s.heard, s.stopped, s.stopped - s.heard))
+        }
+        let c = PerfProbe.snapshot()
+        print("  sound: engine builds \(c["sound.engine.build"]?.count ?? 0), starts \(c["sound.engine.start"]?.count ?? 0), stops \(c["sound.engine.stop"]?.count ?? 0), teardowns \(c["sound.engine.teardown"]?.count ?? 0); reveal ticks \(c["reveal.tick"]?.count ?? 0), checked cases shown \(c["sound.checkedCase"]?.count ?? 0), toggle tones \(c["sound.toggle"]?.count ?? 0)")
+    }, kind: .other, sound: .muted),
     Scenario(name: "diag-extension", summary: "Diagnostic: the layers SwiftUI adds for the canvas's background extension effect, Window aspect against 16:9", drives: false, setup: { m in
         @MainActor func report(_ label: String) async {
             try? await Task.sleep(for: .seconds(1))
@@ -635,6 +700,7 @@ struct Check {
     ViewportView.assumeActiveForTesting = scenario.active
     ViewportView.isAppHidden = { appHiddenForTesting }
     ViewportView.forcedRate = scenario.forcedRate
+    LaunchOptions.sound = scenario.sound
     let launchCPU0 = cpuSeconds()
     let launchWall0 = Date()
     var model: AppState?
