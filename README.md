@@ -74,6 +74,15 @@ Applications. The app is signed with a Developer ID and notarized by Apple, and
 it works offline. Each release also has a prebuilt `fringe-cli` tarball and
 `SHA256SUMS`.
 
+### Linux and Windows
+
+The app is macOS only, but `fringe-cli` runs on Linux (x86_64 and aarch64,
+glibc 2.35 or later) and Windows (x86_64). From the release after 0.3.0, download
+`fringe-cli-<version>-<target>.tar.gz` (Linux) or `.zip` (Windows) from
+[Releases](https://github.com/lprsrts/fringe/releases), unpack it and run
+`fringe-cli --help`. These builds are not signed. Or build from source with
+`cargo build --release --bin fringe-cli`.
+
 ## Physics and conventions
 
 - **2D, Ez only.** Every element is an infinite extrusion along z, so a "lens"
