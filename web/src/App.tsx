@@ -432,11 +432,13 @@ export function App() {
       <Section variant="transparent" padding={4}>
         <VStack gap={4}>
           <Heading level={3}>Display</Heading>
-          <SegmentedControl label="Show" value={quantity} onChange={setQuantity}>
-            {QUANTITIES.map((q) => (
-              <SegmentedControlItem key={q.value} value={q.value} label={q.label} />
-            ))}
-          </SegmentedControl>
+          <div className="fit-segments">
+            <SegmentedControl label="Show" value={quantity} onChange={setQuantity}>
+              {QUANTITIES.map((q) => (
+                <SegmentedControlItem key={q.value} value={q.value} label={q.label} />
+              ))}
+            </SegmentedControl>
+          </div>
           <Selector label="Colors" value={colormap} onChange={setColormap} options={COLORMAPS} />
           <Switch
             label="Animate the wave"
