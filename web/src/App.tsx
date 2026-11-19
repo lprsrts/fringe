@@ -453,7 +453,7 @@ export function App() {
     <LayoutHeader hasDivider>
       <HStack gap={3} vAlign="center" hAlign="between">
         <a className="brand" href="/">
-          <Heading level={1}>Fringe</Heading>
+          <Heading level={1}>Fringe Web</Heading>
         </a>
         <HStack gap={1}>
           <Button label="Share" variant="ghost" icon={<Icon icon={LinkIcon} size="sm" />} isIconOnly={isNarrow} onClick={share} isDisabled={!scene} />
