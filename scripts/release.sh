@@ -24,6 +24,14 @@ if [[ "${FRINGE_ALLOW_DIRTY:-0}" != 1 && -n "$(git -C "$root" status --porcelain
     exit 1
 fi
 
+# The tag is v<Cargo.toml version>, and the Linux and Windows CLI workflow refuses a
+# release whose tag doesn't match it, so bump the version before building a release.
+if git -C "$root" rev-parse -q --verify "refs/tags/v$version" >/dev/null \
+    || [[ -n "$(git -C "$root" ls-remote --tags origin "refs/tags/v$version")" ]]; then
+    echo "error: tag v$version already exists; bump the version in Cargo.toml first" >&2
+    exit 1
+fi
+
 identity="${FRINGE_SIGN_IDENTITY:-}"
 if [[ -z "$identity" ]]; then
     identities="$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: .*\)"$/\1/p')"
