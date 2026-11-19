@@ -6,6 +6,8 @@
 import {defineTheme} from '@astryxdesign/core/theme';
 import {neutralTheme} from '@astryxdesign/theme-neutral/built';
 
+const SYSTEM_FONTS = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+
 export const fringeTheme = defineTheme({
   name: 'fringe',
   extends: neutralTheme,
@@ -14,5 +16,9 @@ export const fringeTheme = defineTheme({
     '--color-on-accent': ['#ffffff', '#1c1600'],
     '--color-background-body': ['#f3f4f5', '#0b0d0f'],
     '--color-background-surface': ['#ffffff', '#121417'],
+    // The platform's own fonts (San Francisco, Segoe UI, Roboto…) instead of a
+    // downloaded one. Code already uses the system monospace.
+    '--font-family-body': SYSTEM_FONTS,
+    '--font-family-heading': SYSTEM_FONTS,
   },
 });
