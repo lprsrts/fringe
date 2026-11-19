@@ -4,7 +4,6 @@
 html, body, #root { height: 100%; }
 body { background: var(--color-background-body, var(--color-background-surface)); }
 
-.brand { color: inherit; text-decoration: none; }
 
 /* The field fills the space left beside the panel and keeps the domain's shape. */
 .stage { flex: 1; min-height: 0; display: flex; }

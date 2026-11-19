@@ -15,7 +15,7 @@ import {Switch} from '@astryxdesign/core/Switch';
 import {Heading, Text} from '@astryxdesign/core/Text';
 import {TextArea} from '@astryxdesign/core/TextArea';
 import {useToast} from '@astryxdesign/core/Toast';
-import {ArrowDownTrayIcon, ArrowTopRightOnSquareIcon, CodeBracketIcon, LinkIcon} from '@heroicons/react/24/outline';
+import {ArrowDownTrayIcon, ArrowTopRightOnSquareIcon, CodeBracketIcon, HomeIcon, LinkIcon} from '@heroicons/react/24/outline';
 import {ExclamationTriangleIcon, InformationCircleIcon, XCircleIcon} from '@heroicons/react/20/solid';
 
 import {FieldCanvas} from './FieldCanvas';
@@ -485,9 +485,10 @@ export function App() {
   const header = (
     <LayoutHeader hasDivider>
       <HStack gap={3} vAlign="center" hAlign="between">
-        <a className="brand" href="/">
+        <HStack gap={2} vAlign="center">
+          <Button label="Fringe home" href="/" variant="ghost" isIconOnly icon={<Icon icon={HomeIcon} size="sm" />} tooltip="Fringe home" />
           <Heading level={1}>Fringe Web</Heading>
-        </a>
+        </HStack>
         <HStack gap={1}>
           <Button label="Share" variant="ghost" icon={<Icon icon={LinkIcon} size="sm" />} isIconOnly={isNarrow} onClick={share} isDisabled={!scene} />
           <Button label="Embed" variant="ghost" icon={<Icon icon={CodeBracketIcon} size="sm" />} isIconOnly={isNarrow} onClick={openEmbed} isDisabled={!scene} />
