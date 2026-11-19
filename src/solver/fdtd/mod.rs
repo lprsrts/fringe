@@ -28,7 +28,7 @@ pub mod grid;
 pub mod materials;
 pub mod update;
 
-use std::time::Instant;
+use crate::time::Instant;
 
 use crate::problem::Problem;
 use crate::scene::validate::fmt;

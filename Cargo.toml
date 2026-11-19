@@ -22,10 +22,19 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 num-complex = "0.4"
-faer = { version = "=0.24.4", default-features = false, features = ["std", "rayon", "sparse", "linalg"] }
+faer = { version = "=0.24.4", default-features = false, features = ["std", "sparse", "linalg"] }
 spade = "=2.15.1"
-ctrlc = "3"
 crc32fast = "1.5"
+
+# Threads exist natively only: faer's rayon feature spawns std threads, and ctrlc
+# (used by the CLI) has no wasm32 backend.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+faer = { version = "=0.24.4", default-features = false, features = ["rayon"] }
+ctrlc = "3"
+
+# wasm32-unknown-unknown has no clock behind std::time::Instant (it panics).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-time = "1"
 
 [[bin]]
 name = "fringe-cli"

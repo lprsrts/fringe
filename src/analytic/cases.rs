@@ -7,7 +7,7 @@
 //! out; for FDTD, points within 2Δ of an interface are left out too.
 
 use std::sync::Arc;
-use std::time::Instant;
+use crate::time::Instant;
 
 use serde::Serialize;
 

@@ -2,7 +2,7 @@
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use crate::time::Instant;
 
 use super::{SolveError, Stage};
 

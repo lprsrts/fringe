@@ -1,14 +1,17 @@
 //! A solve running on its own thread, observed by polling.
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::OnceLock;
 
 use crate::scene::Scene;
 use crate::solver::context::{STATE_CANCELLED, STATE_DONE, STATE_FAILED};
 use crate::solver::{solve, FieldGrid, ProgressSnapshot, Quality, SolveContext, SolveError};
 
-/// One pool for all solves, leaving a core for the UI and for rendering (which
+/// One pool for all solves (native only), leaving a core for the UI and for rendering (which
 /// uses rayon's global pool).
+#[cfg(not(target_arch = "wasm32"))]
 pub fn solve_pool() -> &'static rayon::ThreadPool {
     static POOL: OnceLock<rayon::ThreadPool> = OnceLock::new();
     POOL.get_or_init(|| {
@@ -46,30 +49,15 @@ impl<T: Send + 'static> Job<T> {
     pub fn run(work: impl FnOnce(&SolveContext) -> Result<T, SolveError> + Send + 'static) -> Job<T> {
         let shared = Arc::new(JobShared { ctx: SolveContext::new(), result: Mutex::new(None) });
         let worker = shared.clone();
+        #[cfg(not(target_arch = "wasm32"))]
         std::thread::Builder::new()
             .name("fringe-job".into())
-            .spawn(move || {
-                let ctx = worker.ctx.clone();
-                let outcome = solve_pool().install(|| {
-                    catch_unwind(AssertUnwindSafe(|| work(&ctx))).unwrap_or_else(|p| {
-                        let msg = p
-                            .downcast_ref::<&str>()
-                            .map(|s| s.to_string())
-                            .or_else(|| p.downcast_ref::<String>().cloned())
-                            .unwrap_or_else(|| "unknown".into());
-                        Err(SolveError::Internal(format!("panic: {msg}")))
-                    })
-                });
-                let state = match &outcome {
-                    Ok(_) => STATE_DONE,
-                    Err(SolveError::Cancelled) => STATE_CANCELLED,
-                    Err(_) => STATE_FAILED,
-                };
-                *worker.result.lock().unwrap_or_else(|e| e.into_inner()) = Some(outcome);
-                // Publish the state last, so a poller that sees DONE can take the result.
-                worker.ctx.progress().set_state(state);
-            })
+            .spawn(move || solve_pool().install(|| finish(&worker, work)))
             .expect("spawn solve thread");
+        // No threads on wasm32-unknown-unknown: run to completion on the caller's
+        // thread (a Web Worker in a browser), so the job is done when this returns.
+        #[cfg(target_arch = "wasm32")]
+        finish(&worker, work);
         Job { shared }
     }
 
@@ -96,9 +84,32 @@ impl<T: Send + 'static> Job<T> {
             if let Some(r) = self.take_result() {
                 return r;
             }
+            // Unreachable on wasm, where `run` returns a finished job.
             std::thread::sleep(interval);
         }
     }
+}
+
+/// Runs `work`, turning a panic into an internal error (natively; on wasm a
+/// panic aborts the module instead), and publishes the outcome.
+fn finish<T>(worker: &JobShared<T>, work: impl FnOnce(&SolveContext) -> Result<T, SolveError>) {
+    let ctx = worker.ctx.clone();
+    let outcome = catch_unwind(AssertUnwindSafe(|| work(&ctx))).unwrap_or_else(|p| {
+        let msg = p
+            .downcast_ref::<&str>()
+            .map(|s| s.to_string())
+            .or_else(|| p.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "unknown".into());
+        Err(SolveError::Internal(format!("panic: {msg}")))
+    });
+    let state = match &outcome {
+        Ok(_) => STATE_DONE,
+        Err(SolveError::Cancelled) => STATE_CANCELLED,
+        Err(_) => STATE_FAILED,
+    };
+    *worker.result.lock().unwrap_or_else(|e| e.into_inner()) = Some(outcome);
+    // Publish the state last, so a poller that sees DONE can take the result.
+    worker.ctx.progress().set_state(state);
 }
 
 impl<T> Drop for Job<T> {

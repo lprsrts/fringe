@@ -70,7 +70,7 @@ pub mod fem;
 pub mod field;
 pub mod mom;
 
-use std::time::Instant;
+use crate::time::Instant;
 
 use rayon::prelude::*;
 

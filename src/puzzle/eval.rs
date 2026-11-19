@@ -33,7 +33,7 @@
 //! maximize or target score is the worst case's, a minimize score too.
 
 use std::sync::Arc;
-use std::time::Instant;
+use crate::time::Instant;
 
 use serde::Serialize;
 use serde_json::{json, Value};
