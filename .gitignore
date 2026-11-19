@@ -5,4 +5,7 @@
 
 .claude/*
 .DS_Store
-/site/public/web/pkg/
+# Built by site/wrangler.jsonc before each deploy (web/ and wasm/).
+/site/public/web/
+/web/node_modules/
+/web/src/pkg/
