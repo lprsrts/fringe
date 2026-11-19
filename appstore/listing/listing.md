@@ -10,17 +10,19 @@ Connect limits).
 |---|---|---|
 | Name | 19 | 30 |
 | Subtitle | 28 | 30 |
-| Promotional Text | 168 | 170 |
-| Description | 2370 | 4000 |
+| Promotional Text | 163 | 170 |
+| Description | 3167 | 4000 |
 | Keywords | 97 bytes | 100 bytes |
-| App Review Notes | 1261 | 4000 |
+| App Review Notes | 1550 | 4000 |
+| What's New | 766 | 4000 |
 
 Before submitting, deploy the site (`site/`, see `site/wrangler.jsonc`): the Privacy
 Policy, Support and Marketing URLs below point at fringe.lprsrts.com and are 404 until
 then.
 
 The version in App Store Connect must match the build's `CFBundleShortVersionString`,
-which is 0.2.0 for build 88 (from `Cargo.toml`), not 1.0.
+which is 0.3.0 for build 99 (from `Cargo.toml`), not 1.0. Version 0.2.0 (build 88) was
+the first submission; 0.3.0 can be added as a new version once 0.2.0 is approved.
 
 ## App Information (shared by all versions)
 
@@ -128,12 +130,12 @@ Connect does not ask. If it ever does: the app uses no encryption at all (no net
 no file encryption of its own), so "None of the algorithms mentioned above" / not
 subject to export documentation.
 
-## Version information (macOS App, 0.2.0)
+## Version information (macOS App, 0.3.0)
 
 ### Promotional Text
 
 ```text
-Place lenses, prisms, slits and gratings in a light beam and solve the wave equation for the scene with FDTD, FEM or MoM. Export the field as an image or as NumPy data.
+New in 0.3: twenty puzzles scored by a real solve, gold, silver, copper and aluminium with their true dispersion, point emitters, and detectors that measure power.
 ```
 
 ### Description
@@ -145,9 +147,12 @@ Place elements in a Gaussian beam or a plane wave and drag them on the canvas. A
 
 BUILD A SCENE
 • Lenses, slabs, wedges, prisms, cylinders, waveguides, gratings and your own polygons, in any glass or absorbing material, entered as n + ik
+• Gold, silver, copper, aluminium, BK7 and fused silica as dispersive Lorentz–Drude materials that are right at every wavelength, or a model of your own from Drude and Lorentz terms
 • Mirrors and slits as perfect conductors
 • A Gaussian beam or a plane wave at any wavelength and angle; drag the beam's waist and direction on the canvas
-• Ten templates to start from: a lens focusing a beam, a photonic nanojet, Young's double slit, Talbot self-imaging, a prism, a concave mirror, a slab waveguide, a tilted glass slab, and plane waves scattered by metal and glass cylinders
+• Point emitters with their own strength and phase, with or without the beam
+• Detectors that measure the power crossing a line you draw
+• Twelve templates to start from: a lens focusing a beam, a photonic nanojet, Young's double slit, Talbot self-imaging, a prism, a concave mirror, a slab waveguide, a tilted glass slab, plane waves scattered by metal and glass cylinders, a pair of silver nanocylinders, and an emitter at a mirror's focus
 • Undo and redo for your edits
 
 THREE SOLVERS
@@ -162,6 +167,11 @@ SEE THE FIELD
 • Overlays: element outlines, the source, a lens's paraxial focus, a scale bar, a caption and a color legend
 • Point at the field to read the intensity and phase there
 
+PUZZLES
+• Twenty puzzles in four chapters: steering light, interference, metals, and logic gates made of light
+• Each one gives you a few parts and a region to place them in. Check runs a full solve and scores your design against the goal, with up to three stars
+• The result is revealed one case at a time, with a short sound made from the light each detector measured. You can turn the sound off in Settings
+
 EXPORT
 • PNG images up to 16384 pixels on the long edge, in 16:9, 3:2, 4:3, 1:1, 4:5, 3:4, 9:16 or a ratio of your own
 • A numbered PNG sequence over one optical cycle, for animations
@@ -171,6 +181,17 @@ EXPORT
 Fringe works in two dimensions: every element extends without end along z, and the electric field points along z (s-polarized, TMz).
 
 Fringe runs on your Mac with no account and no network access, and collects no data. It is open source under the MIT or Apache 2.0 license.
+```
+
+### What's New in This Version
+
+```text
+• Puzzles: twenty puzzles in four chapters. Place parts in a marked region and press Check; a full solve scores the design and the result is revealed case by case, with a short sound made from the measured light. Turn the sound off in Settings.
+• Dispersive materials: gold, silver, copper, aluminium, BK7 and fused silica as Lorentz–Drude models, or your own model from Drude and Lorentz terms.
+• Point emitters with their own strength and phase.
+• Detectors that measure the power crossing a line.
+• Two new templates: a pair of silver nanocylinders, and an emitter at the focus of a concave mirror.
+• The canvas now draws the field on the GPU. Fringe uses almost no CPU while idle, and animating the phase takes a few percent of one core instead of several cores.
 ```
 
 ### Keywords
@@ -188,10 +209,9 @@ simulator), none is a plural of another, and none is a trademark or a competitor
 - **Marketing URL:** `https://fringe.lprsrts.com/`
 - **Copyright:** `2026 Alper Saritas` (App Store Connect adds the ©; matches
   `NSHumanReadableCopyright` in the build).
-- **What's New in This Version:** not needed. It is not shown for an app's first
-  version on the store, and App Store Connect does not ask for it.
+- **What's New in This Version:** the block below.
 - **Routing App Coverage File:** not applicable (macOS).
-- **Build:** 88 (0.2.0).
+- **Build:** 99 (0.3.0).
 - **Version release:** "Manually release this version" or "Automatically release",
   as the owner prefers.
 
@@ -219,6 +239,7 @@ To try it in 30 seconds:
 3. Change what is shown with the quantity menu in the toolbar (Intensity, Magnitude, Real Part, Phase), or with the Display menu. Press Play in the toolbar to animate the field over one optical cycle.
 4. Drag an element on the canvas, or select it in the sidebar and edit it in the inspector on the right; the preview updates.
 5. Choose Simulation > Run Final (Command-R) for a full-resolution solve, then File > Export Image (Command-E) and save a PNG. File > Export Field Data writes the complex field as a NumPy .npz file.
+6. Click Puzzles in the toolbar (or View > Puzzles, Command-2), open a puzzle, add a part from the sidebar into the dashed region, and press Check. The result is revealed over about two seconds with a soft sound; click or press Space to skip. Sound can be turned off in Fringe > Settings.
 
 The app is sandboxed with only the user-selected file read/write entitlement: it reads and writes files only where the user picks them in an Open or Save panel. The current scene is kept in the app's own preferences between launches. It has no network entitlement and collects no data.
 ```
