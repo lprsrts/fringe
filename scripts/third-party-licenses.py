@@ -4,11 +4,16 @@ fringe-cli link on Apple silicon macOS, with the license texts (and NOTICE files
 each crate ships. Run it after changing dependencies; scripts/release.sh fails when
 the file is out of date.
 
-usage: scripts/third-party-licenses.py [--check]
+The crates differ by platform (objc2 on macOS, windows-sys on Windows), so CI writes
+the notices for each Linux and Windows CLI archive with --target and --out; the
+committed file stays the macOS one.
+
+usage: scripts/third-party-licenses.py [--check] [--target TRIPLE --out PATH]
 """
 import hashlib
 import json
 import pathlib
+import argparse
 import subprocess
 import sys
 
@@ -55,21 +60,21 @@ def declared_mit(pkg):
     return MIT_TEMPLATE.format(holders=holders)
 
 
-def metadata():
+def metadata(target):
     out = subprocess.run(
-        ["cargo", "metadata", "--locked", "--format-version", "1", "--filter-platform", TARGET,
+        ["cargo", "metadata", "--locked", "--format-version", "1", "--filter-platform", target,
          "--manifest-path", str(ROOT / "Cargo.toml")],
         check=True, capture_output=True, text=True).stdout
     return json.loads(out)
 
 
-def shipped(meta):
+def shipped(meta, target):
     """Packages in the normal-dependency tree as features resolve it (what is linked
     or, for proc macros, generates linked code). `cargo metadata`'s resolve graph
     also keeps optional dependencies no feature turns on, so the set comes from
     `cargo tree`; build scripts and dev-dependencies don't ship."""
     out = subprocess.run(
-        ["cargo", "tree", "--locked", "-e", "normal", "--target", TARGET, "--prefix", "none",
+        ["cargo", "tree", "--locked", "-e", "normal", "--target", target, "--prefix", "none",
          "--format", "{p}", "--manifest-path", str(ROOT / "Cargo.toml")],
         check=True, capture_output=True, text=True).stdout
     used = set()
@@ -92,8 +97,8 @@ def license_files(pkg):
     return files
 
 
-def render():
-    pkgs = shipped(metadata())
+def render(target):
+    pkgs = shipped(metadata(target), target)
     lines = [
         "Third-party software in Fringe",
         "",
@@ -139,16 +144,20 @@ def render():
 
 
 def main():
-    text, missing = render()
+    parser = argparse.ArgumentParser(description="Write the third-party license notices.")
+    parser.add_argument("--check", action="store_true", help="fail if the output file is out of date")
+    parser.add_argument("--target", default=TARGET, help=f"target triple (default {TARGET})")
+    parser.add_argument("--out", type=pathlib.Path, default=OUT, help="output file (default: the committed one)")
+    args = parser.parse_args()
+    text, missing = render(args.target)
     if missing:
         sys.exit("error: no license file in: " + ", ".join(missing))
-    if "--check" in sys.argv:
-        if not OUT.exists() or OUT.read_text() != text:
-            sys.exit(f"error: {OUT.name} is out of date; run scripts/third-party-licenses.py")
+    if args.check:
+        if not args.out.exists() or args.out.read_text(encoding="utf-8") != text:
+            sys.exit(f"error: {args.out.name} is out of date; run scripts/third-party-licenses.py")
         return
-    OUT.write_text(text)
-    print(OUT)
-
+    args.out.write_bytes(text.encode("utf-8"))  # LF and UTF-8 on Windows too
+    print(args.out)
 
 if __name__ == "__main__":
     main()
