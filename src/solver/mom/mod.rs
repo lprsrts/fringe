@@ -30,7 +30,7 @@ pub mod panels;
 pub mod quad;
 pub mod system;
 
-use std::time::Instant;
+use crate::time::Instant;
 
 use crate::geometry::{min_gap, BodyMaterial};
 use crate::problem::Problem;

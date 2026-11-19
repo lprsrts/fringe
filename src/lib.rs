@@ -15,6 +15,7 @@ pub mod scene;
 pub mod solver;
 pub mod source;
 pub mod special;
+pub mod time;
 pub mod types;
 
 pub use check::{check, CheckReport};

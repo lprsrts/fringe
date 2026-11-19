@@ -20,7 +20,7 @@ mod sample;
 #[cfg(test)]
 mod tests;
 
-use std::time::Instant;
+use crate::time::Instant;
 
 use crate::linalg::SparseLu;
 use crate::problem::Problem;
