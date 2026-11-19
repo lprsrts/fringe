@@ -160,6 +160,12 @@ private struct ViewMenuItems: View {
 
         Divider()
 
+        // The same setting as Settings ▸ Sound ▸ Play sounds in puzzles.
+        let sound = model.soundSettings
+        Toggle("Puzzle Sounds", isOn: Binding(get: { sound.puzzleSoundsOn }, set: { sound.puzzleSoundsOn = $0 }))
+
+        Divider()
+
         // A puzzle's domain is fixed: it is part of the score.
         let simulator = model.mode == .simulator
         Button("Zoom In") { model.zoom(by: AppState.zoomStep) }

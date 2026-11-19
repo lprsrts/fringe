@@ -22,6 +22,7 @@ extension AppState {
             return
         }
         clearNotice()
+        reveal.cancel()
         switch new {
         case .puzzles:
             endTrackingForSwitch()
@@ -90,6 +91,7 @@ extension AppState {
     /// Removes the player's elements and the last Check; the best score stays.
     public func resetPuzzle() {
         guard isInPuzzle, let puzzle = puzzles.session?.puzzle else { return }
+        reveal.cancel()
         puzzles.cancelCheck()
         puzzles.clearDesign(for: puzzle.id)
         puzzles.begin(puzzle)
@@ -99,6 +101,7 @@ extension AppState {
 
     private func leavePuzzle() {
         guard let puzzle = puzzles.session?.puzzle else { return }
+        reveal.cancel()
         endTrackingForSwitch()
         puzzles.saveDesign(puzzle.design(in: document.scene), for: puzzle.id)
         puzzles.end()
@@ -142,6 +145,8 @@ extension AppState {
     /// Not an undo step.
     public func setPuzzleInput(_ index: Int, on: Bool) {
         guard isInPuzzle, let puzzle = puzzles.session?.puzzle, puzzle.inputs.indices.contains(index) else { return }
+        // A running reveal ends first, then the switch happens.
+        reveal.skip()
         var new = document
         new.scene[source: puzzle.inputs[index]]?.enabled = on
         guard new != document else { return }
@@ -149,6 +154,7 @@ extension AppState {
             // Before the document changes, so the solver finds a result for the new scene.
             solver.adopt(field, for: new.scene)
             puzzles.updateSession { $0.shownField = field }
+            noteShownCheckedCase(bits: puzzle.bits(in: new.scene))
         } else {
             puzzles.updateSession { $0.shownField = nil }
         }
@@ -166,10 +172,15 @@ extension AppState {
     public func checkPuzzle() {
         // Not during a drag: the drag's undo step and the scored design would part ways.
         guard isInPuzzle, let puzzle = puzzles.session?.puzzle, !puzzles.isChecking, !isTracking else { return }
+        // Check again while a reveal plays: it ends first.
+        reveal.skip()
+        prewarmSound()
         let design = puzzle.design(in: scene)
         let revision = puzzle.designRevision(of: scene)
-        puzzles.startCheck(design: design, revision: revision) { [weak self] in
-            self?.showCheckedCase()
+        puzzles.startCheck(design: design, revision: revision) { [weak self] outcome in
+            guard let self else { return }
+            self.showCheckedCase()
+            if let outcome { self.beginReveal(outcome) }
         }
     }
 

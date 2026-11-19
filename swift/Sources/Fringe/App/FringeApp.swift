@@ -19,6 +19,10 @@ struct FringeApp: App {
             SidebarCommands()
             InspectorCommands()
         }
+
+        Settings {
+            SettingsView(model: model)
+        }
     }
 }
 

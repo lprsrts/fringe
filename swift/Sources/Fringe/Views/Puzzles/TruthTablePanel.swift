@@ -86,22 +86,34 @@ private struct TableSection: View {
             } else {
                 DetectorResultTable(model: model, report: report, stale: stale)
             }
-            footnote(stale: stale)
+            TableFootnote(model: model, puzzle: puzzle, report: report, stale: stale)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
+}
 
-    @ViewBuilder
-    private func footnote(stale: Bool) -> some View {
+/// The metric in a sentence under the table; during a reveal it waits for the verdict,
+/// keeping its height.
+private struct TableFootnote: View {
+    let model: AppState
+    let puzzle: Puzzle
+    let report: PuzzleReport
+    let stale: Bool
+
+    var body: some View {
+        let _ = PerfProbe.body("TableFootnote")
         let evaluation = model.puzzles.session?.evaluation
         if model.puzzles.isChecking {
-            Text("Checking every case…")
+            Text("Measuring every case…")
         } else if let evaluation, !evaluation.valid, !stale {
             Text("Not scored: the design breaks a rule (see Goal).")
         } else if let evaluation, let summary = evaluation.summary(scale: puzzle.scoreScale) {
-            Text(summary).opacity(stale ? 0.6 : 1)
+            let opacity = model.reveal.plan != nil ? model.reveal.stage.verdictOpacity : 1
+            Text(summary)
+                .opacity((stale ? 0.6 : 1) * opacity)
+                .accessibilityHidden(opacity == 0)
         } else {
             Text(report.isTruthTable ? "Check (⌘R) solves every case and fills in the table." : "Check (⌘R) solves the design and scores it.")
         }
@@ -140,7 +152,11 @@ private struct InputsBar: View {
 
     var body: some View {
         let _ = PerfProbe.body("InputsBar")
-        let bits = model.puzzleInputBits
+        // While a reveal steps through the cases the switches show the case being measured,
+        // dimmed (display only: the inputs do not change).
+        let focus = model.reveal.plan != nil ? model.reveal.focus : nil
+        let measured = focus?.inputsDimmed == true ? focus?.highlightedCase.flatMap { puzzle.allCases.indices.contains($0) ? puzzle.allCases[$0] : nil } : nil
+        let bits = measured ?? model.puzzleInputBits
         HStack(spacing: 6) {
             Text("Inputs")
                 .foregroundStyle(.secondary)
@@ -158,13 +174,14 @@ private struct InputsBar: View {
             }
             Spacer(minLength: 8)
             if let k = puzzle.allCases.firstIndex(of: bits) {
-                Text("Showing case \(k + 1) of \(puzzle.allCases.count)")
+                Text(measured != nil ? "Measuring case \(k + 1) of \(puzzle.allCases.count)" : "Showing case \(k + 1) of \(puzzle.allCases.count)")
                     .font(.caption)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
         }
         .controlSize(.small)
+        .opacity(measured != nil ? 0.55 : 1)
     }
 }
 
@@ -187,7 +204,8 @@ private struct CaseTable: View {
     var body: some View {
         let _ = PerfProbe.body("CaseTable")
         let bits = model.puzzleInputBits
-        let live = liveValues(bits: bits)
+        let revealing = model.reveal.plan != nil
+        let highlighted = revealing ? model.reveal.focus.highlightedCase : nil
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 0) {
                 ForEach(report.letters, id: \.self) { letter in
@@ -205,7 +223,8 @@ private struct CaseTable: View {
             .padding(.bottom, 3)
             Divider()
             ForEach(report.rows) { row in
-                let shown = row.bits == bits
+                // The case being measured during a reveal, else the case shown.
+                let shown = highlighted.map { $0 == row.id } ?? (row.bits == bits)
                 Button {
                     model.setPuzzleInputs(row.bits)
                 } label: {
@@ -216,10 +235,11 @@ private struct CaseTable: View {
                         ForEach(Array(row.cells.enumerated()), id: \.offset) { j, cell in
                             Text(cell.target.map { $0 ? "1" : "0" } ?? "—")
                                 .frame(width: Columns.target)
-                            measured(cell, live: shown && !report.isChecked ? live[report.outputs[j].id] : nil)
+                            MeasuredCell(model: model, report: report, cell: cell, caseIndex: row.id, output: j,
+                                         stale: stale, revealing: revealing, bold: cell.decisive)
                                 .frame(width: Columns.measured, alignment: .trailing)
                         }
-                        verdict(row.passes)
+                        CaseVerdict(model: model, passes: row.passes, caseIndex: row.id, stale: stale, revealing: revealing)
                             .frame(width: Columns.verdict)
                     }
                     .padding(.horizontal, 6)
@@ -234,7 +254,8 @@ private struct CaseTable: View {
                 .buttonStyle(.plain)
                 .monospacedDigit()
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(report.accessibilityLabel(row))
+                .accessibilityLabel(revealing ? report.letters.enumerated().map { "\($1) \(row.bits[$0] ? 1 : 0)" }.joined(separator: ", ") + ": not yet revealed"
+                                    : report.accessibilityLabel(row))
                 .accessibilityAddTraits(shown ? [.isSelected, .isButton] : .isButton)
                 .help("Show this case")
             }
@@ -242,43 +263,72 @@ private struct CaseTable: View {
         .fixedSize(horizontal: true, vertical: false)
     }
 
-    @ViewBuilder
-    private func measured(_ cell: PuzzleReport.Cell, live: String?) -> some View {
-        if let live {
-            Text(live)
-                .foregroundStyle(.secondary)
-                .help("Live reading on the shown case, as the puzzle scores it; Check to score every case")
-        } else if !report.isChecked {
+}
+
+/// One measured value of the table. Before a Check, "—": a goal detector shows no number
+/// until a Check measures it. During a reveal it counts up to its value (a delta reveal
+/// starts from the previous value, dimmed), reading only the reveal's case values.
+private struct MeasuredCell: View {
+    let model: AppState
+    let report: PuzzleReport
+    let cell: PuzzleReport.Cell
+    let caseIndex: Int
+    let output: Int
+    let stale: Bool
+    let revealing: Bool
+    var bold = false
+
+    var body: some View {
+        if revealing {
+            let cases = model.reveal.cases
+            let value = cases.values.indices.contains(caseIndex) && cases.values[caseIndex].indices.contains(output)
+                ? cases.values[caseIndex][output] : nil
+            let dimmed = cases.dimmed.indices.contains(caseIndex) && cases.dimmed[caseIndex]
+            let opacity = cases.opacity.indices.contains(caseIndex) ? cases.opacity[caseIndex] : 1
+            if let value {
+                Text(report.valueStyle.format(value))
+                    .fontWeight(bold && !dimmed ? .semibold : .regular)
+                    .opacity((dimmed ? 0.5 : 1) * opacity)
+            } else {
+                Text("—")
+                    .foregroundStyle(.tertiary)
+                    .accessibilityLabel("Not yet revealed")
+            }
+        } else if !report.isChecked || cell.value == nil {
             Text("—")
                 .foregroundStyle(.secondary)
-                .help("Check to measure this case")
+                .help("Check to measure")
+                .accessibilityLabel("Not measured; Check to measure")
         } else {
             Text(report.valueStyle.format(cell.value))
-                .fontWeight(cell.decisive ? .semibold : .regular)
+                .fontWeight(bold ? .semibold : .regular)
                 .opacity(stale ? 0.5 : 1)
                 .help(ifAny: cell.decisive ? "This value sets the contrast" : nil)
         }
     }
+}
 
-    @ViewBuilder
-    private func verdict(_ passes: Bool?) -> some View {
-        if let passes, !stale {
+/// A case's ✓ or ✗; during a reveal it appears when its count ends.
+private struct CaseVerdict: View {
+    let model: AppState
+    let passes: Bool?
+    let caseIndex: Int
+    let stale: Bool
+    let revealing: Bool
+
+    var body: some View {
+        let shown: Bool = {
+            guard revealing else { return true }
+            let v = model.reveal.cases.verdictShown
+            return v.indices.contains(caseIndex) && v[caseIndex]
+        }()
+        if let passes, !stale, shown {
             Image(systemName: passes ? "checkmark.circle.fill" : "xmark.circle.fill")
                 .foregroundStyle(passes ? .green : .red)
                 .accessibilityLabel(passes ? "Passes" : "Fails")
         } else {
             Color.clear.frame(width: 1, height: 1)
         }
-    }
-
-    /// The shown field's own readings of the outputs, before any Check.
-    private func liveValues(bits: [Bool]) -> [String: String] {
-        guard !report.isChecked else { return [:] }
-        var out: [String: String] = [:]
-        for output in report.outputs {
-            if let live = model.puzzleLiveLabel(output.id) { out[output.id] = live }
-        }
-        return out
     }
 }
 
@@ -290,6 +340,7 @@ private struct DetectorResultTable: View {
 
     var body: some View {
         let _ = PerfProbe.body("DetectorResultTable")
+        let revealing = model.reveal.plan != nil
         Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 4) {
             GridRow {
                 Text("Detector")
@@ -300,30 +351,15 @@ private struct DetectorResultTable: View {
             .font(.caption.weight(.medium))
             .foregroundStyle(.secondary)
             Divider().gridCellUnsizedAxes(.horizontal)
-            ForEach(report.detectorRows) { row in
+            ForEach(Array(report.detectorRows.enumerated()), id: \.element.id) { j, row in
                 GridRow {
                     Text(row.name).lineLimit(1)
-                    Group {
-                        if let value = row.value {
-                            Text(report.valueStyle.format(value)).opacity(stale ? 0.5 : 1)
-                        } else if let live = model.puzzleLiveLabel(row.id) {
-                            Text(live)
-                                .foregroundStyle(.secondary)
-                                .help("Live reading, as the puzzle scores it; Check to score it")
-                        } else {
-                            Text("—").foregroundStyle(.secondary)
-                                .help("Check to measure this")
-                        }
-                    }
-                    .monospacedDigit()
+                    MeasuredCell(model: model, report: report, cell: PuzzleReport.Cell(value: row.value),
+                                 caseIndex: 0, output: j, stale: stale, revealing: revealing)
+                        .monospacedDigit()
                     Text(row.goal).foregroundStyle(.secondary).monospacedDigit()
-                    if let passes = row.passes, !stale {
-                        Image(systemName: passes ? "checkmark.circle.fill" : "xmark.circle.fill")
-                            .foregroundStyle(passes ? .green : .red)
-                            .accessibilityLabel(passes ? "Passes" : "Fails")
-                    } else {
-                        Color.clear.frame(width: 14, height: 1)
-                    }
+                    CaseVerdict(model: model, passes: row.passes, caseIndex: 0, stale: stale, revealing: revealing)
+                        .frame(minWidth: 14)
                 }
                 .accessibilityElement(children: .combine)
             }
@@ -357,12 +393,14 @@ private struct ChartSection: View {
             }
             Group {
                 if !report.isChecked {
-                    Text(model.puzzles.isChecking ? "Checking…" : (model.isPuzzleCheckCurrent && model.puzzles.session?.evaluation?.valid == false
+                    Text(model.puzzles.isChecking ? "Measuring…" : (model.isPuzzleCheckCurrent && model.puzzles.session?.evaluation?.valid == false
                             ? "Not scored: the design breaks a rule."
                             : (report.isTruthTable ? "Check to measure every case." : "Check to score the design.")))
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if model.reveal.plan != nil {
+                    RevealChart(model: model, puzzle: puzzle, report: report, chart: chart)
                 } else if chart == .contrast, let spec = report.contrastSpec(puzzle: puzzle, evaluation: model.puzzles.session?.evaluation, stale: stale) {
                     PuzzleContrastPlot(spec: spec)
                 } else {
@@ -372,6 +410,75 @@ private struct ChartSection: View {
             .plotSurface(Color(nsColor: .windowBackgroundColor))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+}
+
+/// The chart while a reveal runs: bars grow with their cases, the contrast plot shows the
+/// cases measured so far, and the gap and its size wait for the verdict.
+private struct RevealChart: View {
+    let model: AppState
+    let puzzle: Puzzle
+    let report: PuzzleReport
+    let chart: PuzzleResultChart
+
+    var body: some View {
+        let _ = PerfProbe.body("RevealChart")
+        let reveal = model.reveal
+        let cases = reveal.cases
+        let highlighted = reveal.focus.highlightedCase
+        let verdict = reveal.stage.verdictOpacity > 0
+        func value(_ k: Int, _ j: Int) -> Double? {
+            cases.values.indices.contains(k) && cases.values[k].indices.contains(j) ? cases.values[k][j] : nil
+        }
+        func verdictShown(_ k: Int) -> Bool { cases.verdictShown.indices.contains(k) && cases.verdictShown[k] }
+        if chart == .contrast, report.isTruthTable,
+           var spec = report.contrastSpec(puzzle: puzzle, evaluation: model.puzzles.session?.evaluation, stale: false) {
+            // The axis covers the cases shown so far (their final values), so it does not
+            // hint at a case before it plays and changes only when a case lands.
+            var landedValues: [Double] = []
+            for (r, c) in report.contrasts.enumerated() where spec.rows.indices.contains(r) {
+                guard let j = report.outputs.firstIndex(where: { $0.id == c.output.id }) else { continue }
+                let ones = c.ones.compactMap { o in value(o.case, j).map { (o.case, max($0, PuzzleReport.floor)) } }
+                let zeros = c.zeros.compactMap { z in value(z.case, j).map { (z.case, max($0, PuzzleReport.floor)) } }
+                spec.rows[r].ones = ones.map(\.1)
+                spec.rows[r].oneCases = ones.map(\.0)
+                spec.rows[r].zeros = zeros.map(\.1)
+                spec.rows[r].zeroCases = zeros.map(\.0)
+                let landed = (c.ones + c.zeros).filter { verdictShown($0.case) }
+                landedValues += landed.map { max($0.value, PuzzleReport.floor) }
+            }
+            spec.axisValues = landedValues
+            spec.showsGap = verdict
+            if !verdict {
+                spec.status = nil
+                spec.passes = nil
+            }
+            return AnyView(PuzzleContrastPlot(spec: spec))
+        }
+        var spec = report.barSpec(puzzle: puzzle, shownBits: [], stale: false)
+        // The axis grows with the bars as they count, so its top does not give the result
+        // away. A minimize goal's bars shrink from the reference, so its axis holds that.
+        let starts = reveal.plan?.cases.flatMap(\.from) ?? []
+        spec.axisMax = spec.panels.map { _ in
+            report.isTruthTable ? 0 : (starts.max().map(spec.plotted) ?? 0)
+        }
+        for p in spec.panels.indices {
+            for k in spec.panels[p].bars.indices {
+                // Truth tables: a panel per output, a bar per case. Otherwise one panel, a
+                // bar per goal detector of the one case.
+                let (caseIndex, output) = report.isTruthTable ? (k, p) : (0, k)
+                let v = value(caseIndex, output)
+                spec.panels[p].bars[k].value = v
+                if !verdictShown(caseIndex) { spec.panels[p].bars[k].passes = nil }
+                spec.panels[p].bars[k].isShown = report.isTruthTable && highlighted == k
+                if !verdict { spec.panels[p].bars[k].aim = nil }
+            }
+            if !verdict {
+                spec.panels[p].gap = nil
+                spec.panels[p].gapLabel = nil
+            }
+        }
+        return AnyView(PuzzleBarChart(spec: spec))
     }
 }
 

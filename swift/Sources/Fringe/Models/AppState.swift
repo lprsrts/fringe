@@ -134,6 +134,20 @@ public final class AppState {
     static let shapeLockDelay: Duration = .milliseconds(300)
     /// Canvas-only state: hover, live drag, animated phase.
     public let viewport = ViewportModel()
+    /// The reveal of a puzzle's Check result (AppState+Reveal.swift).
+    let reveal = RevealController(frozenTime: LaunchOptions.revealAtSeconds)
+    /// Settings ▸ Sound and "Animate puzzle results".
+    let soundSettings: SoundSettings
+    /// Puzzle sounds (AppState+Sound.swift). Its audio engine is built at the first Check
+    /// with sound on, not at launch, and stops once nothing has sounded for 4 s.
+    let sound: SoundEngine
+    /// The reveal sound being played, kept for a skip's verdict tone.
+    @ObservationIgnored var revealSound: SoundRevealInput?
+    /// When a reveal was last skipped: an input switch right after it (the click that
+    /// skipped it) plays no toggle tone over the verdict tone.
+    @ObservationIgnored var lastRevealSkip: ContinuousClock.Instant?
+    /// Shots: plan reveals as if sound were on (the design's times) while nothing plays.
+    @ObservationIgnored var revealAssumesSoundForTesting = false
     /// The canvas colours with the CPU renderer: no Metal, the shader did not compile, or
     /// `--viewport cpu`.
     public private(set) var viewportUsesCPU = FieldGPU.shared == nil
@@ -232,6 +246,9 @@ public final class AppState {
     public static let modeKey = "fringe.mode"
 
     public init() {
+        let soundSettings = SoundSettings()
+        self.soundSettings = soundSettings
+        sound = SoundEngine(settings: soundSettings, output: LaunchOptions.sound)
         var document = Self.restoredDocument() ?? FringeDocument(scene: FringeBridge.defaultScene())
         let launch = LaunchOptions.read(examples: examples)
         launch.apply(to: &document)
@@ -254,6 +271,9 @@ public final class AppState {
             self?.scheduleRender()
         }
         solver.onNotice = { [weak self] message in self?.showNotice(message) }
+        reveal.onCanvasCase = { [weak self] index in self?.showRevealCase(index) }
+        reveal.onEnd = { [weak self] in self?.revealEnded() }
+        connectSound()
         outlines = FringeBridge.outlines(document.scene)
         enforceShapeLock()
         solver.update(scene: self.document.scene, tracking: false)
@@ -633,6 +653,10 @@ public final class AppState {
 
     private func documentChanged(from old: FringeDocument) {
         PerfProbe.count("doc.changed")
+        // Any edit, input switch or display change first ends a running reveal; a design
+        // change also drops the extras it left on the goal card.
+        if reveal.isActive { reveal.skip() }
+        if document.scene != old.scene { reveal.clearSettled() }
         refreshToolbarDocument()
         if canvasAspect != document.output.aspect { canvasAspect = document.output.aspect }
         refreshSubtitle()
@@ -829,10 +853,9 @@ public final class AppState {
             if let scored = scoredLabel(detector.id) {
                 // A checked case: the value the puzzle scores, as the table shows it.
                 label += "  " + scored
-            } else if let puzzle = activePuzzle, puzzle.goalDetectorIDs.contains(detector.id) {
-                // Before a Check: the live reading in the goal's unit, or just the name when
-                // the reference is not known until a Check.
-                if let live = puzzleLiveLabel(detector.id) { label += "  " + live }
+            } else if activePuzzle?.goalDetectorIDs.contains(detector.id) == true {
+                // A goal detector shows no number before a Check (or before the reveal's
+                // verdict): the Check reveals it. Just the name.
             } else if let reading = detectorReadings[detector.id], let summary = readingSummary(reading) {
                 label += "  " + summary
             }
@@ -1504,7 +1527,14 @@ public final class AppState {
             readout.body = MathTypesetter.escaped(source.displayName)
         } else if let id = hitTestDetector(x: plane.x, y: plane.y, enabled: true), let detector = scene[detector: id] {
             var text = MathTypesetter.escaped(detector.displayName)
-            if let reading = detectorReadings[id], let summary = readingSummary(reading) { text += " (\(summary))" }
+            // Same rule as detectorLabels: a goal detector shows only the scored value of a
+            // checked case after the verdict, never its live reading.
+            if let scored = scoredLabel(id) {
+                text += " (\(scored))"
+            } else if activePuzzle?.goalDetectorIDs.contains(id) == true {
+            } else if let reading = detectorReadings[id], let summary = readingSummary(reading) {
+                text += " (\(summary))"
+            }
             readout.body = text
         } else if let id = hitTestElement(x: plane.x, y: plane.y, tolerancePoints: 0, includeDisabled: false),
            let element = scene[element: id] {

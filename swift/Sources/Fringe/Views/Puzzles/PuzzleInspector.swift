@@ -79,10 +79,12 @@ struct PuzzleInspector: View {
         }
     }
 
-    /// A goal detector's live reading in the goal's unit; another detector's raw reading.
+    /// Another detector's raw reading. A goal detector shows no number: a Check measures it.
     private func liveRows(_ id: String) -> [(String, String)] {
-        let goal = model.activePuzzle?.goalDetectorIDs.contains(id) ?? false
-        let text = goal ? model.puzzleLiveLabel(id) : model.detectorReadings[id].flatMap { model.readingSummary($0) }
+        if model.activePuzzle?.goalDetectorIDs.contains(id) ?? false {
+            return [("Reading", "Check to measure")]
+        }
+        let text = model.detectorReadings[id].flatMap { model.readingSummary($0) }
         return text.map { [("Live Reading", $0)] } ?? []
     }
 

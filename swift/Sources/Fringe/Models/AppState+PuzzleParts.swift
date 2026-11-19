@@ -127,12 +127,14 @@ extension AppState {
     /// Sets every input at once (a click on a truth-table row).
     public func setPuzzleInputs(_ bits: [Bool]) {
         guard let puzzle = activePuzzle, bits.count == puzzle.inputs.count else { return }
+        reveal.skip()
         var new = document
         for (i, id) in puzzle.inputs.enumerated() { new.scene[source: id]?.enabled = bits[i] }
         guard new != document else { return }
         if isPuzzleCheckCurrent, let field = puzzles.combinedField(bits: bits) {
             solver.adopt(field, for: new.scene)
             puzzles.updateSession { $0.shownField = field }
+            noteShownCheckedCase(bits: bits)
         } else {
             puzzles.updateSession { $0.shownField = nil }
         }
@@ -166,7 +168,8 @@ extension AppState {
 
     /// A goal detector's scored value in the shown checked case ("77.3%", "0.495").
     func scoredLabel(_ detectorID: String) -> String? {
-        guard showsCheckedCase, let puzzle = activePuzzle, let evaluation = puzzles.session?.evaluation,
+        // During a reveal the plate shows the name alone until the verdict.
+        guard showsCheckedCase, reveal.scoreRevealed, let puzzle = activePuzzle, let evaluation = puzzles.session?.evaluation,
               let value = evaluation.case(bits: puzzle.bits(in: scene))?.outputs.first(where: { $0.detector == detectorID })?.value
         else { return nil }
         return puzzle.valueStyle.format(value)

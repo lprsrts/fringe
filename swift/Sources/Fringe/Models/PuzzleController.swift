@@ -27,6 +27,22 @@ public struct PuzzleSession {
     public var id: String { puzzle.id }
 }
 
+/// A Check that came back, with what the reveal needs to know about it.
+struct CheckOutcome {
+    var puzzleID: String
+    var evaluation: PuzzleEvaluation
+    var revision: Data
+    /// Progress before and after the Check was taken in.
+    var before: PuzzleProgress
+    var after: PuzzleProgress
+    var record: PuzzleProgress.RecordOutcome
+    /// The last result a reveal showed for this puzzle since it was opened.
+    var previous: RevealedResult?
+    var firstCheckThisSession: Bool
+    /// This Check passed the last unpassed puzzle of its chapter, not celebrated before.
+    var chapterCompleted: Bool
+}
+
 /// Puzzle mode's state: the catalog, the player's progress, the open puzzle and the Check
 /// job. `AppState` (AppState+Puzzles.swift) puts it together with the document and the
 /// solver.
@@ -57,6 +73,10 @@ public final class PuzzleController {
     @ObservationIgnored private var designTask: Task<Void, Never>?
     /// The open puzzle's design while it waits to be taken into `progress`.
     @ObservationIgnored private var pendingDesign: (id: String, design: [Element])?
+    /// The last result a reveal showed, by puzzle, since the puzzle was opened.
+    @ObservationIgnored private var lastRevealed: [String: RevealedResult] = [:]
+    /// Puzzles checked in this app session.
+    @ObservationIgnored private var checkedThisSession: Set<String> = []
 
     /// The puzzle open last, reopened when puzzle mode comes back.
     static let currentKey = "fringe.puzzles.current"
@@ -137,6 +157,8 @@ public final class PuzzleController {
 
     func begin(_ puzzle: Puzzle) {
         cancelCheck()
+        // A puzzle just opened (or reset) has no revealed result: its next Check plays in full.
+        lastRevealed[puzzle.id] = nil
         session = PuzzleSession(puzzle: puzzle)
         defaults.set(puzzle.id, forKey: Self.currentKey)
     }
@@ -227,8 +249,9 @@ public final class PuzzleController {
     public var isChecking: Bool { checkJob != nil }
 
     /// Scores `design` in the open puzzle off the main thread; `done` runs on the main actor
-    /// with the session updated (or not, if the puzzle closed meanwhile).
-    func startCheck(design: [Element], revision: Data, done: @escaping @MainActor () -> Void) {
+    /// with the session updated (or not, if the puzzle closed meanwhile), and with the
+    /// outcome when a result came back.
+    func startCheck(design: [Element], revision: Data, done: @escaping @MainActor (CheckOutcome?) -> Void) {
         guard let session, checkJob == nil else { return }
         let id = session.id
         let job: PuzzleJobHandle
@@ -249,8 +272,8 @@ public final class PuzzleController {
                 let progress = job.poll()
                 self.checkProgress = progress
                 if progress.state != FRINGE_JOB_RUNNING {
-                    self.finishCheck(job, puzzleID: id, revision: revision)
-                    done()
+                    let outcome = self.finishCheck(job, puzzleID: id, revision: revision)
+                    done(outcome)
                     return
                 }
             }
@@ -265,25 +288,27 @@ public final class PuzzleController {
         checkJob = nil
     }
 
-    private func finishCheck(_ job: PuzzleJobHandle, puzzleID: String, revision: Data) {
+    /// Takes the result in: the session's evaluation and the progress change at once (the
+    /// data is never delayed; only what the views show is, by the reveal).
+    private func finishCheck(_ job: PuzzleJobHandle, puzzleID: String, revision: Data) -> CheckOutcome? {
         checkJob = nil
         poller = nil
         let result: PuzzleResultHandle
         do {
-            guard let taken = try job.takeResult() else { return }
+            guard let taken = try job.takeResult() else { return nil }
             result = taken
         } catch {
             let error = error as? FringeError
             if error?.code != "cancelled", session?.id == puzzleID {
                 updateSession { $0.checkError = error.map(Self.sentence) ?? "The check stopped without a result." }
             }
-            return
+            return nil
         }
-        guard session?.id == puzzleID else { return }
+        guard session?.id == puzzleID else { return nil }
         guard let evaluation = result.evaluation else {
             AppState.log.error("Unreadable puzzle result: \(result.decodingError ?? "?", privacy: .public)")
             updateSession { $0.checkError = "The result of the check could not be read." }
-            return
+            return nil
         }
         updateSession {
             $0.evaluation = evaluation
@@ -291,9 +316,44 @@ public final class PuzzleController {
             $0.evaluatedRevision = revision
             $0.shownField = nil
         }
-        if evaluation.valid, progress[puzzleID, default: PuzzleProgress()].record(score: evaluation.score, stars: evaluation.stars, passed: evaluation.passed) {
-            PuzzleProgressStore.save(progress, to: defaults)
+        let before = progress(puzzleID)
+        let chapter = summary(puzzleID)?.chapter ?? puzzle(puzzleID)?.chapter
+        let chapterWasDone = chapter.map(isChapterSolved) ?? true
+        var record = PuzzleProgress.RecordOutcome()
+        if evaluation.valid {
+            record = progress[puzzleID, default: PuzzleProgress()].record(score: evaluation.score, stars: evaluation.stars, passed: evaluation.passed)
+            if record.changed { PuzzleProgressStore.save(progress, to: defaults) }
         }
+        let after = progress(puzzleID)
+        var chapterCompleted = false
+        if let chapter, !chapterWasDone, isChapterSolved(chapter),
+           !PuzzleProgressStore.celebratedChapters(in: defaults).contains(chapter) {
+            chapterCompleted = true
+        }
+        let first = !checkedThisSession.contains(puzzleID)
+        checkedThisSession.insert(puzzleID)
+        return CheckOutcome(puzzleID: puzzleID, evaluation: evaluation, revision: revision, before: before, after: after,
+                            record: record, previous: lastRevealed[puzzleID], firstCheckThisSession: first,
+                            chapterCompleted: chapterCompleted)
+    }
+
+    /// Keeps the result a reveal showed (or skipped to), for the next Check's comparison,
+    /// and marks a celebrated chapter so it is celebrated only once.
+    func noteRevealed(_ result: RevealedResult, puzzleID: String, celebratedChapter: Bool) {
+        lastRevealed[puzzleID] = result
+        if celebratedChapter, let chapter = summary(puzzleID)?.chapter ?? puzzle(puzzleID)?.chapter {
+            PuzzleProgressStore.markCelebrated(chapter, in: defaults)
+        }
+    }
+
+    /// Every puzzle of `chapter` passed.
+    func isChapterSolved(_ chapter: String) -> Bool {
+        guard let puzzles = chapters.first(where: { $0.id == chapter })?.puzzles, !puzzles.isEmpty else { return false }
+        return puzzles.allSatisfy { progress[$0.id]?.passed == true }
+    }
+
+    public func chapterTitle(_ chapter: String) -> String? {
+        chapters.first { $0.id == chapter }?.title
     }
 
     /// The field of one input case, combined from the Check's per-source fields; nil without

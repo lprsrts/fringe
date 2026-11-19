@@ -97,6 +97,10 @@ public final class SolveController {
     @ObservationIgnored public var onResult: () -> Void = {}
     /// Short notices such as "Final solve cancelled by edit".
     @ObservationIgnored public var onNotice: (String) -> Void = { _ in }
+    /// A final solve finished with a result, after this many seconds (not for previews,
+    /// cancels or failures).
+    @ObservationIgnored public var onFinalFinished: (Double) -> Void = { _ in }
+    @ObservationIgnored private var jobStarted = ContinuousClock.now
 
     @ObservationIgnored private var scene = SimScene()
     @ObservationIgnored public private(set) var revision = Data()
@@ -389,6 +393,7 @@ public final class SolveController {
         jobScene = scene
         runningQuality = quality
         userCancelled = false
+        jobStarted = .now
         progress = FringeProgress()
         Self.log.debug("Started \(quality.rawValue) \(scene.solver.method.rawValue)")
         poller = Task { [weak self] in
@@ -414,6 +419,7 @@ public final class SolveController {
         poller = nil
         runningQuality = nil
         userCancelled = false
+        var finalSeconds: Double?
         do {
             guard let field = try job.takeResult() else {
                 throw FringeError(code: "internal", message: "The solver stopped without a result.")
@@ -424,7 +430,13 @@ public final class SolveController {
             }
             var result = SolveResult(field: field, info: info, revision: revision, scene: scene, quality: quality, finishedAt: Date())
             result.tracking = jobTracking
-            if quality == .final { lastFinal = result } else { lastPreview = result }
+            if quality == .final {
+                lastFinal = result
+                let elapsed = ContinuousClock.now - jobStarted
+                finalSeconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) * 1e-18
+            } else {
+                lastPreview = result
+            }
             if failure?.revision == revision || failure?.quality == quality { failure = nil }
             Self.log.debug("Finished \(quality.rawValue) in \(info.meta.wallS) s")
         } catch let error as FringeError {
@@ -438,6 +450,7 @@ public final class SolveController {
         }
         publishShown(force: true)
         if previewDue { maybeStartPreview() }
+        if let finalSeconds { onFinalFinished(finalSeconds) }
     }
 
     /// Set by `restoreResults` when the parked results had a final running.

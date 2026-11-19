@@ -138,6 +138,8 @@ struct FringeWindow: View {
         // measure the whole tree (sidebar, canvas, inspector form) each time, a large part of
         // every live-resize step and of every document change.
         .frame(minWidth: 1000, idealWidth: 1440, maxWidth: .infinity, minHeight: 620, idealHeight: 860, maxHeight: .infinity)
+        // Skips a running puzzle reveal on a click, Space, Esc or a command.
+        .background { RevealSkipCatcher(model: model) }
         .onAppear { model.undoManager = undoManager }
         .task {
             // AppKit hands initial focus to the inspector's first text field, which

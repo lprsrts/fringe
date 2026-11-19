@@ -51,20 +51,36 @@ public struct PuzzleProgress: Codable, Equatable, Sendable {
         solvedAt = try? c.decodeIfPresent(Date.self, forKey: .solvedAt)
     }
 
-    /// Takes in a Check: the score, stars and pass are kept when they are better. Returns
-    /// whether anything changed.
+    /// What a Check changed in the progress.
+    public struct RecordOutcome: Equatable, Sendable {
+        /// Anything changed (the store needs saving).
+        public var changed = false
+        /// The score beat a best that existed.
+        public var newBest = false
+        /// Passed for the first time.
+        public var firstSolve = false
+        /// Stars gained over the best before.
+        public var newStars = 0
+    }
+
+    /// Takes in a Check: the score, stars and pass are kept when they are better.
     @discardableResult
-    public mutating func record(score: Double?, stars newStars: Int, passed newPassed: Bool, at date: Date = Date()) -> Bool {
+    public mutating func record(score: Double?, stars newStars: Int, passed newPassed: Bool, at date: Date = Date()) -> RecordOutcome {
         let before = self
+        var outcome = RecordOutcome()
         if let score, score.isFinite, bestScore.map({ score > $0 }) ?? true {
+            outcome.newBest = bestScore != nil
             bestScore = score
         }
         stars = max(stars, min(3, max(0, newStars)))
+        outcome.newStars = stars - before.stars
         if newPassed, !passed {
             passed = true
             solvedAt = date
+            outcome.firstSolve = true
         }
-        return self != before
+        outcome.changed = self != before
+        return outcome
     }
 }
 
@@ -105,6 +121,19 @@ enum PuzzleProgressStore {
         }
         log.error("Puzzle progress could not all be read; kept \(progress.count) puzzles, the stored data is copied to \(unreadableKey)")
         return progress
+    }
+
+    /// Chapters whose completion was celebrated once (the reveal's chapter line).
+    static let celebratedKey = "fringe.puzzles.celebrated.v1"
+
+    static func celebratedChapters(in defaults: UserDefaults = .standard) -> Set<String> {
+        Set(defaults.stringArray(forKey: celebratedKey) ?? [])
+    }
+
+    static func markCelebrated(_ chapter: String, in defaults: UserDefaults = .standard) {
+        var all = celebratedChapters(in: defaults)
+        guard all.insert(chapter).inserted else { return }
+        defaults.set(all.sorted(), forKey: celebratedKey)
     }
 
     static func save(_ progress: [String: PuzzleProgress], to defaults: UserDefaults = .standard) {

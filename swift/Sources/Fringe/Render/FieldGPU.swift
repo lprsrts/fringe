@@ -124,6 +124,8 @@ final class FieldGPU {
     private var parts: [FieldPartBuffer] = []
     private var loading: Set<PartKey> = []
     private static let maxParts = 2
+    /// Room for more parts while a puzzle's reveal steps through its cases (0 otherwise).
+    var extraParts = 0
 
     struct PartKey: Hashable {
         var field: ObjectIdentifier
@@ -151,7 +153,7 @@ final class FieldGPU {
                     self.parts.removeAll { $0.key == key }
                     self.parts.append(made)
                     // Least recently used goes first.
-                    while self.parts.count > Self.maxParts { self.parts.removeFirst() }
+                    while self.parts.count > Self.maxParts + max(0, self.extraParts) { self.parts.removeFirst() }
                     ready()
                 }
             }

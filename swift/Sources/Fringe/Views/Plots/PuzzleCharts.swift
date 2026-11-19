@@ -99,6 +99,9 @@ struct PuzzleBarSpec: Equatable {
     var panels: [Panel]
     var dimmed = false
     var note: String?
+    /// Per panel, a value the axis reaches at least (a reveal keeps the final axis while
+    /// the bars grow).
+    var axisMax: [Double]?
 
     /// A value as the bars plot it: percent styles in percent.
     func plotted(_ v: Double) -> Double { style == .percent ? v * 100 : v }
@@ -146,8 +149,9 @@ struct PuzzleBarChart: View {
         let plotHeight = max(30, (size.height - bottom - n * PlotStyle.titleRow - (n - 1) * PlotStyle.panelGap) / n)
 
         // y layouts, and one left gutter for every panel.
-        let layouts: [PlotAxis.Layout] = spec.panels.map { panel in
+        let layouts: [PlotAxis.Layout] = spec.panels.enumerated().map { i, panel in
             var hi = panel.bars.compactMap { $0.value.map(spec.plotted) }.max() ?? 0
+            if let axisMax = spec.axisMax, axisMax.indices.contains(i) { hi = max(hi, axisMax[i]) }
             hi = max(hi, panel.gap.map { spec.plotted($0.upperBound) } ?? 0)
             hi = max(hi, panel.rules.map(\.value).max() ?? 0, panel.bars.compactMap(\.aim).max() ?? 0)
             return PlotAxis(domain: 0...max(hi, 1e-9), length: plotHeight, minSpacing: 20, ends: .snapOut, fromZero: true).layout()
@@ -311,6 +315,11 @@ struct PuzzleContrastSpec: Equatable {
     var xTitle: String
     var rows: [Row]
     var dimmed = false
+    /// The gap band and its size (off while a reveal is still measuring the cases).
+    var showsGap = true
+    /// The values the axis is made for, when not the rows' own (a reveal keeps the final
+    /// axis while values count).
+    var axisValues: [Double]?
     /// Under the plot: "Contrast 17.5 dB. Passes at 6 dB."
     var status: String?
     var passes: Bool?
@@ -419,7 +428,7 @@ struct PuzzleContrastPlot: View {
         let nameWidth: CGFloat = names ? (spec.rows.compactMap(\.name).map { pen.width(pen.text(MathTypesetter.escaped($0), size: 11, weight: .semibold, color: palette.text)) }.max() ?? 0) + 10 : 0
         let left = max(14, nameWidth), right: CGFloat = 18
         let span = (left)...(max(left + 40, size.width - right))
-        let values = spec.rows.flatMap { $0.ones + $0.zeros }
+        let values = spec.axisValues ?? spec.rows.flatMap { $0.ones + $0.zeros }
         let axis = Axis(values: values, length: span.upperBound - span.lowerBound)
         func x(_ v: Double) -> CGFloat { axis.position(v, in: span) }
         let marks = spec.dimmed ? 0.45 : 1.0
@@ -434,11 +443,13 @@ struct PuzzleContrastPlot: View {
             let weakestOne = row.ones.min() ?? 0, strongestZero = row.zeros.max() ?? 0
             // Gap (or overlap) band through the row, edges as dotted frame hairlines.
             let a = x(min(weakestOne, strongestZero)), b = x(max(weakestOne, strongestZero))
-            let band = CGRect(x: a, y: dotsY - 11, width: max(0, b - a), height: 22)
-            context.fill(Path(band), with: .color(PlotStyle.gapFill(palette)))
-            for edge in [a, b] {
-                let e = pen.snap(edge)
-                pen.line(CGPoint(x: e, y: band.minY), CGPoint(x: e, y: band.maxY), palette.frame, dash: [2, 2])
+            if spec.showsGap {
+                let band = CGRect(x: a, y: dotsY - 11, width: max(0, b - a), height: 22)
+                context.fill(Path(band), with: .color(PlotStyle.gapFill(palette)))
+                for edge in [a, b] {
+                    let e = pen.snap(edge)
+                    pen.line(CGPoint(x: e, y: band.minY), CGPoint(x: e, y: band.maxY), palette.frame, dash: [2, 2])
+                }
             }
             // The two groups' bands: weakest to strongest of each, under the dots.
             var marksContext = context
@@ -496,10 +507,12 @@ struct PuzzleContrastPlot: View {
                 let w = pen.width(pen.text("should be 1", color: palette.textSecondary))
                 place("should be 1", left: x(o1) + 5 - w, y: labelY, color: palette.textSecondary)
             }
-            let gapText = weakestOne >= strongestZero ? "gap " + Format.decibels(row.decibels) : "overlap " + Format.decibels(-row.decibels)
-            let gw = pen.width(pen.text(gapText, color: palette.text))
-            if !place(gapText, left: (a + b) / 2 - gw / 2, y: labelY, color: palette.text) {
-                place(gapText, left: (a + b) / 2 - gw / 2, y: dotsY + 17, color: palette.text)
+            if spec.showsGap {
+                let gapText = weakestOne >= strongestZero ? "gap " + Format.decibels(row.decibels) : "overlap " + Format.decibels(-row.decibels)
+                let gw = pen.width(pen.text(gapText, color: palette.text))
+                if !place(gapText, left: (a + b) / 2 - gw / 2, y: labelY, color: palette.text) {
+                    place(gapText, left: (a + b) / 2 - gw / 2, y: dotsY + 17, color: palette.text)
+                }
             }
             top += Self.rowHeight
         }
@@ -542,8 +555,24 @@ struct ScoreBar: View {
     var pass: Double?
     var scale: PuzzleScoreScale
     var dimmed = false
-    /// The best score so far (said in the readout for VoiceOver; the card prints it).
+    /// The best score so far: a small mark over the track when the score shown is lower
+    /// (and said in the readout for VoiceOver).
     var best: Double?
+    /// While a reveal runs: the fill, the stars and the best mark as it shows them.
+    var reveal: RevealLook? = nil
+
+    /// A reveal's meter at one moment.
+    struct RevealLook: Equatable {
+        /// The fill's end, 0…1; nil is an empty track.
+        var x: Double?
+        var opacity = 1.0
+        /// Per star, 0 (outline) … 1 (landed).
+        var starLand: [Double]
+        var starsFadeOnly = false
+        var best: Double?
+        /// The verdict has shown; until then the value is not read out.
+        var verdictShown = false
+    }
 
     @Environment(\.colorScheme) private var scheme
     @Environment(\.plotSurface) private var surface
@@ -565,9 +594,10 @@ struct ScoreBar: View {
     }
 
     private var accessibilityValue: String {
+        if let reveal, !reveal.verdictShown { return "Revealing the result" }
         var parts: [String] = [score.map { scale.format($0) } ?? "Not checked"]
         if thresholds.count == 3 { parts.append("stars at \(thresholds.map(scale.formatBare).joined(separator: ", "))") }
-        if let best { parts.append("best \(scale.format(best))") }
+        if let best = reveal?.best ?? best { parts.append("best \(scale.format(best))") }
         return parts.joined(separator: "; ")
     }
 
@@ -575,44 +605,19 @@ struct ScoreBar: View {
     /// is lower) to a little past the third star or the score.
     /// Thresholds close together (85, 92, 96 %) get a track that starts above 0, so the
     /// stars stand apart; the start is labelled.
-    var domain: ClosedRange<Double> {
-        guard let first = thresholds.first ?? pass, let last = thresholds.last ?? pass else { return 0...1 }
-        let spread = max(last - first, abs(last) * 0.1, 1e-9)
-        // A round start: 60 rather than 68.5.
-        let step = pow(10, Foundation.floor(log10(spread)))
-        var lo = max(0, Foundation.floor((first - 1.5 * spread) / step) * step)
-        // A start below half the first star says little: start at 0 then (4, 5, 5.6 dB → 0).
-        if lo <= 0.5 * first { lo = 0 }
-        var hi = last + 0.6 * spread
-        if scale.unit == "%", last <= 100 { hi = min(hi, 100) }
-        return lo...max(hi, lo + 1e-9)
-    }
-
-    /// Where `v` sits on the track, 0…1. With three stars the track is a star scale: the
-    /// stars stand at fixed, even spots (40, 65 and 90 %) and the values between them map
-    /// linearly, so thresholds close together (4, 5 and 5.6 dB) never crowd one end.
-    func position(_ v: Double, in d: ClosedRange<Double>) -> Double {
-        let span = d.upperBound - d.lowerBound
-        guard thresholds.count == 3, zip(thresholds, thresholds.dropFirst()).allSatisfy({ $0 < $1 }),
-              thresholds[0] > d.lowerBound else {
-            return min(1, max(0, (v - d.lowerBound) / span))
-        }
-        let values = [d.lowerBound] + thresholds + [max(d.upperBound, thresholds[2])]
-        let spots: [Double] = values[4] > thresholds[2] ? [0, 0.4, 0.65, 0.9, 1] : [0, 0.45, 0.725, 1, 1]
-        if v <= values[0] { return 0 }
-        for i in 0..<4 where v <= values[i + 1] {
-            let w = values[i + 1] - values[i]
-            return w > 0 ? spots[i] + (spots[i + 1] - spots[i]) * (v - values[i]) / w : spots[i + 1]
-        }
-        return 1
-    }
+    /// The track's range and positions, which the reveal's meter shares (`ScoreTrack`):
+    /// from 0 (or a round value under close-set stars) to a little past the third star, the
+    /// stars at fixed, even spots (40, 65 and 90 %), so thresholds close together (4, 5 and
+    /// 5.6 dB) never crowd one end.
+    var track: ScoreTrack { ScoreTrack(thresholds: thresholds, pass: pass, percent: scale.unit == "%") }
 
     private func draw(size: CGSize, palette: PlotStyle.Palette, in context: GraphicsContext) {
         let pen = PlotPen(context: context, scale: max(1, displayScale))
-        let d = domain
+        let scoreTrack = self.track
+        let d = scoreTrack.domain
         let left: CGFloat = 4, right: CGFloat = 4
         let track = CGRect(x: left, y: 16, width: max(10, size.width - left - right), height: 6)
-        func x(_ v: Double) -> CGFloat { track.minX + CGFloat(position(v, in: d)) * track.width }
+        func x(_ v: Double) -> CGFloat { track.minX + CGFloat(scoreTrack.position(v)) * track.width }
         context.fill(Path(roundedRect: track, cornerRadius: 3), with: .color(palette.grid))
         var taken: [CGRect] = []
         if d.lowerBound > 0 {
@@ -620,14 +625,17 @@ struct ScoreBar: View {
             taken.append(CGRect(x: track.minX, y: track.maxY + 4, width: pen.width(start), height: 12))
             pen.draw(start, at: CGPoint(x: track.minX, y: track.maxY + 4), anchor: .topLeading)
         }
-        if let score, score.isFinite {
+        // The fill: the score's, or the reveal's meter.
+        let fillEnd: CGFloat? = reveal.map { look in look.x.map { track.minX + CGFloat($0) * track.width } }
+            ?? score.flatMap { $0.isFinite ? x($0) : nil }
+        if let score, score.isFinite, let fillEnd {
             var c = context
-            c.opacity = dimmed ? 0.45 : 1
-            let w = max(0, x(score) - track.minX)
+            c.opacity = (dimmed ? 0.45 : 1) * (reveal?.opacity ?? 1)
+            let w = max(0, fillEnd - track.minX)
             if w > 0 {
                 c.fill(Path(roundedRect: CGRect(x: track.minX, y: track.minY, width: w, height: track.height), cornerRadius: 3), with: .color(palette.ink))
             }
-            if score < d.lowerBound {
+            if score < d.lowerBound, w <= 0 {
                 // Off the start: a small wedge at the edge.
                 var p = Path()
                 p.move(to: CGPoint(x: track.minX - 1, y: track.midY))
@@ -641,11 +649,29 @@ struct ScoreBar: View {
         for (i, t) in thresholds.enumerated() {
             let tx = x(t)
             pen.line(CGPoint(x: pen.snap(tx), y: track.minY - 2), CGPoint(x: pen.snap(tx), y: track.maxY + 2), palette.text.opacity(0.7))
-            let reached = (score ?? -Double.infinity) >= t && !dimmed
-            var star = context.resolve(Image(systemName: reached ? "star.fill" : "star"))
-            star.shading = .color(reached ? .yellow : palette.textSecondary)
+            // A star lands by opacity and a 0.9 → 1 scale, with no overshoot.
+            let land: Double
+            if let look = reveal {
+                land = dimmed || i >= look.starLand.count ? 0 : look.starLand[i]
+            } else {
+                land = (score ?? -Double.infinity) >= t && !dimmed ? 1 : 0
+            }
             let s: CGFloat = 10
-            context.draw(star, in: CGRect(x: tx - s / 2, y: 1, width: s, height: s))
+            if land < 1 {
+                var outline = context.resolve(Image(systemName: "star"))
+                outline.shading = .color(palette.textSecondary)
+                var c = context
+                c.opacity = 1 - land
+                c.draw(outline, in: CGRect(x: tx - s / 2, y: 1, width: s, height: s))
+            }
+            if land > 0 {
+                var filled = context.resolve(Image(systemName: "star.fill"))
+                filled.shading = .color(.yellow)
+                let ls = reveal?.starsFadeOnly == true ? s : s * CGFloat(0.9 + 0.1 * land)
+                var c = context
+                c.opacity = land
+                c.draw(filled, in: CGRect(x: tx - ls / 2, y: 1 + (s - ls) / 2, width: ls, height: ls))
+            }
             let label = pen.text(scale.formatBare(t) + (i == thresholds.count - 1 ? (scale.unit == "dB" ? " dB" : scale.unit) : ""), color: palette.textSecondary)
             let w = pen.width(label)
             let x0 = min(max(tx - w / 2, 0), size.width - w)
@@ -665,7 +691,21 @@ struct ScoreBar: View {
                 pen.draw(label, at: CGPoint(x: px, y: track.maxY + 4), anchor: .top)
             }
         }
-        if let score, score.isFinite, score < d.lowerBound {
+        // The best so far, where the shown score is lower: a small mark under the stars.
+        // During a reveal it sits at the old best and slides to a new one, where it hides
+        // under the fill's end as it does once the reveal is over.
+        let bestMark: Double? = reveal.map { look in look.best.flatMap { b in score.map { abs(b - $0) > 1e-9 } ?? true ? b : nil } }
+            ?? best.flatMap { b in score.map { b > $0 + 1e-9 } ?? true ? b : nil }
+        if let b = bestMark, b.isFinite {
+            let bx = x(b)
+            var p = Path()
+            p.move(to: CGPoint(x: bx - 3, y: track.minY - 6))
+            p.addLine(to: CGPoint(x: bx + 3, y: track.minY - 6))
+            p.addLine(to: CGPoint(x: bx, y: track.minY - 2))
+            p.closeSubpath()
+            context.fill(p, with: .color(palette.textSecondary))
+        }
+        if reveal == nil, let score, score.isFinite, score < d.lowerBound {
             let t = pen.text(scale.format(score), color: palette.textSecondary)
             let rect = CGRect(x: track.minX, y: track.maxY + 17, width: pen.width(t), height: 12)
             if !taken.contains(where: { $0.insetBy(dx: -3, dy: 0).intersects(rect) }) {

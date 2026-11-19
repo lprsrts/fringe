@@ -55,6 +55,13 @@ public final class ViewportModel {
     @ObservationIgnored public weak var drawnField: FieldHandle?
     /// Frames drawn, for the harnesses.
     @ObservationIgnored public var framesDrawn = 0
+    /// The case a puzzle's reveal shows, in place of the shown field; nil otherwise.
+    /// Changes once per case, and only the canvas reads it.
+    var revealCase: RevealCanvasCase?
+    /// The running reveal's case fields (nil where one could not be combined) and their
+    /// shared colour scale.
+    @ObservationIgnored var revealCaseFields: [FieldHandle?] = []
+    @ObservationIgnored var revealScale = 1.0
 
     public init() {}
 }

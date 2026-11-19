@@ -276,7 +276,7 @@ private struct SolveSummary: View {
                     .controlSize(.mini)
                     .frame(width: 56)
                     .accessibilityLabel("Check progress")
-                Text("Checking every case…")
+                Text("Measuring every case…")
                     .lineLimit(1)
             } else if model.isInPuzzle, model.showsCheckedCase {
                 // The canvas shows a case put together from the Check's fields.
@@ -288,7 +288,10 @@ private struct SolveSummary: View {
                     .lineLimit(1)
                     .help("The field of the last Check")
                 if let puzzle = model.activePuzzle, !puzzle.inputs.isEmpty, detail != .state {
-                    segment("Case \(puzzle.caseLabel(model.puzzleInputBits))" + (detail == .full ? " · combined from checked fields" : ""),
+                    // During a reveal: the case the canvas is showing.
+                    let revealCase = model.reveal.plan != nil ? model.reveal.focus.canvasCase : nil
+                    let bits = revealCase.flatMap { puzzle.allCases.indices.contains($0) ? puzzle.allCases[$0] : nil } ?? model.puzzleInputBits
+                    segment("Case \(puzzle.caseLabel(bits))" + (detail == .full ? " · combined from checked fields" : ""),
                             help: "The shown case is combined from the fields the Check solved, with no new solve")
                 }
             } else if model.showsDarkCase {

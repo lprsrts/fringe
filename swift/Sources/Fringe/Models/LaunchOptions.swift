@@ -21,7 +21,32 @@ import os
 ///
 /// Overrides are not saved: after a launch with overrides, the saved document changes only
 /// once the user edits.
+///
+/// Plain arguments for checking puzzle reveals: `--reveal-self-test` runs the reveal plan's
+/// checks and exits (FringeMain), `--reveal-at <ms>` holds every reveal at that moment
+/// instead of playing it, for screenshots, and `--sound off` keeps the app silent: no sound
+/// engine is built, nothing plays and a long Run Final does not bounce the Dock icon.
+/// `--sound mute` runs the sound engine with its output at 0, for the profiler.
 struct LaunchOptions {
+    /// `--reveal-at <ms>`, in seconds.
+    static let revealAtSeconds: Double? = {
+        let args = CommandLine.arguments
+        guard let i = args.firstIndex(of: "--reveal-at"), i + 1 < args.count,
+              let ms = Double(args[i + 1]), ms.isFinite, ms >= 0 else { return nil }
+        return ms / 1000
+    }()
+
+    /// `--sound off` or `--sound mute`. The test harnesses set it before the model exists.
+    nonisolated(unsafe) static var sound: SoundEngine.Output = {
+        let args = CommandLine.arguments
+        guard let i = args.firstIndex(of: "--sound"), i + 1 < args.count else { return .normal }
+        switch args[i + 1] {
+        case "off": return .off
+        case "mute": return .muted
+        default: return .normal
+        }
+    }()
+
     private static let log = Logger(subsystem: "com.asympton.fringe", category: "launch")
     static let sceneKey = "FringeLaunchScene"
     static let solverKey = "FringeLaunchSolver"

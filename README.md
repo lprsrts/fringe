@@ -384,6 +384,31 @@ logic puzzle you can then switch the inputs on and off to see each case
 without another solve. Progress and your last design for each puzzle stay in
 the app's preferences on your Mac.
 
+### Sound
+
+A Check does not show its numbers at once. Each case of a truth table is
+measured in turn, with a soft tap, and you hear its detector: the more light
+reaches it, the louder and brighter the tone. When a second input cancels the
+first, as in XOR's 1 1 case, the tone dims while you listen. Then the score
+bar fills and its tone climbs; each star you earn is a note of a chord, and a
+near miss stops just under the pass note and beats slowly against it (the
+slower the beat, the closer you were). Later Checks of the same puzzle play
+only what changed. A click, Space or Esc skips to the result and plays the
+verdict once.
+
+All of it is synthesized while the app runs from a few sine partials, from
+the values the Check measured; no audio files are bundled. Fringe ▸ Settings…
+(⌘,) has the switch, a volume slider with Play Sample, "Animate puzzle
+results", and an opt-in tone for a Run Final that took 5 s or more (otherwise
+the Dock icon bounces once if Fringe is in the background). View ▸ Puzzle
+Sounds is the same switch. Fringe stays silent when "Play user interface
+sound effects" is off in System Settings ▸ Sound, unless you choose Play
+anyway, and the simulator itself makes no sound. The audio engine starts at
+the first Check and stops when nothing has sounded for 4 s.
+
+`scripts/sound.sh` renders every sound to WAV files in `target/sound/wav`
+without playing them, and checks their loudness, timing and peaks.
+
 ## Building
 
 You need a Rust toolchain and the Xcode command-line tools (no Xcode). The
@@ -401,6 +426,7 @@ scripts/bump-tap.sh                        # after gh release create: point lprs
 scripts/appstore.sh                        # sandboxed Mac App Store build + signed .pkg in dist/
 scripts/check-schema.sh                    # build, then check that the app and the core agree on the scene JSON
 scripts/ui-shots.sh [PREFIX]               # render app window states offscreen to target/ui-shots/, without opening the app
+scripts/sound.sh                           # render the puzzle sounds to target/sound/wav and check them, without playing them
 ```
 
 The app icon is a Liquid Glass icon, `icon/AppIcon.icon`: a double slit with

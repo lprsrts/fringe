@@ -351,15 +351,25 @@ final class ViewportView: NSView, CALayerDelegate {
         var incidentPeak: Double
         var cpuImage: ObjectIdentifier?
         var cpuViewRect: RectUm?
+        /// A puzzle reveal's case, drawn in place of the shown field.
+        var revealCase: ObjectIdentifier?
     }
 
     private func fieldInputs() -> FieldInputs {
         let m = model
         let solver = m.solver
+        let rendered = m.viewportUsesCPU ? m.renderer.rendered : nil
+        if let reveal = m.viewport.revealCase, !m.viewportUsesCPU {
+            // One case of a puzzle's reveal: checked, never stale or invalid.
+            return FieldInputs(
+                field: ObjectIdentifier(reveal.field), display: m.display, isPlaying: m.display.isPlaying,
+                viewRect: m.viewRect, imageRect: m.geometry.imageRect, stale: false, invalid: false,
+                incidentPeak: reveal.field.info?.incidentPeak ?? 1, cpuImage: nil, cpuViewRect: nil,
+                revealCase: ObjectIdentifier(reveal.field))
+        }
         let isDark = m.showsDarkCase
         let report = m.showsCheckedCase || isDark ? nil : solver.currentReport
         let shown = isDark ? nil : solver.shown
-        let rendered = m.viewportUsesCPU ? m.renderer.rendered : nil
         return FieldInputs(
             field: shown.map { ObjectIdentifier($0.field) },
             display: m.display,
@@ -491,9 +501,10 @@ final class ViewportView: NSView, CALayerDelegate {
 
     /// The GPU frame for the current inputs, or nil (nothing to show, or still uploading).
     private func currentFrame(_ inputs: FieldInputs) -> FieldFrame? {
-        guard let gpu, gpu.isReady, inputs.field != nil, let shown = model.solver.shown else { return nil }
+        let reveal = inputs.revealCase != nil ? model.viewport.revealCase : nil
+        guard let gpu, gpu.isReady, inputs.field != nil, let source = reveal?.field ?? model.solver.shown?.field else { return nil }
         var display = inputs.display
-        if let ready = gpu.buffer(for: shown.field, part: display.part, ready: { [weak self] in
+        if let ready = gpu.buffer(for: source, part: display.part, ready: { [weak self] in
             self?.model.viewport.fieldGeneration += 1
             self?.setFieldDirty()
         }) {
@@ -503,12 +514,18 @@ final class ViewportView: NSView, CALayerDelegate {
         // (or the previous part, while a newly shown part uploads).
         guard let part = currentPart, let field = part.field else { return nil }
         display.part = part.key.part
-        let amplitude = field === shown.field ? inputs.incidentPeak : (field.info?.incidentPeak ?? 1)
-        let key = "\(display.part)|\(display.normalization)|\(display.normalizationValue * amplitude)"
-        if key != scaleKey || scaleField !== field {
-            scaleKey = key
-            scaleField = field
-            scaleValue = field.colourScale(viewJSON: display.viewJSON(viewRect: nil, incidentAmplitude: amplitude))
+        let amplitude = field === source ? inputs.incidentPeak : (field.info?.incidentPeak ?? 1)
+        if let reveal, field === reveal.field {
+            // The reveal's cases share one scale; the next ordinary frame computes its own.
+            scaleKey = nil
+            scaleValue = reveal.scale
+        } else {
+            let key = "\(display.part)|\(display.normalization)|\(display.normalizationValue * amplitude)"
+            if key != scaleKey || scaleField !== field {
+                scaleKey = key
+                scaleField = field
+                scaleValue = field.colourScale(viewJSON: display.viewJSON(viewRect: nil, incidentAmplitude: amplitude))
+            }
         }
         let scale = fieldScale
         let width = max(1, Int((contentLayer.bounds.width * scale).rounded()))

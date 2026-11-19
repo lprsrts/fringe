@@ -83,10 +83,12 @@ struct CheckControl: View {
                 ProgressView(value: min(1, max(0, puzzles.checkProgress.fraction)))
                     .progressViewStyle(.circular)
                     .controlSize(.small)
+                Text("Measuring…")
+                    .foregroundStyle(.secondary)
                 Button("Stop", systemImage: "stop.fill") { model.cancelPuzzleCheck() }
                     .labelStyle(.iconOnly)
             }
-            .help("Checking every case. Stop with ⌘.")
+            .help("Measuring every case. Stop with ⌘.")
         } else {
             Button("Check", systemImage: "checkmark.seal") { model.checkPuzzle() }
                 .labelStyle(.titleAndIcon)
