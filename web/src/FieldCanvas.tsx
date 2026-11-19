@@ -19,9 +19,11 @@ interface Props {
   label: string;
   /** Fit inside the box's height too; off where the page scrolls (phones). */
   fitHeight?: boolean;
+  /** Reports the shape (width ÷ height) of the space the field can fill. */
+  onAspect?: (aspect: number) => void;
 }
 
-export function FieldCanvas({solver, scene, fieldVersion, view, animate, selected, onSelect, onMove, label, fitHeight = true}: Props) {
+export function FieldCanvas({solver, scene, fieldVersion, view, animate, selected, onSelect, onMove, label, fitHeight = true, onAspect}: Props) {
   const box = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLCanvasElement>(null);
   const marks = useRef<HTMLCanvasElement>(null);
@@ -38,6 +40,7 @@ export function FieldCanvas({solver, scene, fieldVersion, view, animate, selecte
     if (!el) return;
     const fit = () => {
       const {width, height} = el.getBoundingClientRect();
+      if (fitHeight && width && height) onAspect?.(width / height);
       const scale = fitHeight && height ? Math.min(width / spanX, height / spanY) : width / spanX;
       const w = Math.max(1, Math.floor(spanX * scale));
       const h = Math.max(1, Math.floor(spanY * scale));
@@ -47,7 +50,7 @@ export function FieldCanvas({solver, scene, fieldVersion, view, animate, selecte
     const ro = new ResizeObserver(fit);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [spanX, spanY, fitHeight]);
+  }, [spanX, spanY, fitHeight, onAspect]);
 
   // Render the stored field. One render at a time; the newest request wins.
   const rendering = useRef(false);

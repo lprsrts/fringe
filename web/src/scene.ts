@@ -124,4 +124,23 @@ export function numericKeys(o: Json, skip: string[] = []): string[] {
   return Object.keys(o).filter((k) => typeof o[k] === 'number' && !skip.includes(k));
 }
 
+/**
+ * The domain grown on its short side, about its centre, to the shape (width ÷
+ * height) of the space it is shown in, so the field fills that space instead
+ * of leaving bars. It never shrinks, and grows each side at most `maxGrow`
+ * times, so a tall window can't make a solve much more expensive.
+ */
+export function fitDomain(d: Domain, aspect: number, maxGrow = 2): Domain {
+  const w = d.x_max_um - d.x_min_um;
+  const h = d.y_max_um - d.y_min_um;
+  const cx = (d.x_min_um + d.x_max_um) / 2;
+  const cy = (d.y_min_um + d.y_max_um) / 2;
+  if (w / h < aspect) {
+    const nw = Math.min(h * aspect, w * maxGrow);
+    return {...d, x_min_um: round(cx - nw / 2), x_max_um: round(cx + nw / 2)};
+  }
+  const nh = Math.min(w / aspect, h * maxGrow);
+  return {...d, y_min_um: round(cy - nh / 2), y_max_um: round(cy + nh / 2)};
+}
+
 export const round = (v: number, digits = 3) => Number(v.toFixed(digits));
