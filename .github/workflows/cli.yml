@@ -117,7 +117,9 @@ jobs:
           else
               tar -czf "dist/$name" -C "$stage" "$exe" LICENSE-MIT LICENSE-APACHE THIRD-PARTY-LICENSES.txt
           fi
-          (cd dist && sha256sum "$name" > "$name.sha256" && cat "$name.sha256")
+          # Write "<hash>  <name>" as shasum does on macOS: Git Bash's sha256sum marks
+          # binary mode with "*<name>", which breaks lookups by file name.
+          (cd dist && printf '%s  %s\n' "$(sha256sum "$name" | cut -d' ' -f1)" "$name" > "$name.sha256" && cat "$name.sha256")
           echo "name=$name" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
