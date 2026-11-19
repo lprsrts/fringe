@@ -452,12 +452,9 @@ export function App() {
   const header = (
     <LayoutHeader hasDivider>
       <HStack gap={3} vAlign="center" hAlign="between">
-        <HStack gap={2} vAlign="center">
-          <a className="brand" href="/">
-            <Heading level={1}>Fringe</Heading>
-          </a>
-          {!isNarrow && <Text type="supporting">Wave optics, solved in your browser</Text>}
-        </HStack>
+        <a className="brand" href="/">
+          <Heading level={1}>Fringe</Heading>
+        </a>
         <HStack gap={1}>
           <Button label="Share" variant="ghost" icon={<Icon icon={LinkIcon} size="sm" />} isIconOnly={isNarrow} onClick={share} isDisabled={!scene} />
           <Button label="Embed" variant="ghost" icon={<Icon icon={CodeBracketIcon} size="sm" />} isIconOnly={isNarrow} onClick={openEmbed} isDisabled={!scene} />
