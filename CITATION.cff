@@ -5,12 +5,13 @@ title: "Fringe: full-wave 2D optics simulator"
 abstract: >-
   Fringe solves 2D optics scenes with full-wave electromagnetics (FDTD, FEM and
   MoM solvers for the out-of-plane field Ez) and renders the field. It is a Rust
-  library with a C ABI, a command-line tool and a native macOS app with puzzles.
+  library with a C ABI, a command-line tool for macOS, Linux and Windows, a
+  native macOS app with puzzles, and a browser viewer built on WebAssembly.
 authors:
   - given-names: Alper
     family-names: Sarıtaş
-version: 0.3.0
-date-released: 2026-11-19
+version: 0.4.0
+date-released: 2026-11-20
 license:
   - MIT
   - Apache-2.0

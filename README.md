@@ -60,8 +60,8 @@ brew install lprsrts/tap/fringe-cli        # the command-line tool
 Or download the DMG from [Releases](https://github.com/lprsrts/fringe/releases).
 It's signed and notarized, and works offline.
 
-`fringe-cli` also runs on Linux and Windows: from the release after 0.3.0, each
-release has archives for both. See [Installation](https://github.com/lprsrts/fringe/wiki/Installation)
+`fringe-cli` also runs on Linux and Windows: from 0.4.0, each release has
+archives for both. See [Installation](https://github.com/lprsrts/fringe/wiki/Installation)
 for the details.
 
 ## Quick start
