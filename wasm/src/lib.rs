@@ -6,11 +6,15 @@
 use std::cell::RefCell;
 use std::sync::Arc;
 
-use fringe_core::render::{render_rgba, View};
+use fringe_core::render::{render_rgba, View, MAX_DIMENSION};
 use fringe_core::scene::examples::{example, EXAMPLES};
 use fringe_core::solver::{solve as core_solve, FieldGrid, Method, Quality, SolveContext};
 use serde_json::json;
 use wasm_bindgen::prelude::*;
+
+/// The largest RGBA image `render` returns: 32 Mpx, which covers a 5K screen at
+/// 2× pixel density. Bigger requests are refused before any allocation.
+const MAX_RENDER_BYTES: usize = 32 * 1024 * 1024 * 4;
 
 thread_local! {
     static FIELD: RefCell<Option<Arc<FieldGrid>>> = const { RefCell::new(None) };
@@ -81,7 +85,14 @@ pub fn solve(scene_json: &str, method: &str, quality: &str) -> Result<String, Js
 pub fn render(view_json: &str, width: u32, height: u32) -> Result<Vec<u8>, JsError> {
     let field = field()?;
     let view = View::parse(view_json).map_err(err)?;
-    let mut out = vec![0u8; width as usize * height as usize * 4];
+    // Check the size before allocating: wasm memory never shrinks, and an
+    // allocation that fails traps the module instead of returning an error.
+    let bytes = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|px| px.checked_mul(4))
+        .filter(|&b| width > 0 && height > 0 && width <= MAX_DIMENSION && height <= MAX_DIMENSION && b <= MAX_RENDER_BYTES)
+        .ok_or_else(|| JsError::new(&format!("can't render a {width}×{height} image: each side must be 1–{MAX_DIMENSION} px and the whole at most 32 Mpx")))?;
+    let mut out = vec![0u8; bytes];
     render_rgba(&field, &view, width, height, &mut out).map_err(err)?;
     Ok(out)
 }
