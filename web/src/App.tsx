@@ -35,6 +35,7 @@ import {ExclamationTriangleIcon, InformationCircleIcon, XCircleIcon} from '@hero
 import {DetectorBar} from './DetectorBar';
 import {FieldCanvas, type PuzzleOverlayState} from './FieldCanvas';
 import {Inspector} from './Inspector';
+import {PanelSection} from './PanelSection';
 import {decompress, pageUrl, readLink, writeLink} from './link';
 import {
   allCases,
@@ -1231,6 +1232,38 @@ export function App() {
     {id: 'line', label: 'Line detector (flux)', onClick: () => addSimDetector('line')},
     {id: 'box', label: 'Box detector (|E|²)', onClick: () => addSimDetector('box')},
   ];
+  // Phones: one Add menu with every part, so the bar fits a single row.
+  const addMenuItems: DropdownMenuOption[] = [
+    {
+      type: 'section',
+      title: 'Elements · refractive',
+      items: REFRACTIVE_SHAPES.map((k) => ({id: `el-${k}`, label: SHAPE_TITLES[k], onClick: () => addSimElement(k)})),
+    },
+    {
+      type: 'section',
+      title: 'Elements · conductive (PEC)',
+      items: OPAQUE_SHAPES.map((k) => ({id: `el-${k}`, label: SHAPE_TITLES[k], onClick: () => addSimElement(k)})),
+    },
+    {type: 'divider'},
+    {
+      type: 'section',
+      title: 'Sources',
+      items: [
+        {id: 'src-gaussian_beam', label: 'Gaussian beam', onClick: () => addSimSource('gaussian_beam')},
+        {id: 'src-plane_wave', label: 'Plane wave', onClick: () => addSimSource('plane_wave')},
+        {id: 'src-line_source', label: 'Point emitter', onClick: () => addSimSource('line_source')},
+      ],
+    },
+    {type: 'divider'},
+    {
+      type: 'section',
+      title: 'Detectors',
+      items: [
+        {id: 'det-line', label: 'Line detector (flux)', onClick: () => addSimDetector('line')},
+        {id: 'det-box', label: 'Box detector (|E|²)', onClick: () => addSimDetector('box')},
+      ],
+    },
+  ];
 
   // ---- status bar
   const solvingLong = solvingSince !== null && elapsed > 0.35;
@@ -1249,7 +1282,8 @@ export function App() {
         : meta
           ? [
               METHOD_LABEL[meta.method] ?? meta.method,
-              `${meta.nx} × ${meta.ny} grid`,
+              // Phones keep the facts to one row; the grid size is the least useful.
+              ...(isNarrow ? [] : [`${meta.nx} × ${meta.ny} grid`]),
               ...(stage === 'draft' || stage === 'refine'
                 ? [`Draft, ${Number(meta.ppw.toFixed(1))} per λ`]
                 : stage === 'final'
@@ -1432,49 +1466,43 @@ export function App() {
 
   const simPanel = simScene && (
     <VStack gap={0}>
-      <Section variant="transparent" padding={4}>
-        <VStack gap={4}>
-          <Heading level={3}>Scene</Heading>
-          <Selector
-            label="Example"
-            value={example ?? ''}
-            onChange={(v) => {
-              if (!v) return;
-              setNotice(null);
-              loadExample(v);
-            }}
-            options={[
-              ...(example ? [] : [{value: '', label: 'Custom scene'}]),
-              ...examples.map((e) => ({value: e.name, label: e.title})),
-            ]}
-          />
-          <Slider
-            label={`Wavelength · ${simScene.wavelength_um} µm`}
-            value={simScene.wavelength_um}
-            min={0.3}
-            max={3}
-            step={0.01}
-            onChange={(v: number) => editSim((s) => void (s.wavelength_um = v))}
-          />
-          <NumberInput
-            label="Background index"
-            value={simScene.background.n}
-            min={1}
-            max={5}
-            step={0.01}
-            onChange={(v) => editSim((s) => void (s.background.n = v))}
-          />
-        </VStack>
-      </Section>
+      <PanelSection id="sim.scene" title="Scene">
+        <Selector
+          label="Example"
+          value={example ?? ''}
+          onChange={(v) => {
+            if (!v) return;
+            setNotice(null);
+            loadExample(v);
+          }}
+          options={[
+            ...(example ? [] : [{value: '', label: 'Custom scene'}]),
+            ...examples.map((e) => ({value: e.name, label: e.title})),
+          ]}
+        />
+        <Slider
+          label={`Wavelength · ${simScene.wavelength_um} µm`}
+          value={simScene.wavelength_um}
+          min={0.3}
+          max={3}
+          step={0.01}
+          onChange={(v: number) => editSim((s) => void (s.wavelength_um = v))}
+        />
+        <NumberInput
+          label="Background index"
+          value={simScene.background.n}
+          min={1}
+          max={5}
+          step={0.01}
+          onChange={(v) => editSim((s) => void (s.background.n = v))}
+        />
+      </PanelSection>
       <Divider />
-      <Section variant="transparent" padding={4}>
-        <VStack gap={3}>
-          <Heading level={3}>Objects</Heading>
-          {renderObjectList('Sources', 'source', simScene.sources)}
-          {renderObjectList('Elements', 'element', simScene.elements)}
-          {renderObjectList('Detectors', 'detector', simScene.detectors)}
-        </VStack>
-      </Section>
+      <PanelSection id="sim.objects" title="Objects" gap={3}>
+        {renderObjectList('Sources', 'source', simScene.sources)}
+        {renderObjectList('Elements', 'element', simScene.elements)}
+        {renderObjectList('Detectors', 'detector', simScene.detectors)}
+      </PanelSection>
       <Divider />
       {simSelected ? (
         <Inspector
@@ -1498,44 +1526,38 @@ export function App() {
         </Section>
       )}
       <Divider />
-      <Section variant="transparent" padding={4}>
-        <VStack gap={4}>
-          <Heading level={3}>Solver</Heading>
-          <SegmentedControl label="Solver" value={effectiveMethod} onChange={setSimMethod}>
-            <SegmentedControlItem value="fdtd" label="FDTD" />
-            <SegmentedControlItem value="mom" label="MoM" />
-            <SegmentedControlItem value="fem" label="FEM" />
-          </SegmentedControl>
-          <Text type="supporting">
-            {effectiveMethod === 'fem'
-              ? 'FEM is the slowest in a browser: a few seconds and a lot of memory for larger scenes.'
-              : effectiveMethod === 'mom'
-                ? 'Method of moments: exact radiation, solves only on the elements.'
-                : 'Time domain on a grid: fast for most scenes.'}
-          </Text>
-        </VStack>
-      </Section>
+      <PanelSection id="sim.solver" title="Solver" defaultIsOpen={!isNarrow}>
+        <SegmentedControl label="Solver" value={effectiveMethod} onChange={setSimMethod}>
+          <SegmentedControlItem value="fdtd" label="FDTD" />
+          <SegmentedControlItem value="mom" label="MoM" />
+          <SegmentedControlItem value="fem" label="FEM" />
+        </SegmentedControl>
+        <Text type="supporting">
+          {effectiveMethod === 'fem'
+            ? 'FEM is the slowest in a browser: a few seconds and a lot of memory for larger scenes.'
+            : effectiveMethod === 'mom'
+              ? 'Method of moments: exact radiation, solves only on the elements.'
+              : 'Time domain on a grid: fast for most scenes.'}
+        </Text>
+      </PanelSection>
       <Divider />
-      <Section variant="transparent" padding={4}>
-        <VStack gap={4}>
-          <Heading level={3}>Display</Heading>
-          <div className="fit-segments">
-            <SegmentedControl label="Show" value={quantity} onChange={setQuantity}>
-              {QUANTITIES.map((q) => (
-                <SegmentedControlItem key={q.value} value={q.value} label={q.label} />
-              ))}
-            </SegmentedControl>
-          </div>
-          <Selector label="Colors" value={colormap} onChange={setColormap} options={COLORMAPS} />
-          <Switch
-            label="Animate the wave"
-            description={canAnimate ? undefined : 'For the field and phase views.'}
-            value={animate}
-            isDisabled={!canAnimate}
-            onChange={setAnimate}
-          />
-        </VStack>
-      </Section>
+      <PanelSection id="sim.display" title="Display" defaultIsOpen={!isNarrow}>
+        <div className="fit-segments">
+          <SegmentedControl label="Show" value={quantity} onChange={setQuantity}>
+            {QUANTITIES.map((q) => (
+              <SegmentedControlItem key={q.value} value={q.value} label={q.label} />
+            ))}
+          </SegmentedControl>
+        </div>
+        <Selector label="Colors" value={colormap} onChange={setColormap} options={COLORMAPS} />
+        <Switch
+          label="Animate the wave"
+          description={canAnimate ? undefined : 'For the field and phase views.'}
+          value={animate}
+          isDisabled={!canAnimate}
+          onChange={setAnimate}
+        />
+      </PanelSection>
       <Divider />
       <Section variant="transparent" padding={4}>
         <Collapsible trigger={<Heading level={3}>Scene JSON</Heading>} defaultIsOpen={false}>
@@ -1692,19 +1714,29 @@ export function App() {
     <div className="build-bar" role="toolbar" aria-label="Add optical parts">
       {/* One wrapping row. The edit buttons are always there (disabled without a
           selection), so selecting never adds a row and shifts the canvas. */}
-      <DropdownMenu
-        button={{label: 'Element', size: 'sm', variant: 'secondary', icon: <Icon icon={PlusIcon} size="sm" />}}
-        items={elementMenuItems}
-        menuMaxHeight={480}
-      />
-      <DropdownMenu
-        button={{label: 'Source', size: 'sm', variant: 'secondary', icon: <Icon icon={PlusIcon} size="sm" />}}
-        items={sourceMenuItems}
-      />
-      <DropdownMenu
-        button={{label: 'Detector', size: 'sm', variant: 'secondary', icon: <Icon icon={PlusIcon} size="sm" />}}
-        items={detectorMenuItems}
-      />
+      {isNarrow ? (
+        <DropdownMenu
+          button={{label: 'Add', size: 'sm', variant: 'secondary', icon: <Icon icon={PlusIcon} size="sm" />}}
+          items={addMenuItems}
+          menuMaxHeight={480}
+        />
+      ) : (
+        <>
+          <DropdownMenu
+            button={{label: 'Element', size: 'sm', variant: 'secondary', icon: <Icon icon={PlusIcon} size="sm" />}}
+            items={elementMenuItems}
+            menuMaxHeight={480}
+          />
+          <DropdownMenu
+            button={{label: 'Source', size: 'sm', variant: 'secondary', icon: <Icon icon={PlusIcon} size="sm" />}}
+            items={sourceMenuItems}
+          />
+          <DropdownMenu
+            button={{label: 'Detector', size: 'sm', variant: 'secondary', icon: <Icon icon={PlusIcon} size="sm" />}}
+            items={detectorMenuItems}
+          />
+        </>
+      )}
       <div className="build-bar-edit">
         <Button
           label="Duplicate"

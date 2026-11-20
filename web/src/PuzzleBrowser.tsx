@@ -46,7 +46,7 @@ export function PuzzleBrowser({puzzles, progress, onOpen}: Props) {
 
         <div className="featured-banner">
           <HStack gap={4} vAlign="center" hAlign="between" style={{flexWrap: 'wrap'}}>
-            <VStack gap={1} style={{flex: 1, minWidth: 240}}>
+            <VStack gap={1} style={{flex: 1, minWidth: 'min(240px, 100%)'}}>
               <Text type="label" weight="semibold">
                 Featured · Addition with light
               </Text>
@@ -54,7 +54,7 @@ export function PuzzleBrowser({puzzles, progress, onOpen}: Props) {
                 Build a 1-bit binary half adder (0+0=00, 1+0=01, 0+1=01, 1+1=10) from a single slab of glass, or open the working solution and toggle inputs A and B.
               </Text>
             </VStack>
-            <HStack gap={2}>
+            <HStack gap={2} style={{flexWrap: 'wrap'}}>
               <Button label="Try working half adder" variant="primary" size="sm" onClick={() => onOpen('logic-half-adder', true)} />
               <Button label="Solve from scratch" variant="secondary" size="sm" onClick={() => onOpen('logic-half-adder', false)} />
             </HStack>
@@ -67,14 +67,16 @@ export function PuzzleBrowser({puzzles, progress, onOpen}: Props) {
           const chapterSolved = items.filter((p) => (progress[p.id]?.stars ?? 0) > 0).length;
           return (
             <VStack key={chapter.id} gap={3}>
-              <HStack gap={2} vAlign="center" hAlign="between">
-                <VStack gap={0}>
+              <HStack gap={3} vAlign="start" hAlign="between">
+                <VStack gap={0} style={{minWidth: 0}}>
                   <Heading level={3}>{chapter.title}</Heading>
                   <Text type="supporting">{chapter.subtitle}</Text>
                 </VStack>
-                <Text type="supporting" hasTabularNumbers>
-                  {chapterSolved} / {items.length}
-                </Text>
+                <span className="chapter-count">
+                  <Text type="supporting" hasTabularNumbers>
+                    {chapterSolved} / {items.length}
+                  </Text>
+                </span>
               </HStack>
               <div className="puzzle-grid">
                 {items.map((p) => {

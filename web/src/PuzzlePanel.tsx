@@ -9,6 +9,7 @@ import {Divider} from '@astryxdesign/core/Divider';
 import {Icon} from '@astryxdesign/core/Icon';
 import {HStack, VStack} from '@astryxdesign/core/Layout';
 import {Section} from '@astryxdesign/core/Section';
+import {PanelSection} from './PanelSection';
 import {SegmentedControl, SegmentedControlItem} from '@astryxdesign/core/SegmentedControl';
 import {Selector} from '@astryxdesign/core/Selector';
 import {Switch} from '@astryxdesign/core/Switch';
@@ -315,17 +316,19 @@ export function PuzzlePanel({
       <Divider />
 
       {/* Parts palette */}
-      <Section variant="transparent" padding={4}>
-        <VStack gap={3}>
-          <HStack gap={2} vAlign="center" hAlign="between">
-            <Heading level={3}>Parts</Heading>
-            {puzzle.rules.max_elements !== undefined && (
-              <Badge
-                variant={enabledCount >= puzzle.rules.max_elements ? 'warning' : 'neutral'}
-                label={`${enabledCount} / ${puzzle.rules.max_elements}`}
-              />
-            )}
-          </HStack>
+      <PanelSection
+        id="puzzle.parts"
+        title="Parts"
+        gap={3}
+        aside={
+          puzzle.rules.max_elements !== undefined && (
+            <Badge
+              variant={enabledCount >= puzzle.rules.max_elements ? 'warning' : 'neutral'}
+              label={`${enabledCount} / ${puzzle.rules.max_elements}`}
+            />
+          )
+        }
+      >
           <VStack gap={2}>
             {puzzle.rules.palette.map((entry, i) => {
               const allowed = canAddPalettePart(puzzle, design, i, presets);
@@ -391,8 +394,7 @@ export function PuzzlePanel({
               })}
             </VStack>
           )}
-        </VStack>
-      </Section>
+      </PanelSection>
 
       {/* Selected player part inspector */}
       {selectedIsPlayer && selected && (
@@ -416,10 +418,8 @@ export function PuzzlePanel({
       <Divider />
 
       {/* Hints & reference solution */}
-      <Section variant="transparent" padding={4}>
-        <VStack gap={3}>
-          <HStack gap={2} vAlign="center" hAlign="between">
-            <Heading level={3}>Hints</Heading>
+      <PanelSection id="puzzle.hints" title="Hints" gap={3}>
+          <HStack>
             <Button
               label="Load solution"
               size="sm"
@@ -443,8 +443,7 @@ export function PuzzlePanel({
               onClick={() => setHintsShown((h) => h + 1)}
             />
           )}
-        </VStack>
-      </Section>
+      </PanelSection>
 
       <Divider />
 

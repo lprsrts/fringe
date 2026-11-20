@@ -168,6 +168,7 @@ body { background: var(--color-background-body, var(--color-background-surface))
   border: 1px solid rgb(243 198 35 / 0.4);
   background: rgb(243 198 35 / 0.08);
 }
+.chapter-count { flex: none; white-space: nowrap; padding-top: 4px; }
 .puzzle-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));

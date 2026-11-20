@@ -3,6 +3,7 @@
 // exactly the scene's domain, so a pointer position maps straight to µm.
 import {useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
 import type {BodyOutline, SceneOutlines, Solver} from './solver';
+import {Clearance, type Pose} from './collide';
 import {
   detectorNormal,
   extentOf,
@@ -65,8 +66,22 @@ type DragMode =
       origY: number;
       /** Allowed range of the position, so the whole body stays inside the domain. */
       bounds: {x0: number; x1: number; y0: number; y1: number};
+      clr: Clearance | null;
+      last: Pose;
     }
   | {kind: 'beamAngle'; item: Item}
+  | {kind: 'rotate'; item: Item; cx: number; cy: number; offsetDeg: number; rot0: number; clr: Clearance | null; last: Pose}
+  | {
+      kind: 'scale';
+      item: Item;
+      cx: number;
+      cy: number;
+      startDist: number;
+      shape0: Json;
+      kMax: number;
+      clr: Clearance | null;
+      last: Pose;
+    }
   | {kind: 'detMove'; item: Item; lastX: number; lastY: number}
   | {kind: 'lineEnd'; item: Item; end: 1 | 2}
   | {kind: 'boxCorner'; item: Item; oppX: number; oppY: number};
@@ -104,6 +119,8 @@ function crossfade(from: HTMLCanvasElement, over: HTMLCanvasElement | null) {
   over.style.transition = '';
   over.style.opacity = '0';
 }
+
+const NO_CHANGE: Pose = {dx: 0, dy: 0, dRot: 0, k: 1};
 
 function beamArrowLength(waistUm: number, spanX: number): number {
   return Math.max(2.5 * waistUm, 0.12 * spanX);
@@ -147,6 +164,8 @@ export function FieldCanvas({
   const [hover, setHover] = useState<Item | null>(null);
   const [cursorStyle, setCursorStyle] = useState<'default' | 'grab' | 'grabbing' | 'crosshair'>('default');
   const drag = useRef<DragMode | null>(null);
+  // Mirrors drag.current, so the overlay redraws (and drops the angle/scale readout) when a drag ends.
+  const [dragKind, setDragKind] = useState<DragMode['kind'] | null>(null);
   const d = scene.domain;
   const spanX = d.x_max_um - d.x_min_um;
   const spanY = d.y_max_um - d.y_min_um;
@@ -277,12 +296,111 @@ export function FieldCanvas({
     [puzzleOverlay, readOnly],
   );
 
+  /**
+   * Keeps `item` (an element anchored at x, y) clear of the other enabled
+   * elements while it is dragged. Null when it has no outline yet or is
+   * disabled (a disabled body takes no part in the solve).
+   */
+  const clearanceFor = (item: Item, x: number, y: number): Clearance | null => {
+    const bodies = outlines?.bodies ?? [];
+    const self = bodies.filter((b) => b.element_id === item.id && b.enabled).map((b) => b.outline);
+    if (!self.length) return null;
+    const others = bodies.filter((b) => b.element_id !== item.id && b.enabled).map((b) => b.outline);
+    // The core's minimum gap is 0.05 λ in the background; keep a little more for rounding.
+    const gap = ((0.05 * scene.wavelength_um) / (scene.background?.n || 1)) * 1.25;
+    return new Clearance(self, others, [x, y], gap);
+  };
+
+  /**
+   * The rotate and resize handles of a selected, editable element, in µm: the
+   * rotate knob sits beyond the body along its local "up", the resize knob off
+   * a corner. A knob that would fall outside the domain moves to the opposite
+   * side so it stays reachable. `kMax` is the largest scale that keeps the body
+   * inside the domain.
+   */
+  const gizmo = (item: Item) => {
+    if (item.kind !== 'element' || isLocked(item) || !size.w) return null;
+    const o = objectOf(scene, item);
+    if (!o || typeof o.x_um !== 'number') return null;
+    const cx = Number(o.x_um);
+    const cy = Number(o.y_um);
+    const rot = Number(o.rotation_deg ?? 0);
+    const umPerPx = spanX / size.w;
+    const pts = (outlines?.bodies ?? []).filter((b) => b.element_id === item.id).flatMap((b) => b.outline);
+    let reach: number;
+    let lo: {x: number; y: number};
+    let hi: {x: number; y: number};
+    if (pts.length) {
+      reach = Math.max(...pts.map(([x, y]) => Math.hypot(x - cx, y - cy)));
+      lo = {x: Math.min(...pts.map((q) => q[0])) - cx, y: Math.min(...pts.map((q) => q[1])) - cy};
+      hi = {x: Math.max(...pts.map((q) => q[0])) - cx, y: Math.max(...pts.map((q) => q[1])) - cy};
+    } else {
+      const {hx, hy} = extentOf(scene, item);
+      reach = Math.hypot(hx, hy);
+      lo = {x: -hx, y: -hy};
+      hi = {x: hx, y: hy};
+    }
+    const pad = 8 * umPerPx;
+    const inside = (x: number, y: number) =>
+      x > d.x_min_um + pad && x < d.x_max_um - pad && y > d.y_min_um + pad && y < d.y_max_um - pad;
+    const place = (dist: number, angles: number[]) => {
+      for (const a of angles) {
+        const r = ((rot + a) * Math.PI) / 180;
+        const x = cx + dist * Math.cos(r);
+        const y = cy + dist * Math.sin(r);
+        if (inside(x, y)) return {x, y, offsetDeg: a};
+      }
+      const r = ((rot + angles[0]) * Math.PI) / 180;
+      return {x: cx + dist * Math.cos(r), y: cy + dist * Math.sin(r), offsetDeg: angles[0]};
+    };
+    const rotate = place(reach + 28 * umPerPx, [90, -90, 0, 180]);
+    const scale = place(reach + 12 * umPerPx, [-45, 135, 45, -135]);
+    const margin = (0.25 * scene.wavelength_um) / (scene.background?.n || 1) + 0.01;
+    const room = [
+      lo.x < 0 ? (cx - d.x_min_um - margin) / -lo.x : Infinity,
+      hi.x > 0 ? (d.x_max_um - margin - cx) / hi.x : Infinity,
+      lo.y < 0 ? (cy - d.y_min_um - margin) / -lo.y : Infinity,
+      hi.y > 0 ? (d.y_max_um - margin - cy) / hi.y : Infinity,
+    ];
+    const kMax = Math.max(1, Math.min(...room));
+    return {cx, cy, rot, reach, rotate, scale, kMax};
+  };
+
   // Check if pointer hits an active resize/rotate handle on the selected item.
-  const pickHandle = (x: number, y: number): DragMode | null => {
+  const pickHandle = (x: number, y: number, touch = false): DragMode | null => {
     if (readOnly || !selected || isLocked(selected) || !size.w) return null;
     const o = objectOf(scene, selected);
     if (!o) return null;
-    const hitTol = (12 / size.w) * spanX;
+    // Fingers cover more than a cursor: a larger grab radius on touch.
+    const hitTol = ((touch ? 22 : 12) / size.w) * spanX;
+    const gz = gizmo(selected);
+    if (gz) {
+      if (Math.hypot(x - gz.rotate.x, y - gz.rotate.y) <= hitTol) {
+        return {
+          kind: 'rotate',
+          item: selected,
+          cx: gz.cx,
+          cy: gz.cy,
+          offsetDeg: gz.rotate.offsetDeg,
+          rot0: gz.rot,
+          clr: clearanceFor(selected, gz.cx, gz.cy),
+          last: NO_CHANGE,
+        };
+      }
+      if (Math.hypot(x - gz.scale.x, y - gz.scale.y) <= hitTol) {
+        return {
+          kind: 'scale',
+          item: selected,
+          cx: gz.cx,
+          cy: gz.cy,
+          startDist: Math.max(1e-6, Math.hypot(x - gz.cx, y - gz.cy)),
+          shape0: structuredClone((o.shape ?? {}) as Json),
+          kMax: gz.kMax,
+          clr: clearanceFor(selected, gz.cx, gz.cy),
+          last: NO_CHANGE,
+        };
+      }
+    }
     if (selected.kind === 'source' && o.type === 'gaussian_beam' && !puzzleOverlay) {
       const a = (Number(o.angle_deg ?? 0) * Math.PI) / 180;
       const len = beamArrowLength(Number(o.waist_um ?? 1), spanX);
@@ -397,9 +515,10 @@ export function FieldCanvas({
   const onPointerDown = (e: React.PointerEvent) => {
     if (readOnly) return;
     const p = toUm(e);
-    const handle = pickHandle(p.x, p.y);
+    const handle = pickHandle(p.x, p.y, e.pointerType !== 'mouse');
     if (handle) {
       drag.current = handle;
+      setDragKind(handle.kind);
       setCursorStyle('grabbing');
       (e.target as Element).setPointerCapture(e.pointerId);
       e.preventDefault();
@@ -417,7 +536,17 @@ export function FieldCanvas({
       if (!keys) return;
       const origX = Number(o[keys[0]]);
       const origY = Number(o[keys[1]]);
-      drag.current = {kind: 'move', item, startX: p.x, startY: p.y, origX, origY, bounds: moveBounds(item, origX, origY)};
+      drag.current = {
+        kind: 'move',
+        item,
+        startX: p.x,
+        startY: p.y,
+        origX,
+        origY,
+        bounds: moveBounds(item, origX, origY),
+        clr: item.kind === 'element' ? clearanceFor(item, origX, origY) : null,
+        last: NO_CHANGE,
+      };
     }
     setCursorStyle('grabbing');
     (e.target as Element).setPointerCapture(e.pointerId);
@@ -462,8 +591,14 @@ export function FieldCanvas({
     if (cur) {
       if (cur.kind === 'move') {
         const {x0, x1, y0, y1} = cur.bounds;
-        const nx = Math.min(x1, Math.max(x0, cur.origX + (p.x - cur.startX)));
-        const ny = Math.min(y1, Math.max(y0, cur.origY + (p.y - cur.startY)));
+        let nx = Math.min(x1, Math.max(x0, cur.origX + (p.x - cur.startX)));
+        let ny = Math.min(y1, Math.max(y0, cur.origY + (p.y - cur.startY)));
+        if (cur.clr) {
+          const pose = cur.clr.limit(cur.last, {dx: nx - cur.origX, dy: ny - cur.origY, dRot: 0, k: 1}, true);
+          cur.last = pose;
+          nx = cur.origX + pose.dx;
+          ny = cur.origY + pose.dy;
+        }
         onEdit((draft) => {
           const o = objectOf(draft, cur.item);
           if (!o) return;
@@ -471,6 +606,40 @@ export function FieldCanvas({
           if (!keys) return;
           o[keys[0]] = round(nx, 2);
           o[keys[1]] = round(ny, 2);
+        });
+      } else if (cur.kind === 'rotate') {
+        let deg = (Math.atan2(p.y - cur.cy, p.x - cur.cx) * 180) / Math.PI - cur.offsetDeg;
+        deg = e.shiftKey ? Math.round(deg / 15) * 15 : Math.round(deg);
+        if (cur.clr) {
+          // Turn the short way from the last allowed angle, so the bisection follows the drag.
+          let dRot = deg - cur.rot0;
+          dRot -= Math.round((dRot - cur.last.dRot) / 360) * 360;
+          const pose = cur.clr.limit(cur.last, {dx: 0, dy: 0, dRot, k: 1});
+          cur.last = pose;
+          deg = Math.round((cur.rot0 + pose.dRot) * 10) / 10;
+        }
+        deg = ((((deg + 180) % 360) + 360) % 360) - 180;
+        onEdit((draft) => {
+          const o = objectOf(draft, cur.item);
+          if (o) o.rotation_deg = deg;
+        });
+      } else if (cur.kind === 'scale') {
+        const raw = Math.hypot(p.x - cur.cx, p.y - cur.cy) / cur.startDist;
+        let k = Math.min(cur.kMax, Math.max(0.1, raw));
+        if (cur.clr) {
+          const pose = cur.clr.limit(cur.last, {dx: 0, dy: 0, dRot: 0, k});
+          cur.last = pose;
+          k = pose.k;
+        }
+        onEdit((draft) => {
+          const o = objectOf(draft, cur.item);
+          if (!o) return;
+          const shape = structuredClone(cur.shape0);
+          // Every length of the shape scales together, so the body keeps its form.
+          for (const [key, v] of Object.entries(shape)) {
+            if (key.endsWith('_um') && typeof v === 'number') shape[key] = round(v * k, 3);
+          }
+          o.shape = shape;
         });
       } else if (cur.kind === 'beamAngle') {
         onEdit((draft) => {
@@ -533,6 +702,7 @@ export function FieldCanvas({
 
   const endDrag = () => {
     drag.current = null;
+    setDragKind(null);
     setCursorStyle(hover ? 'grab' : 'default');
   };
 
@@ -789,6 +959,75 @@ export function FieldCanvas({
       }
     }
 
+    // Rotate and resize knobs on the selected element.
+    const gz = selected && !readOnly ? gizmo(selected) : null;
+    if (gz) {
+      const c = toPx(gz.cx, gz.cy);
+      const rk = toPx(gz.rotate.x, gz.rotate.y);
+      const sk = toPx(gz.scale.x, gz.scale.y);
+      const reachPx = (gz.reach / spanX) * size.w;
+      const len = Math.max(1e-6, Math.hypot(rk.x - c.x, rk.y - c.y));
+      g.save();
+      // Stem from the body's edge to the rotate knob.
+      g.strokeStyle = 'rgba(0,0,0,0.5)';
+      g.lineWidth = 3.5;
+      g.beginPath();
+      g.moveTo(c.x + ((rk.x - c.x) / len) * reachPx, c.y + ((rk.y - c.y) / len) * reachPx);
+      g.lineTo(rk.x, rk.y);
+      g.stroke();
+      g.strokeStyle = ACCENT;
+      g.lineWidth = 1.5;
+      g.stroke();
+      // Rotate knob: a disc with a circular arrow.
+      g.fillStyle = 'rgba(11,13,15,0.85)';
+      g.strokeStyle = ACCENT;
+      g.lineWidth = 2;
+      g.beginPath();
+      g.arc(rk.x, rk.y, 9, 0, Math.PI * 2);
+      g.fill();
+      g.stroke();
+      g.strokeStyle = '#fff';
+      g.lineWidth = 1.5;
+      g.beginPath();
+      g.arc(rk.x, rk.y, 4.5, -Math.PI * 0.15, Math.PI * 1.35);
+      g.stroke();
+      const ax = rk.x + 4.5 * Math.cos(-Math.PI * 0.15);
+      const ay = rk.y + 4.5 * Math.sin(-Math.PI * 0.15);
+      g.fillStyle = '#fff';
+      g.beginPath();
+      g.moveTo(ax + 2.6, ay - 0.6);
+      g.lineTo(ax - 1.6, ay - 2.6);
+      g.lineTo(ax - 0.6, ay + 2.2);
+      g.closePath();
+      g.fill();
+      // Resize knob: a square with a diagonal arrow.
+      g.fillStyle = 'rgba(11,13,15,0.85)';
+      g.strokeStyle = ACCENT;
+      g.lineWidth = 2;
+      g.beginPath();
+      g.roundRect(sk.x - 8, sk.y - 8, 16, 16, 3);
+      g.fill();
+      g.stroke();
+      const ux = (sk.x - c.x) / Math.max(1e-6, Math.hypot(sk.x - c.x, sk.y - c.y));
+      const uy = (sk.y - c.y) / Math.max(1e-6, Math.hypot(sk.x - c.x, sk.y - c.y));
+      g.strokeStyle = '#fff';
+      g.lineWidth = 1.5;
+      g.beginPath();
+      g.moveTo(sk.x - ux * 4, sk.y - uy * 4);
+      g.lineTo(sk.x + ux * 4, sk.y + uy * 4);
+      g.stroke();
+      g.restore();
+      const cur = drag.current;
+      if (cur?.kind === 'rotate' && sameItem(cur.item, selected)) {
+        drawPlate(`${Math.round(gz.rot)}°`, rk.x + 14, rk.y, ACCENT, 0, 0.5, true);
+      } else if (cur?.kind === 'scale' && sameItem(cur.item, selected)) {
+        // The scale so far: any length of the shape against its value at the drag's start.
+        const now = ((selected && objectOf(scene, selected)?.shape) ?? {}) as Json;
+        const key = Object.keys(cur.shape0).find((k) => k.endsWith('_um') && Number(cur.shape0[k]) > 0);
+        if (key) drawPlate(`×${(Number(now[key]) / Number(cur.shape0[key])).toFixed(2)}`, sk.x + 14, sk.y, ACCENT, 0, 0.5, true);
+      }
+    }
+
     // Center drag dot on selected unlocked element (or corner brackets fallback if no outlines).
     if (selected?.kind === 'element' && !isLocked(selected)) {
       const o = objectOf(scene, selected);
@@ -1021,7 +1260,7 @@ export function FieldCanvas({
     if (darkCase) {
       drawPlate('All inputs off — no light', size.w / 2, size.h / 2, 'rgba(255,255,255,0.75)', 0.5, 0.5);
     }
-  }, [scene, outlines, selected, hover, size, d, spanX, spanY, toPx, puzzleOverlay, detectorLabels, readingsStale, darkCase, readOnly, isLocked]);
+  }, [scene, outlines, selected, hover, size, d, spanX, spanY, toPx, puzzleOverlay, detectorLabels, readingsStale, darkCase, readOnly, isLocked, dragKind]);
 
   return (
     <div className="field-box" ref={box}>
