@@ -8,13 +8,16 @@ import {createRoot} from 'react-dom/client';
 import {Theme} from '@astryxdesign/core/theme';
 import {fringeTheme} from './theme';
 import {App} from './App';
+import {ErrorBoundary} from './ErrorBoundary';
 
 document.documentElement.dataset.astryxTheme = 'neutral';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <Theme theme={fringeTheme}>
-      <App />
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
     </Theme>
   </StrictMode>,
 );
