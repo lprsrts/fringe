@@ -20,6 +20,41 @@ export interface Scene extends Json {
   solver: {method: string} & Json;
 }
 
+/** The most memory a solve may plan for in the browser. A scene can raise its
+ * own limit (solver.memory_limit_mb), which the native app allows; here it is
+ * capped, so a link can't ask for a multi-gigabyte solve. */
+export const MAX_MEMORY_MB = 1024;
+
+const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
+const isNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/**
+ * Parses scene JSON and checks the shape the page relies on before it is used
+ * (the core's own check runs on every solve and reports the rest). Throws an
+ * Error saying what is wrong. Clamps the memory limit to MAX_MEMORY_MB.
+ */
+export function parseScene(text: string): Scene {
+  const v: unknown = JSON.parse(text);
+  const fail = (what: string): never => {
+    throw new Error(`not a Fringe scene: ${what}`);
+  };
+  if (!isObject(v)) fail('expected a JSON object');
+  const s = v as Json;
+  if (!isNumber(s.wavelength_um) || s.wavelength_um <= 0) fail('wavelength_um must be a positive number');
+  if (!isObject(s.background) || !isNumber(s.background.n)) fail('background.n must be a number');
+  for (const key of ['sources', 'elements', 'detectors']) {
+    if (!Array.isArray(s[key]) || !(s[key] as unknown[]).every(isObject)) fail(`${key} must be a list of objects`);
+  }
+  const d = s.domain;
+  if (!isObject(d) || ![d.x_min_um, d.x_max_um, d.y_min_um, d.y_max_um].every(isNumber)) fail('domain needs x_min_um, x_max_um, y_min_um and y_max_um');
+  const dom = d as unknown as Domain;
+  if (!(dom.x_max_um > dom.x_min_um && dom.y_max_um > dom.y_min_um)) fail('the domain is empty');
+  if (!isObject(s.solver) || !['fdtd', 'mom', 'fem'].includes(String(s.solver.method))) fail('solver.method must be fdtd, mom or fem');
+  const solver = s.solver as Json;
+  if (isNumber(solver.memory_limit_mb) && solver.memory_limit_mb > MAX_MEMORY_MB) solver.memory_limit_mb = MAX_MEMORY_MB;
+  return s as Scene;
+}
+
 /** Something on the field that can be selected and dragged. */
 export interface Item {
   kind: 'element' | 'source';

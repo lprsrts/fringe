@@ -21,7 +21,7 @@ import {ExclamationTriangleIcon, InformationCircleIcon, XCircleIcon} from '@hero
 import {FieldCanvas} from './FieldCanvas';
 import {Inspector} from './Inspector';
 import {pageUrl, readLink, writeLink, decompress} from './link';
-import {fitDomain, objectOf, type Item, type Scene} from './scene';
+import {fitDomain, objectOf, parseScene, type Item, type Scene} from './scene';
 import {Solver, type Example, type Issue, type SolveMeta} from './solver';
 
 const QUANTITIES = [
@@ -49,6 +49,32 @@ const METHOD_LABEL: Record<string, string> = {fdtd: 'FDTD', mom: 'MoM', fem: 'FE
 const fmtTime = (s: number) => (s < 1 ? `${Math.round(s * 1000)} ms` : `${s.toFixed(1)} s`);
 const link = readLink();
 
+/**
+ * Resolves once an embedding frame is on screen, so an embed further down a
+ * page doesn't solve until it is seen. A working observer always reports once
+ * when it starts; if none comes within 2 s (some hidden or prerendered pages
+ * never run observers), it goes ahead rather than wait forever.
+ */
+function scrolledIntoView() {
+  return new Promise<void>((resolve) => {
+    let reported = false;
+    const io = new IntersectionObserver((entries) => {
+      reported = true;
+      if (entries.some((e) => e.isIntersecting)) {
+        io.disconnect();
+        resolve();
+      }
+    });
+    io.observe(document.documentElement);
+    setTimeout(() => {
+      if (!reported) {
+        io.disconnect();
+        resolve();
+      }
+    }, 2000);
+  });
+}
+
 export function App() {
   const solver = useMemo(() => new Solver(), []);
   const showToast = useToast();
@@ -67,6 +93,8 @@ export function App() {
   const [meta, setMeta] = useState<SolveMeta | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // Why the page isn't showing what a link asked for; stays until the scene changes.
+  const [notice, setNotice] = useState<string | null>(null);
   const [solvingSince, setSolvingSince] = useState<number | null>(null);
   const [now, setNow] = useState(0);
   const [embedOpen, setEmbedOpen] = useState(false);
@@ -162,7 +190,7 @@ export function App() {
         text = await solver.example(name);
         exampleScenes.current.set(name, text);
       }
-      setScene(JSON.parse(text));
+      setScene(parseScene(text));
       setExample(name);
       setSelected(null);
     },
@@ -171,31 +199,29 @@ export function App() {
 
   useEffect(() => {
     (async () => {
-      // An embed further down a page waits until it scrolls into view.
-      if (link.embed) {
-        await new Promise<void>((resolve) => {
-          const io = new IntersectionObserver((entries) => {
-            if (entries.some((e) => e.isIntersecting)) {
-              io.disconnect();
-              resolve();
-            }
-          });
-          io.observe(document.body);
-        });
-      }
+      if (link.embed && window.self !== window.top) await scrolledIntoView();
       const list = await solver.examples();
       setExamples(list);
       if (link.scene) {
         try {
-          setScene(JSON.parse(await decompress(link.scene)));
+          setScene(parseScene(await decompress(link.scene)));
           return;
-        } catch {
-          setError("The link's scene couldn't be read, so this is the lens example.");
+        } catch (e) {
+          setNotice(`The link's scene couldn't be used (${(e as Error).message}), so this is the lens example.`);
         }
       }
       await loadExample(list.some((e) => e.name === link.example) ? link.example! : 'lens');
     })().catch((e) => setError((e as Error).message));
   }, [solver, loadExample]);
+
+  // A hash typed into the address bar, or a link followed within the page,
+  // loads that scene. The page's own updates use replaceState, which fires no
+  // hashchange, so this only sees changes from outside.
+  useEffect(() => {
+    const reload = () => location.reload();
+    window.addEventListener('hashchange', reload);
+    return () => window.removeEventListener('hashchange', reload);
+  }, []);
 
   // Solve whenever the scene or the solver changes.
   useEffect(() => {
@@ -221,6 +247,7 @@ export function App() {
       return draft;
     });
     setExample(null);
+    setNotice(null);
   }, []);
 
   const move = useCallback(
@@ -291,6 +318,7 @@ export function App() {
   const solvingLong = solvingSince !== null && elapsed > 0.4;
   const messages: {severity: 'error' | 'warning' | 'info'; text: string}[] = [
     ...(error ? [{severity: 'error' as const, text: error}] : []),
+    ...(notice ? [{severity: 'warning' as const, text: notice}] : []),
     ...issues.map((i) => ({severity: i.severity, text: i.message})),
   ];
   const statusParts = solvingLong
@@ -347,6 +375,9 @@ export function App() {
   );
 
   if (link.embed) {
+    // Why there's no field, when something stops it: a solver error, or the
+    // scene's own errors from the check.
+    const blocking = error ?? issues.find((i) => i.severity === 'error')?.message ?? null;
     const full = new URLSearchParams(location.hash.slice(1));
     full.delete('embed');
     return (
@@ -354,7 +385,15 @@ export function App() {
         {fieldView}
         {!fieldVersion && (
           <div className="embed-wait">
-            <Spinner size="lg" label={error ?? 'Solving…'} />
+            {blocking ? (
+              <div className="embed-message" role="alert">
+                <Text type="supporting" color="inherit">
+                  {blocking}
+                </Text>
+              </div>
+            ) : (
+              <Spinner size="lg" label="Solving…" />
+            )}
           </div>
         )}
         <div className="embed-open">
@@ -377,7 +416,11 @@ export function App() {
           <Selector
             label="Example"
             value={example ?? ''}
-            onChange={(v) => v && loadExample(v)}
+            onChange={(v) => {
+              if (!v) return;
+              setNotice(null);
+              loadExample(v);
+            }}
             options={[
               ...(example ? [] : [{value: '', label: 'Your scene'}]),
               ...examples.map((e) => ({value: e.name, label: e.title})),
@@ -472,12 +515,12 @@ export function App() {
               isDisabled={!sceneText}
               onClick={() => {
                 try {
-                  setScene(JSON.parse(sceneText));
+                  setScene(parseScene(sceneText));
                   setExample(null);
                   setSelected(null);
                   setSceneText('');
                 } catch (e) {
-                  showToast({body: `That isn't valid JSON: ${(e as Error).message}`, type: 'error', uniqueID: 'json'});
+                  showToast({body: `That scene can't be used: ${(e as Error).message}`, type: 'error', uniqueID: 'json'});
                 }
               }}
             />
