@@ -37,8 +37,8 @@ steady-state answer directly.
 
 **Which solver should I trust?** All three are checked against exact solutions
 (Mie scattering, the Airy formula for a slab, the image method for a mirror). Where
-it applies, MoM is the most accurate; the measured errors are in the
-[README](README.md#validation).
+it applies, MoM is the most accurate; the measured errors are on the
+[Validation](https://github.com/lprsrts/fringe/wiki/Validation) page of the wiki.
 
 **How do I read exported field data?** File > Export Field Data writes a NumPy
 `.npz` archive:
