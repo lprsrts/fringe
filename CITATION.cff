@@ -11,6 +11,7 @@ authors:
   - given-names: Alper
     family-names: Sarıtaş
 version: 0.4.1
+doi: 10.5281/zenodo.24384277
 date-released: 2026-11-20
 repository-code: "https://github.com/lprsrts/fringe"
 url: "https://fringe.lprsrts.com"

@@ -90,7 +90,10 @@ Bugs and results that look wrong go in the [issues](https://github.com/lprsrts/f
 
 ## Citing
 
-If you use Fringe in a paper, a thesis or course material, please cite it.
+If you use Fringe in a paper, a thesis or course material, please cite it. Its
+DOI is [10.5281/zenodo.24384277](https://doi.org/10.5281/zenodo.24384277), which
+always points to the latest version; each release also has its own on
+[Zenodo](https://doi.org/10.5281/zenodo.24384277).
 [CITATION.cff](CITATION.cff) has the details, and GitHub's "Cite this repository"
 button (in the sidebar) turns it into APA or BibTeX:
 
@@ -99,6 +102,7 @@ button (in the sidebar) turns it into APA or BibTeX:
   author  = {Sarıtaş, Alper},
   title   = {Fringe: full-wave 2D optics simulator},
   year    = {2026},
+  doi     = {10.5281/zenodo.24384277},
   url     = {https://github.com/lprsrts/fringe}
 }
 ```
