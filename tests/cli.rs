@@ -10,7 +10,12 @@ fn cli(args: &[&str], stdin: Option<&str>) -> Output {
         .spawn()
         .unwrap();
     if let Some(s) = stdin {
-        child.stdin.take().unwrap().write_all(s.as_bytes()).unwrap();
+        // The CLI may exit before reading stdin (a usage error, for example), which
+        // closes the pipe; the exit code is what the tests check, not the write.
+        match child.stdin.take().unwrap().write_all(s.as_bytes()) {
+            Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {}
+            r => r.unwrap(),
+        }
     }
     drop(child.stdin.take());
     child.wait_with_output().unwrap()
