@@ -9,16 +9,38 @@ import init, * as fringe from './pkg/fringe_wasm.js';
 
 const ready = init();
 
+const memMb = () => fringe.memory_bytes() / 2 ** 20;
+
 const ops = {
   examples: () => JSON.parse(fringe.examples()),
   example: (name: string) => fringe.example_scene(name),
+  materialPresets: () => JSON.parse(fringe.material_presets()),
+  outlines: (scene: string) => JSON.parse(fringe.outlines(scene)),
   check: (scene: string) => JSON.parse(fringe.check(scene)),
   solve: (scene: string, method: string, quality: string) => {
     const meta = JSON.parse(fringe.solve(scene, method, quality));
-    meta.wasm_memory_mb = fringe.memory_bytes() / 2 ** 20;
+    meta.wasm_memory_mb = memMb();
     return meta;
   },
+  measureDetectors: (detectorsJson: string) => JSON.parse(fringe.measure_detectors(detectorsJson)),
   render: (view: string, width: number, height: number) => fringe.render(view, width, height),
+  puzzles: () => JSON.parse(fringe.puzzles()),
+  puzzle: (id: string) => JSON.parse(fringe.puzzle(id)),
+  puzzleCheck: (id: string, designJson: string) => JSON.parse(fringe.puzzle_check(id, designJson)),
+  puzzleEvaluate: (id: string, designJson: string) => {
+    const res = JSON.parse(fringe.puzzle_evaluate(id, designJson));
+    res.wasm_memory_mb = memMb();
+    return res;
+  },
+  selectPuzzleCase: (weights: number[]) => {
+    const meta = JSON.parse(fringe.select_puzzle_case(new Float64Array(weights)));
+    meta.wasm_memory_mb = memMb();
+    return meta;
+  },
+  clearPuzzleFields: () => {
+    fringe.clear_puzzle_fields();
+    return null;
+  },
 } as const;
 
 type Op = keyof typeof ops;

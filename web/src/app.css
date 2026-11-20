@@ -1,12 +1,17 @@
-/* Only what Astryx has no prop for: the field's frame and the embed. Colours
-   come from the theme's tokens, so light and dark follow the system. */
+/* Only what Astryx has no prop for: the field's frame, tables, puzzle browser
+   cards, and the embed. Colours come from the theme's tokens, so light and dark
+   follow the system. */
 
 body { background: var(--color-background-body, var(--color-background-surface)); }
 
+/* Build bar above the simulator canvas. */
+.build-bar {
+  flex: none;
+}
 
 /* The field fills the space left beside the panel and keeps the domain's shape. */
-.stage { flex: 1; min-height: 0; display: flex; }
-.stage-narrow { flex: none; display: block; width: 100%; }
+.stage { flex: 1; min-height: 240px; display: flex; overflow: hidden; }
+.stage-narrow { flex: none; display: block; width: 100%; min-height: 0; overflow: visible; }
 .stage-narrow .field-box { display: block; width: 100%; }
 .field-box {
   flex: 1; min-width: 0; min-height: 0;
@@ -20,28 +25,204 @@ body { background: var(--color-background-body, var(--color-background-surface))
 }
 .field-frame canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .field-frame .marks { touch-action: none; }
+/* A field solved for an earlier scene dims a little (after a short delay, so
+   quick solves don't flicker) while the overlay already shows the edit. */
+.field-frame .field { transition: filter 160ms ease-out; }
+.field-frame .field.stale { filter: brightness(0.72) saturate(0.7); transition: filter 220ms ease-in 120ms; }
+/* The previous field, fading out over the new one. */
+.field-frame .fade { opacity: 0; pointer-events: none; transition: opacity 220ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .field-frame .field, .field-frame .field.stale, .field-frame .fade { transition: none; }
+}
 .field-frame .marks:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 
-/* The status bar along the bottom: one thin line, messages truncate and show
-   in full on hover. It stays in view while a phone scrolls the page. */
+/* Live detector readings / puzzle truth table right below the canvas. */
+.results-strip {
+  flex: none;
+  border-radius: var(--radius-container, 8px);
+  border: 1px solid var(--color-border, rgb(127 127 127 / 0.22));
+  background: var(--color-background-surface);
+  padding: 10px 12px;
+}
+.results-stale { opacity: 0.55; transition: opacity 0.15s ease; }
+.table-scroll { overflow-x: auto; }
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.data-table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--color-border, rgb(127 127 127 / 0.2));
+  white-space: nowrap;
+}
+.data-table .subhead th {
+  font-size: 10px;
+  font-weight: 500;
+  padding-top: 2px;
+  padding-bottom: 4px;
+}
+.data-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--color-border, rgb(127 127 127 / 0.12));
+  white-space: nowrap;
+}
+.data-table tbody tr:last-child td { border-bottom: none; }
+.data-table .num { text-align: right; }
+.data-table .center { text-align: center; }
+.data-table .mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.data-table .decisive-cell { font-weight: 700; }
+.data-table .verdict-cell { width: 28px; }
+.clickable-row { cursor: pointer; transition: background 0.1s ease; }
+.clickable-row:hover { background: rgb(127 127 127 / 0.08); }
+.selected-row { background: rgb(243 198 35 / 0.16); }
+.selected-row:hover { background: rgb(243 198 35 / 0.22); }
+.disabled-row { opacity: 0.55; }
+.results-footnote { margin-top: 8px; }
+
+/* Scene objects / puzzle parts rows inside the side panel. */
+.obj-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  padding: 4px 6px 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+.obj-row:hover { background: rgb(127 127 127 / 0.08); }
+.obj-row-selected {
+  background: rgb(243 198 35 / 0.16);
+  box-shadow: inset 0 0 0 1px rgb(243 198 35 / 0.45);
+}
+.obj-row-locked { cursor: default; opacity: 0.72; }
+.obj-row-locked:hover { background: transparent; }
+.obj-row-disabled { opacity: 0.6; }
+.obj-row-name { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; }
+
+/* Puzzle goal card, star track, palette rows, hints. */
+.goal-card {
+  border-radius: 10px;
+  padding: 12px;
+  background: rgb(127 127 127 / 0.08);
+  border: 1px solid var(--color-border, rgb(127 127 127 / 0.18));
+}
+.score-track-wrap { display: flex; flex-direction: column; gap: 6px; }
+.score-track {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: rgb(127 127 127 / 0.22);
+  overflow: visible;
+}
+.score-fill {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  border-radius: 999px;
+  transition: width 0.25s ease;
+}
+.score-fill-pass { background: #22c55e; }
+.score-fill-fail { background: var(--color-accent, #f3c623); }
+.score-tick {
+  position: absolute; top: -2px; bottom: -2px; width: 2px;
+  transform: translateX(-1px);
+  border-radius: 1px;
+  background: var(--color-text-secondary, #888);
+}
+.score-tick-hit { background: #f3c623; }
+
+.palette-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border, rgb(127 127 127 / 0.2));
+  background: var(--color-background-surface);
+}
+.palette-info { display: flex; flex-direction: column; min-width: 0; }
+
+.hint-box {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgb(127 127 127 / 0.08);
+  border-left: 2px solid var(--color-accent, #f3c623);
+}
+
+/* Puzzle browser grid. */
+.puzzle-browser {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 8px 0 32px;
+}
+.featured-banner {
+  padding: 16px 18px;
+  border-radius: 12px;
+  border: 1px solid rgb(243 198 35 / 0.4);
+  background: rgb(243 198 35 / 0.08);
+}
+.puzzle-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 12px;
+}
+.puzzle-card {
+  display: flex; flex-direction: column; gap: 8px;
+  text-align: left;
+  padding: 14px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border, rgb(127 127 127 / 0.22));
+  background: var(--color-background-surface);
+  color: inherit;
+  cursor: pointer;
+  transition: border-color 0.12s ease, transform 0.12s ease;
+}
+.puzzle-card:hover {
+  border-color: var(--color-accent, #f3c623);
+  transform: translateY(-1px);
+}
+.puzzle-card:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.puzzle-card-solved { border-color: rgb(34 197 94 / 0.45); }
+.puzzle-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.puzzle-card-title { font-weight: 600; font-size: 14px; }
+.puzzle-card-summary {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--color-text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  flex: 1;
+}
+.puzzle-card-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 2px; }
+.puzzle-stars { display: inline-flex; align-items: center; gap: 2px; }
+
+/* The status bar along the bottom: fixed single-line height on desktop so
+   toggling Spinner/Stop or messages never shifts the canvas above it. */
 .statusbar {
   display: flex; align-items: center; gap: 16px;
-  min-height: 32px; padding: 4px 16px;
+  height: 36px; box-sizing: border-box; padding: 0 16px;
+  flex-wrap: nowrap; overflow: hidden;
 }
-.statusbar-solve { display: flex; align-items: center; gap: 12px; flex: none; white-space: nowrap; align-self: stretch; }
+.statusbar-solve { display: flex; align-items: center; gap: 12px; flex: none; white-space: nowrap; height: 100%; }
 .statusbar-solve .astryx-divider { height: 14px; align-self: center; }
-.statusbar-messages { display: flex; align-items: center; gap: 16px; flex: 1; min-width: 0; justify-content: flex-end; }
-.statusbar-message { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.statusbar-messages { display: flex; align-items: center; gap: 16px; flex: 1; min-width: 0; justify-content: flex-end; overflow: hidden; }
+.statusbar-message { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
 .statusbar-message > :last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 860px) {
   .statusbar {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+    height: auto; min-height: 36px; padding: 4px 16px;
+    flex-wrap: wrap; gap: 4px 12px; overflow: visible;
     background: var(--color-background-body);
     border-top: 1px solid var(--color-border);
     padding-bottom: max(4px, env(safe-area-inset-bottom));
   }
-  body { padding-bottom: 72px; }
-  .statusbar { flex-wrap: wrap; gap: 4px 12px; }
+  body { padding-bottom: 88px; }
   .statusbar-messages { justify-content: flex-start; flex-basis: 100%; }
 }
 

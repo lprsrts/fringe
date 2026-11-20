@@ -1,7 +1,9 @@
 import {Fragment, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {Button} from '@astryxdesign/core/Button';
+import {Collapsible} from '@astryxdesign/core/Collapsible';
 import {Dialog} from '@astryxdesign/core/Dialog';
 import {Divider} from '@astryxdesign/core/Divider';
+import {DropdownMenu, type DropdownMenuOption} from '@astryxdesign/core/DropdownMenu';
 import {useMediaQuery} from '@astryxdesign/core/hooks';
 import {Icon} from '@astryxdesign/core/Icon';
 import {HStack, Layout, LayoutContent, LayoutFooter, LayoutHeader, LayoutPanel, VStack} from '@astryxdesign/core/Layout';
@@ -15,14 +17,86 @@ import {Switch} from '@astryxdesign/core/Switch';
 import {Heading, Text} from '@astryxdesign/core/Text';
 import {TextArea} from '@astryxdesign/core/TextArea';
 import {useToast} from '@astryxdesign/core/Toast';
-import {ArrowDownTrayIcon, ArrowTopRightOnSquareIcon, CodeBracketIcon, HomeIcon, LinkIcon} from '@heroicons/react/24/outline';
+import {
+  ArrowDownTrayIcon,
+  ArrowTopRightOnSquareIcon,
+  CodeBracketIcon,
+  DocumentDuplicateIcon,
+  EyeIcon,
+  EyeSlashIcon,
+  HomeIcon,
+  LinkIcon,
+  PlusIcon,
+  TrashIcon,
+} from '@heroicons/react/24/outline';
 import {ExclamationTriangleIcon, InformationCircleIcon, XCircleIcon} from '@heroicons/react/20/solid';
 
-import {FieldCanvas} from './FieldCanvas';
+import {DetectorBar} from './DetectorBar';
+import {FieldCanvas, type PuzzleOverlayState} from './FieldCanvas';
 import {Inspector} from './Inspector';
-import {pageUrl, readLink, writeLink, decompress} from './link';
-import {fitDomain, objectOf, parseScene, type Item, type Scene} from './scene';
-import {Solver, type Example, type Issue, type SolveMeta} from './solver';
+import {decompress, pageUrl, readLink, writeLink} from './link';
+import {
+  allCases,
+  bitsEqual,
+  canAddPalettePart,
+  caseWeights,
+  composePuzzleScene,
+  computePuzzleLiveValue,
+  designSignature,
+  detectorDisplayName,
+  extractDesign,
+  formatPuzzleValue,
+  goalDetectorIds,
+  inputLetters,
+  loadProgress,
+  lockedIds,
+  resolvePaletteMaterial,
+  saveProgress,
+  startingParts,
+  type ProgressMap,
+} from './puzzle';
+import {PuzzleBrowser} from './PuzzleBrowser';
+import {PuzzlePanel} from './PuzzlePanel';
+import {PuzzleResultsBar} from './PuzzleResultsBar';
+import {
+  fitDomain,
+  formatReadingBadge,
+  indexOf,
+  listOf,
+  makeDetector,
+  makeElement,
+  makeItem,
+  makeSource,
+  objectOf,
+  OPAQUE_SHAPES,
+  parseScene,
+  physicsSignature,
+  REFRACTIVE_SHAPES,
+  round,
+  sameItem,
+  scaleShape,
+  SHAPE_TITLES,
+  titleOf,
+  uniqueId,
+  type Item,
+  type Json,
+  type Scene,
+} from './scene';
+import {
+  Solver,
+  type DetectorReading,
+  type Example,
+  type Issue,
+  type MaterialPreset,
+  type Puzzle,
+  type PuzzleCheckReport,
+  type PuzzleEvaluation,
+  type PuzzleSummary,
+  type CheckReport,
+  type SceneOutlines,
+  type SolveMeta,
+} from './solver';
+import {CostModel, plan, REFINE_DELAY_MS, sceneForStep, type Stage, type Step} from './progressive';
 
 const QUANTITIES = [
   {value: 'intensity', label: 'Intensity'},
@@ -47,14 +121,8 @@ const COLORMAPS = [
 const METHOD_LABEL: Record<string, string> = {fdtd: 'FDTD', mom: 'MoM', fem: 'FEM'};
 
 const fmtTime = (s: number) => (s < 1 ? `${Math.round(s * 1000)} ms` : `${s.toFixed(1)} s`);
-const link = readLink();
+const initialLink = readLink();
 
-/**
- * Resolves once an embedding frame is on screen, so an embed further down a
- * page doesn't solve until it is seen. A working observer always reports once
- * when it starts; if none comes within 2 s (some hidden or prerendered pages
- * never run observers), it goes ahead rather than wait forever.
- */
 function scrolledIntoView() {
   return new Promise<void>((resolve) => {
     let reported = false;
@@ -75,106 +143,261 @@ function scrolledIntoView() {
   });
 }
 
+/** Resolves after the next paint (or 50 ms when the page is hidden and frames stop). */
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    const done = setTimeout(resolve, 50);
+    requestAnimationFrame(() =>
+      setTimeout(() => {
+        clearTimeout(done);
+        resolve();
+      }, 0),
+    );
+  });
+}
+
 export function App() {
   const solver = useMemo(() => new Solver(), []);
   const showToast = useToast();
   const isNarrow = useMediaQuery('(max-width: 860px)');
 
+  // ---- top-level mode & catalog state
+  const [mode, setMode] = useState<'simulator' | 'puzzles'>(initialLink.puzzle ? 'puzzles' : 'simulator');
   const [examples, setExamples] = useState<Example[]>([]);
-  const [example, setExample] = useState<string | null>(null);
-  const [scene, setScene] = useState<Scene | null>(null);
-  const [method, setMethod] = useState(link.method);
-  const [quantity, setQuantity] = useState(link.quantity ?? 'intensity');
-  const [colormap, setColormap] = useState(link.colormap);
-  const [animate, setAnimate] = useState(link.animate);
-  const [selected, setSelected] = useState<Item | null>(null);
+  const [presets, setPresets] = useState<MaterialPreset[]>([]);
+  const [puzzleList, setPuzzleList] = useState<PuzzleSummary[]>([]);
+  const [progress, setProgress] = useState<ProgressMap>(() => loadProgress());
 
+  // ---- simulator state (preserved while visiting puzzles)
+  const [example, setExample] = useState<string | null>(null);
+  const [simScene, setSimScene] = useState<Scene | null>(null);
+  const [simMethod, setSimMethod] = useState(initialLink.method);
+  const [simSelected, setSimSelected] = useState<Item | null>(null);
+  const [sceneText, setSceneText] = useState('');
+
+  // ---- puzzle state
+  const [activePuzzle, setActivePuzzle] = useState<Puzzle | null>(null);
+  const [puzzleScene, setPuzzleScene] = useState<Scene | null>(null);
+  const [puzzleBits, setPuzzleBits] = useState<boolean[]>([]);
+  const [puzzleSelected, setPuzzleSelected] = useState<Item | null>(null);
+  const [puzzleRuleCheck, setPuzzleRuleCheck] = useState<PuzzleCheckReport | null>(null);
+  const [puzzleEval, setPuzzleEval] = useState<PuzzleEvaluation | null>(null);
+  const [evaluatedDesignSig, setEvaluatedDesignSig] = useState<string | null>(null);
+  const [checkingPuzzle, setCheckingPuzzle] = useState(false);
+  const [revealCase, setRevealCase] = useState<number | null>(null);
+  const revealTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  // ---- shared display & solver state
+  const [quantity, setQuantity] = useState(initialLink.quantity ?? 'intensity');
+  const [colormap, setColormap] = useState(initialLink.colormap);
+  const [animate, setAnimate] = useState(initialLink.animate);
+
+  const [outlines, setOutlines] = useState<SceneOutlines | null>(null);
   const [fieldVersion, setFieldVersion] = useState(0);
   const [meta, setMeta] = useState<SolveMeta | null>(null);
+  const [readings, setReadings] = useState<DetectorReading[]>([]);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [error, setError] = useState<string | null>(null);
-  // Why the page isn't showing what a link asked for; stays until the scene changes.
   const [notice, setNotice] = useState<string | null>(null);
   const [solvingSince, setSolvingSince] = useState<number | null>(null);
   const [now, setNow] = useState(0);
   const [embedOpen, setEmbedOpen] = useState(false);
   const [embedCode, setEmbedCode] = useState('');
-  const [sceneText, setSceneText] = useState('');
   const exampleScenes = useRef(new Map<string, string>());
+  const puzzleCache = useRef(new Map<string, Puzzle>());
 
-  const effectiveMethod = method || scene?.solver.method || 'fdtd';
+  const isInPuzzle = mode === 'puzzles' && activePuzzle !== null && puzzleScene !== null;
+  const activeScene = isInPuzzle ? puzzleScene : mode === 'simulator' ? simScene : null;
+  const selected = isInPuzzle ? puzzleSelected : simSelected;
+  const setSelected = isInPuzzle ? setPuzzleSelected : setSimSelected;
 
-  // The field fills the space it is shown in: the solve uses the scene's
-  // domain grown to that space's shape (phones scroll instead, so there the
-  // scene's own shape stays). The scene itself, and its links, keep the domain
-  // they had. The shape settles for a moment before it re-solves.
+  const effectiveMethod = isInPuzzle
+    ? activePuzzle.scoring.method
+    : simMethod || simScene?.solver.method || 'fdtd';
+
+  // Fit domain to container aspect in Simulator desktop/embed only; puzzles keep exact domain.
   const [aspect, setAspect] = useState<number | null>(null);
   const aspectTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const reportAspect = useCallback((a: number) => {
     clearTimeout(aspectTimer.current);
     aspectTimer.current = setTimeout(() => setAspect((old) => (old && Math.abs(old - a) / a < 0.02 ? old : a)), 200);
   }, []);
-  const fills = link.embed || !isNarrow;
-  const solveScene = useMemo(
-    () => (scene && aspect && fills ? {...scene, domain: {...scene.domain, ...fitDomain(scene.domain, aspect)}} : scene),
-    [scene, aspect, fills],
-  );
+  const fills = initialLink.embed || !isNarrow;
+  const solveScene = useMemo(() => {
+    if (!activeScene) return null;
+    if (isInPuzzle || !aspect || !fills) return activeScene;
+    return {...activeScene, domain: {...activeScene.domain, ...fitDomain(activeScene.domain, aspect)}};
+  }, [activeScene, isInPuzzle, aspect, fills]);
 
-  // ---- solving: at most one solve at a time; edits during a solve coalesce
-  // into one more solve with the newest scene.
-  const latest = useRef({scene: solveScene, method: effectiveMethod});
-  latest.current = {scene: solveScene, method: effectiveMethod};
+  const currentDesignSig = useMemo(
+    () => (isInPuzzle && activePuzzle && puzzleScene ? designSignature(activePuzzle, puzzleScene) : null),
+    [isInPuzzle, activePuzzle, puzzleScene],
+  );
+  const isPuzzleCheckCurrent =
+    isInPuzzle && puzzleEval !== null && evaluatedDesignSig !== null && evaluatedDesignSig === currentDesignSig;
+  const allSourcesOff = useMemo(
+    () => !!activeScene && activeScene.sources.every((s) => s.enabled === false),
+    [activeScene],
+  );
+  const isDarkPuzzleCase = isInPuzzle && (activePuzzle.inputs?.length ?? 0) > 0 && allSourcesOff;
+
+  // ---- cancel reveal helper
+  const clearRevealTimers = useCallback(() => {
+    for (const t of revealTimers.current) clearTimeout(t);
+    revealTimers.current = [];
+  }, []);
+
+  const skipReveal = useCallback(() => {
+    clearRevealTimers();
+    setRevealCase(null);
+  }, [clearRevealTimers]);
+
+  // ---- solving queue: coalesces rapid drags into at most one queued solve
+  const latest = useRef({
+    scene: solveScene,
+    method: effectiveMethod,
+    isDark: isDarkPuzzleCase,
+    checkCurrent: isPuzzleCheckCurrent,
+  });
+  latest.current = {
+    scene: solveScene,
+    method: effectiveMethod,
+    isDark: isDarkPuzzleCase,
+    checkCurrent: isPuzzleCheckCurrent,
+  };
   const busy = useRef(false);
   const dirty = useRef(false);
+  // ---- progressive preview: a draft sized to a time budget while editing,
+  // then cancellable background refinement once edits pause (see progressive.ts).
+  const cost = useRef(new CostModel());
+  const solveGen = useRef(0);
+  const checkingRef = useRef(false);
+  checkingRef.current = checkingPuzzle;
+  const pendingRefine = useRef<{gen: number; scene: Scene; method: string; report: CheckReport; steps: Step[]} | null>(null);
+  const refineTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [stage, setStage] = useState<Stage | null>(null);
+  // physicsSignature of the scene the shown field was solved for.
+  const [fieldSig, setFieldSig] = useState<string | null>(null);
+  const [refining, setRefining] = useState<Step | null>(null);
+
+  const cancelRefine = useCallback(() => {
+    solveGen.current++;
+    clearTimeout(refineTimer.current);
+    pendingRefine.current = null;
+    setRefining(null);
+    solver.cancelRefine();
+  }, [solver]);
+
+  const learn = (method: string, step: Step, report: CheckReport, result: SolveMeta) => {
+    const est = step.quality === 'final' ? report.estimates?.final : report.estimates?.preview;
+    if (est) cost.current.observe(method, step.quality, est.seconds, est.ppw, result);
+  };
+
+  const runRefine = useCallback(async () => {
+    const job = pendingRefine.current;
+    pendingRefine.current = null;
+    if (!job) return;
+    const {gen, scene, method, report, steps} = job;
+    const fullPpw = report.estimates?.preview?.ppw ?? null;
+    for (const step of steps) {
+      if (solveGen.current !== gen || busy.current || checkingRef.current || latest.current.checkCurrent) break;
+      setRefining(step);
+      let result: SolveMeta;
+      try {
+        result = await solver.refine(sceneForStep(scene, method, step, fullPpw), method, step.quality);
+      } catch {
+        // Cancelled by an edit, or this resolution failed: keep what is shown.
+        break;
+      }
+      if (solveGen.current !== gen) break;
+      learn(method, step, report, result);
+      setMeta(result);
+      setReadings(result.readings ?? []);
+      setStage(step.stage);
+      setFieldSig(physicsSignature(scene));
+      setFieldVersion((v) => v + 1);
+    }
+    if (solveGen.current === gen) setRefining(null);
+  }, [solver]);
 
   const runSolve = useCallback(async () => {
-    const {scene: s, method: m} = latest.current;
-    if (!s) return;
-    const json = JSON.stringify(s);
-    const report = await solver.check(json);
+    const {scene: s, method: m, isDark, checkCurrent} = latest.current;
+    if (!s || checkCurrent) return;
+    if (isDark) {
+      setIssues([]);
+      setReadings([]);
+      setError(null);
+      return;
+    }
+    const report = await solver.check(JSON.stringify({...s, solver: {...s.solver, method: m}}));
     setIssues(report.issues);
     if (!report.ok) return;
-    const result = await solver.solve(json, m);
+    const {first, refine} = plan(report, m, cost.current);
+    const result = await solver.solve(sceneForStep(s, m, first, report.estimates?.preview?.ppw ?? null), m);
+    learn(m, first, report, result);
     setMeta(result);
+    setReadings(result.readings ?? []);
+    setStage(first.stage);
+    setFieldSig(physicsSignature(s));
     setError(null);
     setFieldVersion((v) => v + 1);
+    pendingRefine.current = refine.length ? {gen: solveGen.current, scene: s, method: m, report, steps: refine} : null;
   }, [solver]);
 
   const requestSolve = useCallback(async () => {
+    cancelRefine();
     if (busy.current) {
       dirty.current = true;
       return;
     }
     busy.current = true;
     setSolvingSince(performance.now());
+    let ok = false;
     try {
       do {
         dirty.current = false;
         await runSolve();
+        // Let the canvas post its render of this field before the next solve
+        // takes the worker, or the drawn field lags a whole solve behind.
+        if (dirty.current) await nextFrame();
       } while (dirty.current);
+      ok = true;
     } catch (e) {
       setError((e as Error).message);
     } finally {
       busy.current = false;
       setSolvingSince(null);
     }
-  }, [runSolve]);
+    if (ok && pendingRefine.current) refineTimer.current = setTimeout(runRefine, REFINE_DELAY_MS);
+  }, [runSolve, runRefine, cancelRefine]);
 
   const stop = () => {
     dirty.current = false;
+    cancelRefine();
+    clearRevealTimers();
+    setRevealCase(null);
+    setCheckingPuzzle(false);
+    setEvaluatedDesignSig(null);
     solver.reset('Stopped.');
   };
 
   useEffect(() => {
     solver.onReset = () => {
       busy.current = false;
+      solveGen.current++;
+      pendingRefine.current = null;
+      setRefining(null);
+      setStage(null);
       setSolvingSince(null);
+      setCheckingPuzzle(false);
       setFieldVersion(0);
       setMeta(null);
+      setReadings([]);
+      setEvaluatedDesignSig(null);
     };
   }, [solver]);
 
-  // Elapsed time while a solve takes long enough to notice.
+  // Elapsed timer during slow solves / checks.
   useEffect(() => {
     if (solvingSince === null) return;
     const t = setInterval(() => setNow(performance.now()), 100);
@@ -182,7 +405,89 @@ export function App() {
   }, [solvingSince]);
   const elapsed = solvingSince === null ? 0 : Math.max(0, now - solvingSince) / 1000;
 
-  // ---- loading
+  // ---- exact outlines (fast, independent of solves)
+  const outlineSig = useMemo(() => (solveScene ? JSON.stringify(solveScene) : null), [solveScene]);
+  useEffect(() => {
+    if (!outlineSig) {
+      setOutlines(null);
+      return;
+    }
+    let cancelled = false;
+    solver
+      .outlines(outlineSig)
+      .then((res) => {
+        if (!cancelled) setOutlines(res);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [solver, outlineSig]);
+
+  // ---- simulator & puzzle solving triggers
+  // In Simulator mode: re-solve ONLY when physics (everything except detectors) or method changes.
+  const physSig = useMemo(() => (solveScene ? physicsSignature(solveScene) : null), [solveScene]);
+  useEffect(() => {
+    if (!solveScene || !physSig) return;
+    if (isInPuzzle && isPuzzleCheckCurrent) return;
+    if (checkingPuzzle) return;
+    requestSolve();
+  }, [physSig, effectiveMethod, isInPuzzle, isPuzzleCheckCurrent, checkingPuzzle, requestSolve]);
+
+  // Re-measure detectors immediately on the existing field when only detectors change!
+  const simDetectorsJson = useMemo(
+    () => (mode === 'simulator' && simScene ? JSON.stringify(simScene.detectors) : null),
+    [mode, simScene],
+  );
+  useEffect(() => {
+    if (mode !== 'simulator' || !simDetectorsJson || !fieldVersion) return;
+    let cancelled = false;
+    solver
+      .measureDetectors(simDetectorsJson)
+      .then((r) => {
+        if (!cancelled) setReadings(r);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [solver, mode, simDetectorsJson, fieldVersion]);
+
+  // Live rule check in puzzle mode (instant amber out-of-region feedback without solving).
+  useEffect(() => {
+    if (!isInPuzzle || !activePuzzle || !currentDesignSig) {
+      setPuzzleRuleCheck(null);
+      return;
+    }
+    let cancelled = false;
+    solver
+      .puzzleCheck(activePuzzle.id, currentDesignSig)
+      .then((rep) => {
+        if (!cancelled) setPuzzleRuleCheck(rep);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [solver, isInPuzzle, activePuzzle, currentDesignSig]);
+
+  // Persist player's puzzle design in localStorage.
+  useEffect(() => {
+    if (!isInPuzzle || !activePuzzle || !puzzleScene) return;
+    const design = extractDesign(activePuzzle, puzzleScene);
+    const t = setTimeout(() => {
+      setProgress((prev) => {
+        const cur = prev[activePuzzle.id] ?? {stars: 0};
+        if (JSON.stringify(cur.design) === JSON.stringify(design)) return prev;
+        const next: ProgressMap = {...prev, [activePuzzle.id]: {...cur, design}};
+        saveProgress(next);
+        return next;
+      });
+    }, 400);
+    return () => clearTimeout(t);
+  }, [isInPuzzle, activePuzzle, puzzleScene]);
+
+  // ---- loading examples & puzzles
   const loadExample = useCallback(
     async (name: string) => {
       let text = exampleScenes.current.get(name);
@@ -190,57 +495,277 @@ export function App() {
         text = await solver.example(name);
         exampleScenes.current.set(name, text);
       }
-      setScene(parseScene(text));
+      setSimScene(parseScene(text));
       setExample(name);
-      setSelected(null);
+      setSimSelected(null);
+      setSceneText('');
     },
     [solver],
   );
 
-  useEffect(() => {
-    (async () => {
-      if (link.embed && window.self !== window.top) await scrolledIntoView();
-      const list = await solver.examples();
-      setExamples(list);
-      if (link.scene) {
+  const selectCheckedCase = useCallback(
+    async (puzzle: Puzzle, evaluation: PuzzleEvaluation, bits: boolean[]) => {
+      const weights = caseWeights(puzzle, evaluation.sources, bits);
+      const res = await solver.selectPuzzleCase(weights);
+      setMeta(res);
+      setStage(null);
+      setFieldSig('checked');
+      setReadings(res.readings ?? []);
+      setIssues([]);
+      setError(null);
+      setFieldVersion((v) => v + 1);
+    },
+    [solver],
+  );
+
+  const runPuzzleEvaluation = useCallback(
+    async (puzzle: Puzzle, design: Json[], targetBits: boolean[], animateReveal: boolean) => {
+      clearRevealTimers();
+      setRevealCase(null);
+      cancelRefine();
+      setCheckingPuzzle(true);
+      setSolvingSince(performance.now());
+      setError(null);
+      try {
+        const designJson = JSON.stringify(design);
+        const ev = await solver.puzzleEvaluate(puzzle.id, designJson);
+        setPuzzleEval(ev);
+        setEvaluatedDesignSig(designJson);
+
+        if (ev.valid) {
+          // Record best score & stars in localStorage.
+          if (ev.passed && ev.score !== null) {
+            setProgress((prev) => {
+              const cur = prev[puzzle.id] ?? {stars: 0};
+              const bestScore = cur.bestScore !== undefined ? Math.max(cur.bestScore, ev.score!) : ev.score!;
+              const stars = Math.max(cur.stars, ev.stars);
+              const next: ProgressMap = {...prev, [puzzle.id]: {...cur, bestScore, stars, design}};
+              saveProgress(next);
+              return next;
+            });
+          }
+
+          const cases = allCases(puzzle.inputs);
+          if (animateReveal && cases.length > 1) {
+            // Play case-by-case reveal across every truth-table row, ending on targetBits.
+            const stepMs = 460;
+            cases.forEach((caseBits, k) => {
+              const timer = setTimeout(() => {
+                setRevealCase(k);
+                selectCheckedCase(puzzle, ev, caseBits).catch(() => {});
+              }, k * stepMs);
+              revealTimers.current.push(timer);
+            });
+            const endTimer = setTimeout(() => {
+              setRevealCase(null);
+              selectCheckedCase(puzzle, ev, targetBits).catch(() => {});
+            }, cases.length * stepMs + 220);
+            revealTimers.current.push(endTimer);
+          } else {
+            await selectCheckedCase(puzzle, ev, targetBits);
+          }
+        }
+      } catch (e) {
+        setError((e as Error).message);
+      } finally {
+        setCheckingPuzzle(false);
+        setSolvingSince(null);
+      }
+    },
+    [solver, clearRevealTimers, selectCheckedCase, cancelRefine],
+  );
+
+  const openPuzzle = useCallback(
+    async (
+      id: string,
+      opts?: {loadReference?: boolean; initialDesign?: Json[]; initialBits?: boolean[]; autoCheck?: boolean},
+    ) => {
+      clearRevealTimers();
+      setRevealCase(null);
+      setPuzzleEval(null);
+      setEvaluatedDesignSig(null);
+      setPuzzleRuleCheck(null);
+      setIssues([]);
+      setReadings([]);
+      setMeta(null);
+      setFieldVersion(0);
+      setError(null);
+      setNotice(null);
+      if (busy.current) {
+        dirty.current = false;
+        solver.reset('Switched to puzzle.');
+      } else {
+        await solver.clearPuzzleFields().catch(() => {});
+      }
+
+      let p = puzzleCache.current.get(id);
+      if (!p) {
+        p = await solver.puzzle(id);
+        puzzleCache.current.set(id, p);
+      }
+      const saved = loadProgress()[id]?.design;
+      const design = opts?.initialDesign
+        ? structuredClone(opts.initialDesign)
+        : opts?.loadReference
+          ? structuredClone(p.reference)
+          : saved
+            ? structuredClone(saved)
+            : startingParts(p);
+      const nInputs = p.inputs?.length ?? 0;
+      const bits =
+        opts?.initialBits && opts.initialBits.length === nInputs
+          ? opts.initialBits
+          : Array.from({length: nInputs}, () => true);
+
+      const composed = composePuzzleScene(p, design, bits);
+      setMode('puzzles');
+      setActivePuzzle(p);
+      setPuzzleBits(bits);
+      setPuzzleScene(composed);
+      const locked = lockedIds(p);
+      const firstIdx = composed.elements.findIndex((e) => !locked.has(String(e.id)));
+      setPuzzleSelected(firstIdx >= 0 ? makeItem('element', composed.elements, firstIdx) : null);
+
+      if (opts?.loadReference || opts?.autoCheck) {
+        // Trigger full check right away so truth-table toggles switch instantaneously.
+        await runPuzzleEvaluation(p, design, bits, Boolean(opts?.loadReference));
+      }
+    },
+    [solver, clearRevealTimers, runPuzzleEvaluation],
+  );
+
+  // Apply a parsed URL hash state (used both on initial boot and external hashchange).
+  const applyLink = useCallback(
+    async (
+      target: ReturnType<typeof readLink>,
+      exList: Example[],
+      puzList: PuzzleSummary[],
+      isInitial: boolean,
+    ) => {
+      setSimMethod(target.method);
+      if (target.quantity) setQuantity(target.quantity);
+      if (target.colormap) setColormap(target.colormap);
+      setAnimate(target.animate);
+
+      if (target.puzzle) {
+        if (isInitial) loadExample('lens').catch(() => {});
+        if (target.puzzle === 'list') {
+          skipReveal();
+          setMode('puzzles');
+          setActivePuzzle(null);
+          setPuzzleScene(null);
+          return;
+        }
+        if (!puzList.some((p) => p.id === target.puzzle)) {
+          setNotice(`There is no puzzle "${target.puzzle}".`);
+          setMode('puzzles');
+          setActivePuzzle(null);
+          return;
+        }
+        let initialDesign: Json[] | undefined;
+        if (target.design) {
+          try {
+            const parsed = JSON.parse(await decompress(target.design));
+            if (Array.isArray(parsed)) initialDesign = parsed as Json[];
+          } catch (e) {
+            setNotice(`The link's design couldn't be read (${(e as Error).message}).`);
+          }
+        }
+        await openPuzzle(target.puzzle, {
+          loadReference: target.ref,
+          initialDesign,
+          initialBits: target.bits ?? undefined,
+          autoCheck: Boolean(initialDesign),
+        });
+        return;
+      }
+
+      skipReveal();
+      setMode('simulator');
+      if (target.scene) {
         try {
-          setScene(parseScene(await decompress(link.scene)));
+          setSimScene(parseScene(await decompress(target.scene)));
+          setExample(null);
+          setSimSelected(null);
           return;
         } catch (e) {
           setNotice(`The link's scene couldn't be used (${(e as Error).message}), so this is the lens example.`);
         }
       }
-      await loadExample(list.some((e) => e.name === link.example) ? link.example! : 'lens');
+      await loadExample(exList.some((e) => e.name === target.example) ? target.example! : 'lens');
+    },
+    [loadExample, openPuzzle, skipReveal],
+  );
+
+  // Initial boot: load catalogs + handle URL hash (#ex, #s, #p, #d, #ref, #b).
+  const catalogsRef = useRef<{examples: Example[]; puzzles: PuzzleSummary[]}>({examples: [], puzzles: []});
+  useEffect(() => {
+    (async () => {
+      if (initialLink.embed && window.self !== window.top) await scrolledIntoView();
+      const [exList, matPresets, puzList] = await Promise.all([
+        solver.examples(),
+        solver.materialPresets(),
+        solver.puzzles(),
+      ]);
+      catalogsRef.current = {examples: exList, puzzles: puzList};
+      setExamples(exList);
+      setPresets(matPresets);
+      setPuzzleList(puzList);
+      await applyLink(initialLink, exList, puzList, true);
     })().catch((e) => setError((e as Error).message));
-  }, [solver, loadExample]);
+  }, [solver, applyLink]);
 
-  // A hash typed into the address bar, or a link followed within the page,
-  // loads that scene. The page's own updates use replaceState, which fires no
-  // hashchange, so this only sees changes from outside.
+  // External hash changes (typed URL or back/forward navigation) switch in place
+  // without reloading the page or restarting the WASM worker.
   useEffect(() => {
-    const reload = () => location.reload();
-    window.addEventListener('hashchange', reload);
-    return () => window.removeEventListener('hashchange', reload);
-  }, []);
+    const onHash = () => {
+      const {examples: exList, puzzles: puzList} = catalogsRef.current;
+      if (exList.length === 0 && puzList.length === 0) return;
+      applyLink(readLink(location.hash), exList, puzList, false).catch((e) => setError((e as Error).message));
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, [applyLink]);
 
-  // Solve whenever the scene or the solver changes.
+  // Keep URL hash shareable.
   useEffect(() => {
-    if (solveScene) requestSolve();
-  }, [solveScene, effectiveMethod, requestSolve]);
-
-  // Keep the URL shareable.
-  useEffect(() => {
-    if (!scene || link.embed) return;
+    if (initialLink.embed) return;
+    if (mode === 'simulator' && !simScene) return;
     const t = setTimeout(async () => {
-      const hash = await writeLink({example, sceneJson: JSON.stringify(scene), method, quantity, colormap, animate});
+      let hash: string;
+      if (mode === 'puzzles') {
+        if (!activePuzzle || !puzzleScene) {
+          hash = await writeLink({puzzle: 'list', quantity, colormap, animate});
+        } else {
+          const design = extractDesign(activePuzzle, puzzleScene);
+          const isDefault = JSON.stringify(design) === JSON.stringify(startingParts(activePuzzle));
+          hash = await writeLink({
+            puzzle: activePuzzle.id,
+            designJson: isDefault ? null : JSON.stringify(design),
+            bits: puzzleBits,
+            quantity,
+            colormap,
+            animate,
+          });
+        }
+      } else {
+        hash = await writeLink({
+          example,
+          sceneJson: JSON.stringify(simScene),
+          method: simMethod,
+          quantity,
+          colormap,
+          animate,
+        });
+      }
       history.replaceState(null, '', `#${hash}`);
     }, 300);
     return () => clearTimeout(t);
-  }, [scene, example, method, quantity, colormap, animate]);
+  }, [mode, simScene, example, simMethod, activePuzzle, puzzleScene, puzzleBits, quantity, colormap, animate]);
 
-  // ---- editing
-  const edit = useCallback((change: (draft: Scene) => void) => {
-    setScene((s) => {
+  // ---- editing helpers (Simulator & Puzzle)
+  const editSim = useCallback((change: (draft: Scene) => void) => {
+    setSimScene((s) => {
       if (!s) return s;
       const draft = structuredClone(s);
       change(draft);
@@ -250,31 +775,329 @@ export function App() {
     setNotice(null);
   }, []);
 
-  const move = useCallback(
-    (item: Item, x: number, y: number) =>
-      edit((draft) => {
-        const o = objectOf(draft, item);
-        o[item.xKey] = x;
-        o[item.yKey] = y;
-      }),
-    [edit],
+  const editPuzzle = useCallback(
+    (change: (draft: Scene) => void) => {
+      skipReveal();
+      setPuzzleScene((s) => {
+        if (!s) return s;
+        const draft = structuredClone(s);
+        change(draft);
+        return draft;
+      });
+      setNotice(null);
+    },
+    [skipReveal],
   );
 
-  // ---- view
+  const editActive = isInPuzzle ? editPuzzle : editSim;
+
+  // ---- Simulator build actions (add / duplicate / delete)
+  const addSimElement = (kind: string) => {
+    if (!simScene) return;
+    let added: Json | null = null;
+    editSim((draft) => {
+      added = makeElement(kind, draft);
+      draft.elements.push(added);
+    });
+    if (added) setSimSelected({kind: 'element', index: simScene.elements.length, id: String((added as Json).id)});
+  };
+
+  const addSimSource = (type: 'gaussian_beam' | 'plane_wave' | 'line_source') => {
+    if (!simScene) return;
+    let added: Json | null = null;
+    editSim((draft) => {
+      added = makeSource(type, draft);
+      draft.sources.push(added);
+    });
+    if (added) setSimSelected({kind: 'source', index: simScene.sources.length, id: String((added as Json).id)});
+  };
+
+  const addSimDetector = (kind: 'line' | 'box') => {
+    if (!simScene) return;
+    let added: Json | null = null;
+    editSim((draft) => {
+      added = makeDetector(kind, draft);
+      draft.detectors.push(added);
+    });
+    if (added) setSimSelected({kind: 'detector', index: simScene.detectors.length, id: String((added as Json).id)});
+  };
+
+  const duplicateItem = (item: Item) => {
+    if (!activeScene) return;
+    const orig = objectOf(activeScene, item);
+    if (!orig) return;
+    const copy = structuredClone(orig);
+    const prefix = item.kind === 'element' ? String((orig.shape as Json)?.kind ?? 'part') : item.kind;
+    copy.id = uniqueId(activeScene, prefix);
+    if (typeof copy.x_um === 'number') copy.x_um = round(Number(copy.x_um) + 0.5, 2);
+    if (typeof copy.y_um === 'number') copy.y_um = round(Number(copy.y_um) - 0.5, 2);
+    if (typeof copy.waist_x_um === 'number') copy.waist_y_um = round(Number(copy.waist_y_um) - 1, 2);
+    if (item.kind === 'detector') {
+      const s = copy.shape as Json;
+      if (s.kind === 'line') {
+        s.x1_um = round(Number(s.x1_um) + 0.5, 2);
+        s.x2_um = round(Number(s.x2_um) + 0.5, 2);
+      } else if (s.kind === 'box') {
+        s.x_um = round(Number(s.x_um) + 0.5, 2);
+      }
+    }
+    const nextIdx = listOf(activeScene, item.kind).length;
+    editActive((draft) => {
+      listOf(draft, item.kind).push(copy);
+    });
+    setSelected({kind: item.kind, index: nextIdx, id: String(copy.id)});
+  };
+
+  const deleteItem = (item: Item) => {
+    if (!activeScene) return;
+    if (isInPuzzle && activePuzzle) {
+      if (item.kind !== 'element' || lockedIds(activePuzzle).has(item.id)) return;
+    } else if (item.kind === 'source' && activeScene.sources.length <= 1) {
+      showToast({body: 'A scene needs at least one source.', type: 'error', uniqueID: 'last-source'});
+      return;
+    }
+    editActive((draft) => {
+      const idx = indexOf(draft, item);
+      if (idx >= 0) listOf(draft, item.kind).splice(idx, 1);
+    });
+    if (sameItem(selected, item)) setSelected(null);
+  };
+
+  // ---- Puzzle actions
+  const addPuzzlePart = async (paletteIndex: number) => {
+    if (!activePuzzle || !puzzleScene) return;
+    const design = extractDesign(activePuzzle, puzzleScene);
+    if (!canAddPalettePart(activePuzzle, design, paletteIndex, presets)) return;
+    const entry = activePuzzle.rules.palette[paletteIndex];
+    const matName = entry.materials?.[0];
+    const material = matName ? resolvePaletteMaterial(activePuzzle, matName, presets) ?? undefined : undefined;
+    const [rx0, rx1, ry0, ry1] = activePuzzle.rules.region;
+    let el = makeElement(entry.kind, puzzleScene, {material, box: activePuzzle.rules.region});
+
+    // Fit cleanly inside 90% of rules.region using exact WASM outlines (mirrors Swift `fitted`).
+    const margin = 0.05 * Math.min(rx1 - rx0, ry1 - ry0);
+    const tx0 = rx0 + margin, tx1 = rx1 - margin, ty0 = ry0 + margin, ty1 = ry1 - margin;
+    const tw = Math.max(0.05, tx1 - tx0), th = Math.max(0.05, ty1 - ty0);
+    for (let step = 0; step < 5; step++) {
+      try {
+        const probe = {...puzzleScene, elements: [el]};
+        const out = await solver.outlines(JSON.stringify(probe));
+        const pts = out.bodies.flatMap((b) => b.outline);
+        if (pts.length === 0) break;
+        const minX = Math.min(...pts.map((p) => p[0])), maxX = Math.max(...pts.map((p) => p[0]));
+        const minY = Math.min(...pts.map((p) => p[1])), maxY = Math.max(...pts.map((p) => p[1]));
+        const bw = maxX - minX, bh = maxY - minY;
+        const factor = Math.min(tw / Math.max(1e-6, bw), th / Math.max(1e-6, bh));
+        if (factor >= 1) {
+          el.x_um = round(Number(el.x_um) + (rx0 + rx1) / 2 - (minX + maxX) / 2, 2);
+          const dy = Math.max(ty0 - minY, Math.min(0, ty1 - maxY));
+          el.y_um = round(Number(el.y_um) + dy, 2);
+          break;
+        }
+        el = {...el, shape: scaleShape(el.shape as Json, factor * 0.96)};
+      } catch {
+        break;
+      }
+    }
+
+    const nextIdx = puzzleScene.elements.length;
+    editPuzzle((draft) => {
+      draft.elements.push(el);
+    });
+    setPuzzleSelected({kind: 'element', index: nextIdx, id: String(el.id)});
+  };
+
+  const setPuzzleCaseBits = useCallback(
+    async (nextBits: boolean[]) => {
+      if (!activePuzzle || !puzzleScene) return;
+      skipReveal();
+      setPuzzleBits(nextBits);
+      const inputs = activePuzzle.inputs ?? [];
+      setPuzzleScene((prev) => {
+        if (!prev) return prev;
+        const draft = structuredClone(prev);
+        for (let i = 0; i < inputs.length; i++) {
+          const src = draft.sources.find((s) => s.id === inputs[i]);
+          if (src) src.enabled = nextBits[i] ?? false;
+        }
+        return draft;
+      });
+      if (isPuzzleCheckCurrent && puzzleEval?.valid) {
+        try {
+          await selectCheckedCase(activePuzzle, puzzleEval, nextBits);
+        } catch (e) {
+          setError((e as Error).message);
+        }
+      }
+    },
+    [activePuzzle, puzzleScene, isPuzzleCheckCurrent, puzzleEval, skipReveal, selectCheckedCase],
+  );
+
+  const togglePuzzleInput = (i: number, on: boolean) => {
+    const next = [...puzzleBits];
+    next[i] = on;
+    setPuzzleCaseBits(next);
+  };
+
+  const handlePuzzleCheck = useCallback(() => {
+    if (!activePuzzle || !puzzleScene || checkingPuzzle) return;
+    runPuzzleEvaluation(activePuzzle, extractDesign(activePuzzle, puzzleScene), puzzleBits, true);
+  }, [activePuzzle, puzzleScene, checkingPuzzle, puzzleBits, runPuzzleEvaluation]);
+
+  const handlePuzzleReset = () => {
+    if (!activePuzzle) return;
+    skipReveal();
+    setPuzzleEval(null);
+    setEvaluatedDesignSig(null);
+    solver.clearPuzzleFields().catch(() => {});
+    const parts = startingParts(activePuzzle);
+    const nInputs = activePuzzle.inputs?.length ?? 0;
+    const bits = Array.from({length: nInputs}, () => true);
+    setPuzzleBits(bits);
+    const composed = composePuzzleScene(activePuzzle, parts, bits);
+    setPuzzleScene(composed);
+    const locked = lockedIds(activePuzzle);
+    const firstIdx = composed.elements.findIndex((e) => !locked.has(String(e.id)));
+    setPuzzleSelected(firstIdx >= 0 ? makeItem('element', composed.elements, firstIdx) : null);
+  };
+
+  const handleLoadReference = () => {
+    if (!activePuzzle) return;
+    openPuzzle(activePuzzle.id, {loadReference: true});
+  };
+
+  // Keyboard shortcuts for puzzle mode (⌘/Ctrl+Enter to Check, Space/Esc to skip reveal, 1–4 toggle inputs).
+  useEffect(() => {
+    if (!isInPuzzle) return;
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const inInput = target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        handlePuzzleCheck();
+        return;
+      }
+      if (revealCase !== null && (e.key === ' ' || e.key === 'Escape')) {
+        e.preventDefault();
+        skipReveal();
+        return;
+      }
+      if (!inInput && !e.metaKey && !e.ctrlKey && !e.altKey && /^[1-4]$/.test(e.key)) {
+        const idx = Number(e.key) - 1;
+        if (idx < (activePuzzle?.inputs?.length ?? 0)) {
+          e.preventDefault();
+          togglePuzzleInput(idx, !puzzleBits[idx]);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isInPuzzle, revealCase, activePuzzle, puzzleBits, handlePuzzleCheck, skipReveal]);
+
+  // ---- view & overlays
   const exampleInfo = examples.find((e) => e.name === example);
   const view = useMemo(
     () => ({
       quantity,
       colormap:
-        colormap || (exampleInfo && exampleInfo.quantity === quantity ? exampleInfo.colormap : DEFAULT_COLORMAP[quantity]),
+        colormap ||
+        (!isInPuzzle && exampleInfo && exampleInfo.quantity === quantity ? exampleInfo.colormap : DEFAULT_COLORMAP[quantity]),
     }),
-    [quantity, colormap, exampleInfo],
+    [quantity, colormap, exampleInfo, isInPuzzle],
   );
   const canAnimate = quantity === 'real' || quantity === 'phase';
 
-  // ---- actions
-  const currentLink = async (embed = false) =>
-    `${pageUrl()}#${await writeLink({example, sceneJson: JSON.stringify(scene), method, quantity, colormap, animate, embed})}`;
+  const puzzleOverlay = useMemo<PuzzleOverlayState | null>(() => {
+    if (!isInPuzzle || !activePuzzle || !puzzleScene) return null;
+    const sourceLabels: Record<string, string> = {};
+    const letters = inputLetters(activePuzzle.inputs);
+    (activePuzzle.inputs ?? []).forEach((id, i) => {
+      sourceLabels[id] = letters[i];
+    });
+    for (const src of puzzleScene.sources) {
+      const sid = String(src.id);
+      if (!sourceLabels[sid] && src.enabled !== false && typeof src.name === 'string' && src.name.trim()) {
+        sourceLabels[sid] = src.name;
+      }
+    }
+    const outIds =
+      isPuzzleCheckCurrent && puzzleEval?.valid
+        ? new Set<string>()
+        : new Set(puzzleRuleCheck?.out_of_region_ids ?? []);
+    return {
+      region: activePuzzle.rules.region,
+      lockedIds: lockedIds(activePuzzle),
+      sourceLabels,
+      outOfRegionIds: outIds,
+    };
+  }, [isInPuzzle, activePuzzle, puzzleScene, isPuzzleCheckCurrent, puzzleEval, puzzleRuleCheck]);
+
+  // Floating detector labels on the canvas.
+  const detectorLabels = useMemo<Record<string, string>>(() => {
+    if (!activeScene) return {};
+    const out: Record<string, string> = {};
+    const readingMap = new Map(readings.map((r) => [r.id, r]));
+    const peak = meta?.incident_peak ?? 1;
+
+    if (isInPuzzle && activePuzzle) {
+      const goalIds = new Set(goalDetectorIds(activePuzzle));
+      const cases = allCases(activePuzzle.inputs);
+      const shownIdx = revealCase !== null ? revealCase : cases.findIndex((c) => bitsEqual(c, puzzleBits));
+      const checkedCase = isPuzzleCheckCurrent && puzzleEval?.valid ? puzzleEval.cases[Math.max(0, shownIdx)] : null;
+      for (const det of activeScene.detectors) {
+        if (det.enabled === false) continue;
+        const id = String(det.id);
+        const name = detectorDisplayName(activePuzzle, id);
+        if (goalIds.has(id)) {
+          if (checkedCase && revealCase === null) {
+            const o = checkedCase.outputs.find((x) => x.detector === id);
+            out[id] = o?.value !== null && o?.value !== undefined ? `${name} ${formatPuzzleValue(activePuzzle, o.value)}` : name;
+          } else {
+            const r = readingMap.get(id);
+            const live = r ? computePuzzleLiveValue(activePuzzle, r, allSourcesOff) : allSourcesOff ? 0 : null;
+            out[id] = live !== null ? `${name} ≈ ${formatPuzzleValue(activePuzzle, live)}` : name;
+          }
+        } else {
+          out[id] = name;
+        }
+      }
+      return out;
+    }
+
+    for (const det of activeScene.detectors) {
+      if (det.enabled === false) continue;
+      const id = String(det.id);
+      const name = typeof det.name === 'string' && det.name.trim() ? det.name : 'Detector';
+      const r = readingMap.get(id);
+      out[id] = r ? `${name} ${formatReadingBadge(r, readings, peak)}` : name;
+    }
+    return out;
+  }, [activeScene, readings, meta, isInPuzzle, activePuzzle, revealCase, puzzleBits, isPuzzleCheckCurrent, puzzleEval, allSourcesOff]);
+
+  // ---- share, embed, save image
+  const currentLink = async (embed = false) => {
+    if (isInPuzzle && activePuzzle && puzzleScene) {
+      const design = extractDesign(activePuzzle, puzzleScene);
+      const isDefault = JSON.stringify(design) === JSON.stringify(startingParts(activePuzzle));
+      return `${pageUrl()}#${await writeLink({
+        puzzle: activePuzzle.id,
+        designJson: isDefault ? null : JSON.stringify(design),
+        bits: puzzleBits,
+        quantity,
+        colormap,
+        animate,
+      })}`;
+    }
+    return `${pageUrl()}#${await writeLink({
+      example,
+      sceneJson: JSON.stringify(simScene),
+      method: simMethod,
+      quantity,
+      colormap,
+      animate,
+      embed,
+    })}`;
+  };
 
   const share = async () => {
     const url = await currentLink();
@@ -284,15 +1107,21 @@ export function App() {
     }
     try {
       await navigator.clipboard.writeText(url);
-      showToast({body: 'Link copied. It opens this scene exactly as it is now.', uniqueID: 'share'});
+      showToast({
+        body: isInPuzzle
+          ? 'Link copied. It opens this puzzle with your current design.'
+          : 'Link copied. It opens this scene exactly as it is now.',
+        uniqueID: 'share',
+      });
     } catch {
       showToast({body: "Couldn't copy the link; it's in the address bar.", type: 'error', uniqueID: 'share'});
     }
   };
 
   const openEmbed = async () => {
+    if (!simScene) return;
     const src = await currentLink(true);
-    const d = scene!.domain;
+    const d = simScene.domain;
     const height = Math.round((640 * (d.y_max_um - d.y_min_um)) / (d.x_max_um - d.x_min_um));
     const attr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
     setEmbedCode(
@@ -302,30 +1131,94 @@ export function App() {
   };
 
   const saveImage = () => {
-    const canvas = document.querySelector<HTMLCanvasElement>('canvas.field');
-    canvas?.toBlob((blob) => {
+    const field = document.querySelector<HTMLCanvasElement>('canvas.field');
+    if (!field) return;
+    // The field is rendered without outlines (the overlay draws them), so add them here.
+    const canvas = document.createElement('canvas');
+    canvas.width = field.width;
+    canvas.height = field.height;
+    const g = canvas.getContext('2d')!;
+    g.drawImage(field, 0, 0);
+    const d = solveScene?.domain;
+    if (outlines && d) {
+      const sx = canvas.width / (d.x_max_um - d.x_min_um);
+      const sy = canvas.height / (d.y_max_um - d.y_min_um);
+      g.strokeStyle = 'rgba(255,255,255,0.6)';
+      g.lineWidth = 1.5 * (window.devicePixelRatio > 1 ? 2 : 1);
+      g.lineJoin = 'round';
+      for (const b of outlines.bodies) {
+        if (!b.enabled || b.outline.length < 2) continue;
+        g.beginPath();
+        b.outline.forEach(([x, y], i) => {
+          const px = (x - d.x_min_um) * sx;
+          const py = (d.y_max_um - y) * sy;
+          if (i) g.lineTo(px, py);
+          else g.moveTo(px, py);
+        });
+        g.closePath();
+        g.stroke();
+      }
+    }
+    canvas.toBlob((blob) => {
       if (!blob) return;
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `fringe-${example ?? 'scene'}.png`;
+      a.download = `fringe-${isInPuzzle ? activePuzzle.id : example ?? 'scene'}.png`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 1000);
     });
   };
 
-  // The status bar: what the solver did on the left, the scene's errors,
-  // warnings and notes on the right, one line each.
-  const solvingLong = solvingSince !== null && elapsed > 0.4;
+  // ---- simulator build dropdown items
+  const elementMenuItems: DropdownMenuOption[] = [
+    {
+      type: 'section',
+      title: 'Refractive',
+      items: REFRACTIVE_SHAPES.map((k) => ({id: k, label: SHAPE_TITLES[k], onClick: () => addSimElement(k)})),
+    },
+    {type: 'divider'},
+    {
+      type: 'section',
+      title: 'Conductive (PEC)',
+      items: OPAQUE_SHAPES.map((k) => ({id: k, label: SHAPE_TITLES[k], onClick: () => addSimElement(k)})),
+    },
+  ];
+  const sourceMenuItems: DropdownMenuOption[] = [
+    {id: 'gaussian_beam', label: 'Gaussian beam', onClick: () => addSimSource('gaussian_beam')},
+    {id: 'plane_wave', label: 'Plane wave', onClick: () => addSimSource('plane_wave')},
+    {id: 'line_source', label: 'Point emitter', onClick: () => addSimSource('line_source')},
+  ];
+  const detectorMenuItems: DropdownMenuOption[] = [
+    {id: 'line', label: 'Line detector (flux)', onClick: () => addSimDetector('line')},
+    {id: 'box', label: 'Box detector (|E|²)', onClick: () => addSimDetector('box')},
+  ];
+
+  // ---- status bar
+  const solvingLong = solvingSince !== null && elapsed > 0.35;
   const messages: {severity: 'error' | 'warning' | 'info'; text: string}[] = [
     ...(error ? [{severity: 'error' as const, text: error}] : []),
     ...(notice ? [{severity: 'warning' as const, text: notice}] : []),
     ...issues.map((i) => ({severity: i.severity, text: i.message})),
   ];
   const statusParts = solvingLong
-    ? [`Solving with ${METHOD_LABEL[effectiveMethod]}…`, fmtTime(elapsed)]
-    : meta
-      ? [METHOD_LABEL[meta.method] ?? meta.method, `${meta.nx} × ${meta.ny} grid`, `Solved in ${fmtTime(meta.wall_s)}`]
-      : [scene ? 'Solving…' : 'Loading the solver…'];
+    ? [checkingPuzzle ? 'Checking puzzle…' : `Solving with ${METHOD_LABEL[effectiveMethod]}…`, fmtTime(elapsed)]
+    : mode === 'puzzles' && !activePuzzle
+      ? [`${puzzleList.length} puzzles`]
+      : isDarkPuzzleCase && !isPuzzleCheckCurrent
+        ? ['All inputs off']
+        : meta
+          ? [
+              METHOD_LABEL[meta.method] ?? meta.method,
+              `${meta.nx} × ${meta.ny} grid`,
+              ...(stage === 'draft' || stage === 'refine'
+                ? [`Draft, ${meta.ppw} per λ`]
+                : stage === 'final'
+                  ? ['Final quality']
+                  : []),
+              `Solved in ${fmtTime(meta.wall_s)}`,
+              ...(refining ? [refining.stage === 'final' ? 'Refining to final…' : 'Refining…'] : []),
+            ]
+          : [activeScene ? 'Solving…' : 'Loading the solver…'];
   const MESSAGE_ICON = {error: XCircleIcon, warning: ExclamationTriangleIcon, info: InformationCircleIcon};
   const status = (
     <LayoutFooter hasDivider padding={0} label="Status">
@@ -356,27 +1249,36 @@ export function App() {
     </LayoutFooter>
   );
 
-  // ---- pieces
-  const canvasLabel = 'The solved field. Drag an element or a source to move it; arrow keys move the selected one.';
-  const fieldView = scene && (
+  // ---- canvas
+  const canvasLabel = isInPuzzle
+    ? 'The puzzle field. Drag your parts inside the dashed region; arrow keys move and R rotates.'
+    : 'The solved field. Drag an element, source or detector to move it; arrow keys move and R rotates.';
+  const fieldView = solveScene && (
     <FieldCanvas
       solver={solver}
-      scene={solveScene!}
+      scene={solveScene}
+      outlines={outlines}
       fieldVersion={fieldVersion}
+      darkCase={isDarkPuzzleCase && !isPuzzleCheckCurrent}
       view={view}
       animate={animate && canAnimate}
       selected={selected}
       onSelect={setSelected}
-      onMove={move}
+      onEdit={editActive}
+      onDelete={deleteItem}
+      detectorLabels={detectorLabels}
+      readingsStale={solvingSince !== null}
+      fieldStale={!!fieldVersion && !isPuzzleCheckCurrent && fieldSig !== physSig}
+      puzzleOverlay={puzzleOverlay}
       label={canvasLabel}
       fitHeight={fills}
-      onAspect={reportAspect}
+      onAspect={isInPuzzle ? undefined : reportAspect}
+      readOnly={initialLink.embed}
     />
   );
 
-  if (link.embed) {
-    // Why there's no field, when something stops it: a solver error, or the
-    // scene's own errors from the check.
+  // ---- embed mode
+  if (initialLink.embed) {
     const blocking = error ?? issues.find((i) => i.severity === 'error')?.message ?? null;
     const full = new URLSearchParams(location.hash.slice(1));
     full.delete('embed');
@@ -408,7 +1310,72 @@ export function App() {
     );
   }
 
-  const panel = scene && (
+  // ---- simulator right panel
+  const renderObjectList = (title: string, kind: Item['kind'], list: Json[]) => (
+    <VStack gap={1}>
+      <Text type="supporting" weight="semibold" color="secondary">
+        {title}
+      </Text>
+      {list.length === 0 ? (
+        <Text type="supporting" color="secondary">
+          None
+        </Text>
+      ) : (
+        list.map((o, idx) => {
+          const item = makeItem(kind, list, idx);
+          const isSel = sameItem(simSelected, item);
+          const enabled = o.enabled !== false;
+          const canDel = kind !== 'source' || list.length > 1;
+          return (
+            <div
+              key={String(o.id ?? idx)}
+              className={`obj-row${isSel ? ' obj-row-selected' : ''}${enabled ? '' : ' obj-row-disabled'}`}
+              onClick={() => setSimSelected(item)}
+            >
+              <span className="obj-row-name">
+                <Text type="supporting" weight={isSel ? 'semibold' : undefined} color={enabled ? 'primary' : 'secondary'}>
+                  {titleOf(simScene!, item)}
+                </Text>
+              </span>
+              <HStack gap={0}>
+                <Button
+                  label={enabled ? 'Disable' : 'Enable'}
+                  size="sm"
+                  variant="ghost"
+                  isIconOnly
+                  tooltip={enabled ? 'Hide / disable' : 'Show / enable'}
+                  icon={<Icon icon={enabled ? EyeIcon : EyeSlashIcon} size="sm" />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    editSim((draft) => {
+                      const target = objectOf(draft, item);
+                      if (target) target.enabled = target.enabled === false;
+                    });
+                  }}
+                />
+                {canDel && (
+                  <Button
+                    label="Delete"
+                    size="sm"
+                    variant="ghost"
+                    isIconOnly
+                    tooltip="Delete"
+                    icon={<Icon icon={TrashIcon} size="sm" />}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteItem(item);
+                    }}
+                  />
+                )}
+              </HStack>
+            </div>
+          );
+        })
+      )}
+    </VStack>
+  );
+
+  const simPanel = simScene && (
     <VStack gap={0}>
       <Section variant="transparent" padding={4}>
         <VStack gap={4}>
@@ -422,46 +1389,64 @@ export function App() {
               loadExample(v);
             }}
             options={[
-              ...(example ? [] : [{value: '', label: 'Your scene'}]),
+              ...(example ? [] : [{value: '', label: 'Custom scene'}]),
               ...examples.map((e) => ({value: e.name, label: e.title})),
             ]}
           />
           <Slider
-            label={`Wavelength · ${scene.wavelength_um} µm`}
-            value={scene.wavelength_um}
+            label={`Wavelength · ${simScene.wavelength_um} µm`}
+            value={simScene.wavelength_um}
             min={0.3}
             max={3}
             step={0.01}
-            onChange={(v: number) => edit((s) => void (s.wavelength_um = v))}
+            onChange={(v: number) => editSim((s) => void (s.wavelength_um = v))}
           />
           <NumberInput
             label="Background index"
-            value={scene.background.n}
+            value={simScene.background.n}
             min={1}
             max={5}
             step={0.01}
-            onChange={(v) => edit((s) => void (s.background.n = v))}
+            onChange={(v) => editSim((s) => void (s.background.n = v))}
           />
         </VStack>
       </Section>
       <Divider />
-      {selected ? (
+      <Section variant="transparent" padding={4}>
+        <VStack gap={3}>
+          <Heading level={3}>Objects</Heading>
+          {renderObjectList('Sources', 'source', simScene.sources)}
+          {renderObjectList('Elements', 'element', simScene.elements)}
+          {renderObjectList('Detectors', 'detector', simScene.detectors)}
+        </VStack>
+      </Section>
+      <Divider />
+      {simSelected ? (
         <Inspector
-          scene={scene}
-          item={selected}
-          onEdit={edit}
-          onClose={() => setSelected(null)}
+          scene={simScene}
+          item={simSelected}
+          presets={presets}
+          readings={readings}
+          incidentPeak={meta?.incident_peak ?? 1}
+          solverMethod={effectiveMethod}
+          canDuplicate={true}
+          canDelete={simSelected.kind !== 'source' || simScene.sources.length > 1}
+          onEdit={editSim}
+          onSwitchSolver={setSimMethod}
+          onDuplicate={() => duplicateItem(simSelected)}
+          onDelete={() => deleteItem(simSelected)}
+          onClose={() => setSimSelected(null)}
         />
       ) : (
         <Section variant="transparent" padding={4}>
-          <Text type="supporting">Select a lens, slit or source on the field to edit it, or drag it to move it.</Text>
+          <Text type="supporting">Select an element, source or detector to edit it, or drag it on the canvas.</Text>
         </Section>
       )}
       <Divider />
       <Section variant="transparent" padding={4}>
         <VStack gap={4}>
           <Heading level={3}>Solver</Heading>
-          <SegmentedControl label="Solver" value={effectiveMethod} onChange={setMethod}>
+          <SegmentedControl label="Solver" value={effectiveMethod} onChange={setSimMethod}>
             <SegmentedControlItem value="fdtd" label="FDTD" />
             <SegmentedControlItem value="mom" label="MoM" />
             <SegmentedControlItem value="fem" label="FEM" />
@@ -498,60 +1483,225 @@ export function App() {
       </Section>
       <Divider />
       <Section variant="transparent" padding={4}>
-        <VStack gap={3}>
-          <Heading level={3}>Scene file</Heading>
-          <TextArea
-            label="Scene JSON"
-            isLabelHidden
-            description="The format the Mac app and fringe-cli read and write."
-            value={sceneText || JSON.stringify(scene, null, 2)}
-            onChange={setSceneText}
-            rows={8}
-          />
-          <HStack gap={2}>
-            <Button
-              label="Apply"
-              size="sm"
-              isDisabled={!sceneText}
-              onClick={() => {
-                try {
-                  setScene(parseScene(sceneText));
-                  setExample(null);
-                  setSelected(null);
-                  setSceneText('');
-                } catch (e) {
-                  showToast({body: `That scene can't be used: ${(e as Error).message}`, type: 'error', uniqueID: 'json'});
-                }
-              }}
+        <Collapsible trigger={<Heading level={3}>Scene JSON</Heading>} defaultIsOpen={false}>
+          <VStack gap={3} style={{paddingTop: 12}}>
+            <TextArea
+              label="Scene JSON"
+              isLabelHidden
+              description="The format the Mac app and fringe-cli read and write."
+              value={sceneText || JSON.stringify(simScene, null, 2)}
+              onChange={setSceneText}
+              rows={8}
             />
-            {sceneText && <Button label="Revert" size="sm" variant="ghost" onClick={() => setSceneText('')} />}
-          </HStack>
-        </VStack>
+            <HStack gap={2}>
+              <Button
+                label="Apply"
+                size="sm"
+                isDisabled={!sceneText}
+                onClick={() => {
+                  try {
+                    setSimScene(parseScene(sceneText));
+                    setExample(null);
+                    setSimSelected(null);
+                    setSceneText('');
+                  } catch (e) {
+                    showToast({body: `That scene can't be used: ${(e as Error).message}`, type: 'error', uniqueID: 'json'});
+                  }
+                }}
+              />
+              {sceneText && <Button label="Revert" size="sm" variant="ghost" onClick={() => setSceneText('')} />}
+            </HStack>
+          </VStack>
+        </Collapsible>
       </Section>
     </VStack>
   );
 
+  // ---- puzzle right panel
+  const puzzlePanel = isInPuzzle && activePuzzle && puzzleScene && (
+    <PuzzlePanel
+      puzzle={activePuzzle}
+      puzzles={puzzleList}
+      progress={progress[activePuzzle.id]}
+      scene={puzzleScene}
+      presets={presets}
+      selected={puzzleSelected}
+      ruleCheck={puzzleRuleCheck}
+      evaluation={puzzleEval}
+      checkCurrent={isPuzzleCheckCurrent}
+      checking={checkingPuzzle}
+      quantity={quantity}
+      colormap={colormap}
+      animate={animate}
+      canAnimate={canAnimate}
+      quantities={QUANTITIES}
+      colormaps={COLORMAPS}
+      onBackToBrowser={() => {
+        skipReveal();
+        setActivePuzzle(null);
+        setPuzzleScene(null);
+        setPuzzleEval(null);
+        setEvaluatedDesignSig(null);
+        solver.clearPuzzleFields().catch(() => {});
+      }}
+      onOpenPuzzle={(id) => openPuzzle(id)}
+      onCheck={handlePuzzleCheck}
+      onReset={handlePuzzleReset}
+      onLoadReference={handleLoadReference}
+      onAddPart={addPuzzlePart}
+      onSelect={setPuzzleSelected}
+      onEdit={editPuzzle}
+      onDuplicate={duplicateItem}
+      onDelete={deleteItem}
+      onQuantity={setQuantity}
+      onColormap={setColormap}
+      onAnimate={setAnimate}
+    />
+  );
+
+  // ---- header
   const header = (
     <LayoutHeader hasDivider>
-      <HStack gap={3} vAlign="center" hAlign="between">
+      <HStack gap={2} vAlign="center" hAlign="between" style={{flexWrap: 'wrap'}}>
         <HStack gap={2} vAlign="center">
           <Button label="Fringe home" href="/" variant="ghost" isIconOnly icon={<Icon icon={HomeIcon} size="sm" />} tooltip="Fringe home" />
-          <Heading level={1}>Fringe Web</Heading>
+          <Heading level={1}>{isNarrow ? 'Fringe' : 'Fringe Web'}</Heading>
+          <SegmentedControl
+            label="Mode"
+            value={mode}
+            onChange={(next) => {
+              const target = next as 'simulator' | 'puzzles';
+              if (target === mode) return;
+              skipReveal();
+              setError(null);
+              setNotice(null);
+              setIssues([]);
+              if (busy.current) {
+                dirty.current = false;
+                solver.reset('Switched mode.');
+              }
+              setMode(target);
+              if (target === 'simulator') {
+                setEvaluatedDesignSig(null);
+                setFieldVersion(0);
+                setReadings([]);
+                solver.clearPuzzleFields().catch(() => {});
+                if (!simScene) loadExample('lens').catch(() => {});
+              }
+            }}
+          >
+            <SegmentedControlItem value="simulator" label="Simulator" />
+            <SegmentedControlItem value="puzzles" label="Puzzles" />
+          </SegmentedControl>
         </HStack>
         <HStack gap={1}>
-          <Button label="Share" variant="ghost" icon={<Icon icon={LinkIcon} size="sm" />} isIconOnly={isNarrow} onClick={share} isDisabled={!scene} />
-          <Button label="Embed" variant="ghost" icon={<Icon icon={CodeBracketIcon} size="sm" />} isIconOnly={isNarrow} onClick={openEmbed} isDisabled={!scene} />
-          <Button label="Save image" variant="ghost" icon={<Icon icon={ArrowDownTrayIcon} size="sm" />} isIconOnly={isNarrow} onClick={saveImage} isDisabled={!fieldVersion} />
+          {activeScene && (
+            <Button label="Share" variant="ghost" icon={<Icon icon={LinkIcon} size="sm" />} isIconOnly={isNarrow} onClick={share} />
+          )}
+          {mode === 'simulator' && simScene && (
+            <Button label="Embed" variant="ghost" icon={<Icon icon={CodeBracketIcon} size="sm" />} isIconOnly={isNarrow} onClick={openEmbed} />
+          )}
+          {activeScene && (
+            <Button
+              label="Save image"
+              variant="ghost"
+              icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
+              isIconOnly={isNarrow}
+              onClick={saveImage}
+              isDisabled={!fieldVersion}
+            />
+          )}
         </HStack>
       </HStack>
     </LayoutHeader>
   );
 
-  const main = (
-    <VStack gap={3} style={{height: isNarrow ? 'auto' : '100%', minHeight: 0}}>
-      <div className={isNarrow ? 'stage stage-narrow' : 'stage'}>{fieldView}</div>
-    </VStack>
+  // ---- main column content
+  const simBuildBar = mode === 'simulator' && simScene && (
+    <div className="build-bar" role="toolbar" aria-label="Add optical parts">
+      <HStack gap={2} vAlign="center" hAlign="between" style={{flexWrap: 'wrap'}}>
+        <HStack gap={2} vAlign="center" style={{flexWrap: 'wrap'}}>
+          <DropdownMenu
+            button={{label: 'Element', size: 'sm', variant: 'secondary', icon: <Icon icon={PlusIcon} size="sm" />}}
+            items={elementMenuItems}
+            menuMaxHeight={480}
+          />
+          <DropdownMenu
+            button={{label: 'Source', size: 'sm', variant: 'secondary', icon: <Icon icon={PlusIcon} size="sm" />}}
+            items={sourceMenuItems}
+          />
+          <DropdownMenu
+            button={{label: 'Detector', size: 'sm', variant: 'secondary', icon: <Icon icon={PlusIcon} size="sm" />}}
+            items={detectorMenuItems}
+          />
+        </HStack>
+        {simSelected && (
+          <HStack gap={1} vAlign="center">
+            <Button
+              label="Duplicate"
+              size="sm"
+              variant="ghost"
+              icon={<Icon icon={DocumentDuplicateIcon} size="sm" />}
+              isIconOnly={isNarrow}
+              onClick={() => duplicateItem(simSelected)}
+            />
+            <Button
+              label="Delete"
+              size="sm"
+              variant="ghost"
+              icon={<Icon icon={TrashIcon} size="sm" />}
+              isIconOnly={isNarrow}
+              isDisabled={simSelected.kind === 'source' && simScene.sources.length <= 1}
+              onClick={() => deleteItem(simSelected)}
+            />
+          </HStack>
+        )}
+      </HStack>
+    </div>
   );
+
+  const mainContent =
+    mode === 'puzzles' && !activePuzzle ? (
+      <PuzzleBrowser
+        puzzles={puzzleList}
+        progress={progress}
+        onOpen={(id, loadRef) => openPuzzle(id, {loadReference: loadRef})}
+      />
+    ) : (
+      <VStack gap={3} style={{height: isNarrow ? 'auto' : '100%', minHeight: 0}}>
+        {simBuildBar}
+        <div className={isNarrow ? 'stage stage-narrow' : 'stage'}>{fieldView}</div>
+        {mode === 'simulator' && simScene && (
+          <DetectorBar
+            scene={simScene}
+            readings={readings}
+            incidentPeak={meta?.incident_peak ?? 1}
+            stale={solvingSince !== null}
+            selected={simSelected}
+            onSelect={setSimSelected}
+          />
+        )}
+        {isInPuzzle && activePuzzle && (
+          <PuzzleResultsBar
+            puzzle={activePuzzle}
+            bits={puzzleBits}
+            readings={readings}
+            readingsStale={solvingSince !== null}
+            allSourcesOff={allSourcesOff}
+            evaluation={puzzleEval}
+            checkCurrent={isPuzzleCheckCurrent}
+            checking={checkingPuzzle}
+            revealCase={revealCase}
+            onToggleInput={togglePuzzleInput}
+            onSelectCase={setPuzzleCaseBits}
+            onCheck={handlePuzzleCheck}
+            onSkipReveal={skipReveal}
+          />
+        )}
+      </VStack>
+    );
+
+  const sidePanel = mode === 'simulator' ? simPanel : puzzlePanel;
 
   return (
     <>
@@ -562,14 +1712,14 @@ export function App() {
         footer={status}
         content={
           <LayoutContent padding={4}>
-            {main}
-            {isNarrow && panel}
+            {mainContent}
+            {isNarrow && sidePanel}
           </LayoutContent>
         }
         end={
-          isNarrow ? undefined : (
-            <LayoutPanel hasDivider padding={0} width={340} label="Scene settings">
-              {panel}
+          isNarrow || !sidePanel ? undefined : (
+            <LayoutPanel hasDivider padding={0} width={356} label={mode === 'puzzles' ? 'Puzzle' : 'Scene settings'}>
+              {sidePanel}
             </LayoutPanel>
           )
         }

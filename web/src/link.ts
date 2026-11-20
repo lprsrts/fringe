@@ -1,13 +1,17 @@
-// Shareable state in the URL hash, so a link or an iframe carries the scene:
+// Shareable state in the URL hash, so a link or an iframe carries the scene
+// or a puzzle (optionally with a player's design or the reference solution):
 //   #ex=lens                    a built-in example, unmodified
 //   #s=<base64url deflate-raw>  any scene, as compressed scene JSON
-//   &m=fdtd|mom|fem             solver override
+//   #p=logic-half-adder         a puzzle (or #p=list for the puzzle browser)
+//   &d=<base64url deflate-raw>  player design elements JSON for #p=...
+//   &ref=1                      load & evaluate the puzzle's reference solution
+//   &b=10                       input bits for a truth-table puzzle
+//   &m=fdtd|mom|fem             solver override (simulator)
 //   &q=intensity|real|...       displayed quantity, &c=<colormap>, &a=1 animate
 //   embed                       only the field, for an <iframe>
 // The hash never reaches a server, so links work on any static host.
 
-/** The longest #s= the page will read, and the most JSON it will inflate to. A
- * real scene is a few hundred to a few thousand characters either way. */
+/** The longest #s= or #d= the page will read, and the most JSON it will inflate to. */
 export const MAX_LINK_CHARS = 32_000;
 export const MAX_SCENE_BYTES = 1_000_000;
 
@@ -25,6 +29,10 @@ export interface LinkState {
   embed: boolean;
   example: string | null;
   scene: string | null;
+  puzzle: string | null;
+  design: string | null;
+  ref: boolean;
+  bits: boolean[] | null;
   method: string;
   quantity: string | null;
   colormap: string;
@@ -48,10 +56,15 @@ async function pipe(bytes: Uint8Array, stream: ReadableWritablePair<Uint8Array, 
 }
 
 export async function compress(text: string) {
-  return toBase64Url(await pipe(new TextEncoder().encode(text), new CompressionStream('deflate-raw') as unknown as ReadableWritablePair<Uint8Array, Uint8Array>));
+  return toBase64Url(
+    await pipe(
+      new TextEncoder().encode(text),
+      new CompressionStream('deflate-raw') as unknown as ReadableWritablePair<Uint8Array, Uint8Array>,
+    ),
+  );
 }
 
-/** Inflates a #s= value, refusing oversized input and stopping as soon as the
+/** Inflates a #s= or #d= value, refusing oversized input and stopping as soon as the
  * output passes MAX_SCENE_BYTES, so a crafted link can't fill memory. */
 export async function decompress(text: string) {
   if (text.length > MAX_LINK_CHARS) throw new Error('the scene in this link is too long');
@@ -80,12 +93,21 @@ export async function decompress(text: string) {
   return new TextDecoder().decode(bytes);
 }
 
+function parseBits(raw: string | null): boolean[] | null {
+  if (!raw || !/^[01]{1,4}$/.test(raw)) return null;
+  return [...raw].map((c) => c === '1');
+}
+
 export function readLink(hash = location.hash): LinkState {
   const p = new URLSearchParams(hash.slice(1));
   return {
     embed: p.has('embed'),
     example: p.get('ex'),
     scene: p.get('s'),
+    puzzle: p.get('p'),
+    design: p.get('d'),
+    ref: p.get('ref') === '1',
+    bits: parseBits(p.get('b')),
     method: oneOf(METHODS, p.get('m')) ?? '',
     quantity: oneOf(QUANTITIES, p.get('q')),
     colormap: oneOf(COLORMAPS, p.get('c')) ?? '',
@@ -94,9 +116,12 @@ export function readLink(hash = location.hash): LinkState {
 }
 
 export async function writeLink(state: {
-  example: string | null;
-  sceneJson: string;
-  method: string;
+  example?: string | null;
+  sceneJson?: string;
+  puzzle?: string | null;
+  designJson?: string | null;
+  bits?: boolean[] | null;
+  method?: string;
   quantity: string;
   colormap: string;
   animate: boolean;
@@ -104,9 +129,18 @@ export async function writeLink(state: {
 }) {
   const p = new URLSearchParams();
   if (state.embed) p.set('embed', '');
-  if (state.example) p.set('ex', state.example);
-  else p.set('s', await compress(state.sceneJson));
-  if (state.method) p.set('m', state.method);
+  if (state.puzzle) {
+    p.set('p', state.puzzle);
+    if (state.designJson) p.set('d', await compress(state.designJson));
+    if (state.bits && state.bits.length > 0 && state.bits.some((b) => !b)) {
+      p.set('b', state.bits.map((b) => (b ? '1' : '0')).join(''));
+    }
+  } else if (state.example) {
+    p.set('ex', state.example);
+  } else if (state.sceneJson) {
+    p.set('s', await compress(state.sceneJson));
+  }
+  if (!state.puzzle && state.method) p.set('m', state.method);
   if (state.quantity !== 'intensity') p.set('q', state.quantity);
   if (state.colormap) p.set('c', state.colormap);
   if (state.animate) p.set('a', '1');
