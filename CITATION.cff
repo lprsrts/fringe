@@ -10,11 +10,8 @@ abstract: >-
 authors:
   - given-names: Alper
     family-names: Sarıtaş
-version: 0.4.0
+version: 0.4.1
 date-released: 2026-11-20
-license:
-  - MIT
-  - Apache-2.0
 repository-code: "https://github.com/lprsrts/fringe"
 url: "https://fringe.lprsrts.com"
 keywords:
