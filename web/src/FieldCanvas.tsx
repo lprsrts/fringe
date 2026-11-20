@@ -56,7 +56,16 @@ interface Props {
 }
 
 type DragMode =
-  | {kind: 'move'; item: Item; startX: number; startY: number; origX: number; origY: number}
+  | {
+      kind: 'move';
+      item: Item;
+      startX: number;
+      startY: number;
+      origX: number;
+      origY: number;
+      /** Allowed range of the position, so the whole body stays inside the domain. */
+      bounds: {x0: number; x1: number; y0: number; y1: number};
+    }
   | {kind: 'beamAngle'; item: Item}
   | {kind: 'detMove'; item: Item; lastX: number; lastY: number}
   | {kind: 'lineEnd'; item: Item; end: 1 | 2}
@@ -406,11 +415,44 @@ export function FieldCanvas({
     } else {
       const keys = positionKeys(item, o);
       if (!keys) return;
-      drag.current = {kind: 'move', item, startX: p.x, startY: p.y, origX: Number(o[keys[0]]), origY: Number(o[keys[1]])};
+      const origX = Number(o[keys[0]]);
+      const origY = Number(o[keys[1]]);
+      drag.current = {kind: 'move', item, startX: p.x, startY: p.y, origX, origY, bounds: moveBounds(item, origX, origY)};
     }
     setCursorStyle('grabbing');
     (e.target as Element).setPointerCapture(e.pointerId);
     e.preventDefault();
+  };
+
+  /**
+   * Where a dragged item's position may go: an element's whole body (its exact
+   * outline, or its rough extent before outlines arrive) stays inside the
+   * domain with the solver's quarter-wavelength margin. A drag past the edge
+   * otherwise makes the scene invalid, and solving stops until it is undone.
+   */
+  const moveBounds = (item: Item, x: number, y: number) => {
+    const open = {x0: d.x_min_um, x1: d.x_max_um, y0: d.y_min_um, y1: d.y_max_um};
+    if (item.kind !== 'element') return open;
+    const margin = (0.25 * scene.wavelength_um) / (scene.background?.n || 1) + 0.01;
+    const pts = (outlines?.bodies ?? []).filter((b) => b.element_id === item.id).flatMap((b) => b.outline);
+    let lo: {x: number; y: number};
+    let hi: {x: number; y: number};
+    if (pts.length) {
+      lo = {x: Math.min(...pts.map((q) => q[0])) - x, y: Math.min(...pts.map((q) => q[1])) - y};
+      hi = {x: Math.max(...pts.map((q) => q[0])) - x, y: Math.max(...pts.map((q) => q[1])) - y};
+    } else {
+      const {hx, hy} = extentOf(scene, item);
+      lo = {x: -hx, y: -hy};
+      hi = {x: hx, y: hy};
+    }
+    const b = {
+      x0: d.x_min_um + margin - lo.x,
+      x1: d.x_max_um - margin - hi.x,
+      y0: d.y_min_um + margin - lo.y,
+      y1: d.y_max_um - margin - hi.y,
+    };
+    // A body bigger than the domain can't fit anywhere: keep the plain limits.
+    return b.x0 <= b.x1 && b.y0 <= b.y1 ? b : open;
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
@@ -419,8 +461,9 @@ export function FieldCanvas({
     const cur = drag.current;
     if (cur) {
       if (cur.kind === 'move') {
-        const nx = Math.min(d.x_max_um, Math.max(d.x_min_um, cur.origX + (p.x - cur.startX)));
-        const ny = Math.min(d.y_max_um, Math.max(d.y_min_um, cur.origY + (p.y - cur.startY)));
+        const {x0, x1, y0, y1} = cur.bounds;
+        const nx = Math.min(x1, Math.max(x0, cur.origX + (p.x - cur.startX)));
+        const ny = Math.min(y1, Math.max(y0, cur.origY + (p.y - cur.startY)));
         onEdit((draft) => {
           const o = objectOf(draft, cur.item);
           if (!o) return;

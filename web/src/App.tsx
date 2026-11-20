@@ -22,6 +22,7 @@ import {
   ArrowTopRightOnSquareIcon,
   CodeBracketIcon,
   DocumentDuplicateIcon,
+  EllipsisHorizontalIcon,
   EyeIcon,
   EyeSlashIcon,
   HomeIcon,
@@ -83,6 +84,7 @@ import {
   type Scene,
 } from './scene';
 import {
+  Restarted,
   Solver,
   type DetectorReading,
   type Example,
@@ -96,7 +98,7 @@ import {
   type SceneOutlines,
   type SolveMeta,
 } from './solver';
-import {CostModel, plan, REFINE_DELAY_MS, sceneForStep, type Stage, type Step} from './progressive';
+import {CostModel, LOW_POWER, plan, REFINE_DELAY_MS, sceneForStep, type Stage, type Step} from './progressive';
 
 const QUANTITIES = [
   {value: 'intensity', label: 'Intensity'},
@@ -267,6 +269,8 @@ export function App() {
   };
   const busy = useRef(false);
   const dirty = useRef(false);
+  /** Automatic restarts since the last good solve, so a scene that always hangs stops retrying. */
+  const restarts = useRef(0);
   // ---- progressive preview: a draft sized to a time budget while editing,
   // then cancellable background refinement once edits pause (see progressive.ts).
   const cost = useRef(new CostModel());
@@ -299,12 +303,17 @@ export function App() {
     if (!job) return;
     const {gen, scene, method, report, steps} = job;
     const fullPpw = report.estimates?.preview?.ppw ?? null;
-    for (const step of steps) {
+    for (const [n, step] of steps.entries()) {
       if (solveGen.current !== gen || busy.current || checkingRef.current || latest.current.checkCurrent) break;
+      if (document.hidden) {
+        // No refining in a background tab; resume when it is shown again.
+        pendingRefine.current = {...job, steps: steps.slice(n)};
+        break;
+      }
       setRefining(step);
       let result: SolveMeta;
       try {
-        result = await solver.refine(sceneForStep(scene, method, step, fullPpw), method, step.quality);
+        result = await solver.refine(sceneForStep(scene, method, step, fullPpw), method, step.quality, step.predicted_s);
       } catch {
         // Cancelled by an edit, or this resolution failed: keep what is shown.
         break;
@@ -320,20 +329,33 @@ export function App() {
     if (solveGen.current === gen) setRefining(null);
   }, [solver]);
 
-  const runSolve = useCallback(async () => {
+  useEffect(() => {
+    const onVisible = () => {
+      if (!document.hidden && pendingRefine.current && !busy.current) runRefine();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [runRefine]);
+
+  /** Solves the latest scene; returns the solve's wall time in seconds (0 when nothing was solved). */
+  const runSolve = useCallback(async (): Promise<number> => {
     const {scene: s, method: m, isDark, checkCurrent} = latest.current;
-    if (!s || checkCurrent) return;
+    if (!s || checkCurrent) return 0;
     if (isDark) {
       setIssues([]);
       setReadings([]);
       setError(null);
-      return;
+      return 0;
     }
     const report = await solver.check(JSON.stringify({...s, solver: {...s.solver, method: m}}));
     setIssues(report.issues);
-    if (!report.ok) return;
+    if (!report.ok) return 0;
     const {first, refine} = plan(report, m, cost.current);
-    const result = await solver.solve(sceneForStep(s, m, first, report.estimates?.preview?.ppw ?? null), m);
+    const result = await solver.solve(
+      sceneForStep(s, m, first, report.estimates?.preview?.ppw ?? null),
+      m,
+      first.predicted_s || undefined,
+    );
     learn(m, first, report, result);
     setMeta(result);
     setReadings(result.readings ?? []);
@@ -342,6 +364,7 @@ export function App() {
     setError(null);
     setFieldVersion((v) => v + 1);
     pendingRefine.current = refine.length ? {gen: solveGen.current, scene: s, method: m, report, steps: refine} : null;
+    return result.wall_s;
   }, [solver]);
 
   const requestSolve = useCallback(async () => {
@@ -356,20 +379,30 @@ export function App() {
     try {
       do {
         dirty.current = false;
-        await runSolve();
+        const wall_s = await runSolve();
         // Let the canvas post its render of this field before the next solve
-        // takes the worker, or the drawn field lags a whole solve behind.
-        if (dirty.current) await nextFrame();
+        // takes the worker, or the drawn field lags a whole solve behind. On
+        // low-power devices also rest as long as the solve took, so a long
+        // drag runs the CPU at about half duty instead of flat out.
+        if (dirty.current) {
+          await nextFrame();
+          if (LOW_POWER && wall_s > 0) await new Promise((r) => setTimeout(r, Math.min(500, wall_s * 1000)));
+        }
       } while (dirty.current);
       ok = true;
+      restarts.current = 0;
     } catch (e) {
-      setError((e as Error).message);
+      // A hung or crashed worker was replaced; onReset solves again.
+      if (!(e instanceof Restarted && e.retry)) setError((e as Error).message);
     } finally {
       busy.current = false;
       setSolvingSince(null);
     }
     if (ok && pendingRefine.current) refineTimer.current = setTimeout(runRefine, REFINE_DELAY_MS);
   }, [runSolve, runRefine, cancelRefine]);
+
+  const requestSolveRef = useRef(requestSolve);
+  requestSolveRef.current = requestSolve;
 
   const stop = () => {
     dirty.current = false;
@@ -382,8 +415,14 @@ export function App() {
   };
 
   useEffect(() => {
-    solver.onReset = () => {
+    solver.onReset = (reason, retry) => {
       busy.current = false;
+      if (retry) {
+        // A worker hung or crashed (or the browser killed it): solve the
+        // current scene again on the fresh one, a few times at most.
+        if (restarts.current++ < 3) setTimeout(() => requestSolveRef.current(), 200);
+        else setError(`${reason} It keeps stopping on this scene; try a smaller domain or a coarser preview.`);
+      }
       solveGen.current++;
       pendingRefine.current = null;
       setRefining(null);
@@ -1200,9 +1239,10 @@ export function App() {
     ...(notice ? [{severity: 'warning' as const, text: notice}] : []),
     ...issues.map((i) => ({severity: i.severity, text: i.message})),
   ];
-  const statusParts = solvingLong
-    ? [checkingPuzzle ? 'Checking puzzle…' : `Solving with ${METHOD_LABEL[effectiveMethod]}…`, fmtTime(elapsed)]
-    : mode === 'puzzles' && !activePuzzle
+  // What is shown; the solve in progress goes in its own slot so the facts
+  // never reflow while a solve starts, refines or ends.
+  const statusParts =
+    mode === 'puzzles' && !activePuzzle
       ? [`${puzzleList.length} puzzles`]
       : isDarkPuzzleCase && !isPuzzleCheckCurrent
         ? ['All inputs off']
@@ -1211,20 +1251,25 @@ export function App() {
               METHOD_LABEL[meta.method] ?? meta.method,
               `${meta.nx} × ${meta.ny} grid`,
               ...(stage === 'draft' || stage === 'refine'
-                ? [`Draft, ${meta.ppw} per λ`]
+                ? [`Draft, ${Number(meta.ppw.toFixed(1))} per λ`]
                 : stage === 'final'
                   ? ['Final quality']
                   : []),
               `Solved in ${fmtTime(meta.wall_s)}`,
-              ...(refining ? [refining.stage === 'final' ? 'Refining to final…' : 'Refining…'] : []),
             ]
           : [activeScene ? 'Solving…' : 'Loading the solver…'];
+  const activity = solvingLong
+    ? `${checkingPuzzle ? 'Checking puzzle…' : `Solving with ${METHOD_LABEL[effectiveMethod]}…`} ${fmtTime(elapsed)}`
+    : refining
+      ? refining.stage === 'final'
+        ? 'Refining to final…'
+        : 'Refining…'
+      : null;
   const MESSAGE_ICON = {error: XCircleIcon, warning: ExclamationTriangleIcon, info: InformationCircleIcon};
   const status = (
     <LayoutFooter hasDivider padding={0} label="Status">
       <div className="statusbar">
         <span className="statusbar-solve">
-          {solvingLong && <Spinner size="sm" />}
           {statusParts.map((part, n) => (
             <Fragment key={n}>
               {n > 0 && <Divider orientation="vertical" />}
@@ -1233,17 +1278,27 @@ export function App() {
               </Text>
             </Fragment>
           ))}
-          {solvingLong && <Button label="Stop" size="sm" variant="ghost" onClick={stop} />}
         </span>
-        <span className="statusbar-messages" role="status">
-          {messages.map((m, n) => (
-            <span key={n} className="statusbar-message" title={m.text}>
-              <Icon icon={MESSAGE_ICON[m.severity]} size="xsm" color={m.severity} />
-              <Text type="supporting" color={m.severity === 'info' ? 'secondary' : 'primary'}>
-                {m.text}
+        <span className="statusbar-tail">
+          <span className="statusbar-activity" aria-live="polite">
+            {solvingLong && <Spinner size="sm" />}
+            {activity && (
+              <Text type="supporting" color="secondary" hasTabularNumbers>
+                {activity}
               </Text>
-            </span>
-          ))}
+            )}
+            {solvingLong && <Button label="Stop" size="sm" variant="ghost" onClick={stop} />}
+          </span>
+          <span className="statusbar-messages" role="status">
+            {messages.map((m, n) => (
+              <span key={n} className="statusbar-message" title={m.text}>
+                <Icon icon={MESSAGE_ICON[m.severity]} size="xsm" color={m.severity} />
+                <Text type="supporting" color={m.severity === 'info' ? 'secondary' : 'primary'}>
+                  {m.text}
+                </Text>
+              </span>
+            ))}
+          </span>
         </span>
       </div>
     </LayoutFooter>
@@ -1564,7 +1619,9 @@ export function App() {
     <LayoutHeader hasDivider>
       <HStack gap={2} vAlign="center" hAlign="between" style={{flexWrap: 'wrap'}}>
         <HStack gap={2} vAlign="center">
-          <Button label="Fringe home" href="/" variant="ghost" isIconOnly icon={<Icon icon={HomeIcon} size="sm" />} tooltip="Fringe home" />
+          {!isNarrow && (
+            <Button label="Fringe home" href="/" variant="ghost" isIconOnly icon={<Icon icon={HomeIcon} size="sm" />} tooltip="Fringe home" />
+          )}
           <Heading level={1}>{isNarrow ? 'Fringe' : 'Fringe Web'}</Heading>
           <SegmentedControl
             label="Mode"
@@ -1594,24 +1651,38 @@ export function App() {
             <SegmentedControlItem value="puzzles" label="Puzzles" />
           </SegmentedControl>
         </HStack>
-        <HStack gap={1}>
-          {activeScene && (
-            <Button label="Share" variant="ghost" icon={<Icon icon={LinkIcon} size="sm" />} isIconOnly={isNarrow} onClick={share} />
-          )}
-          {mode === 'simulator' && simScene && (
-            <Button label="Embed" variant="ghost" icon={<Icon icon={CodeBracketIcon} size="sm" />} isIconOnly={isNarrow} onClick={openEmbed} />
-          )}
-          {activeScene && (
-            <Button
-              label="Save image"
-              variant="ghost"
-              icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
-              isIconOnly={isNarrow}
-              onClick={saveImage}
-              isDisabled={!fieldVersion}
-            />
-          )}
-        </HStack>
+        {isNarrow ? (
+          <DropdownMenu
+            button={{label: 'More', variant: 'ghost', isIconOnly: true, icon: <Icon icon={EllipsisHorizontalIcon} size="sm" />}}
+            items={[
+              ...(activeScene ? [{id: 'share', label: 'Share link', icon: LinkIcon, onClick: share}] : []),
+              ...(mode === 'simulator' && simScene ? [{id: 'embed', label: 'Embed', icon: CodeBracketIcon, onClick: openEmbed}] : []),
+              ...(activeScene
+                ? [{id: 'save', label: 'Save image', icon: ArrowDownTrayIcon, onClick: saveImage, isDisabled: !fieldVersion}]
+                : []),
+              {id: 'home', label: 'Fringe home', icon: HomeIcon, href: '/'},
+            ]}
+          />
+        ) : (
+          <HStack gap={1}>
+            {activeScene && (
+              <Button label="Share" variant="ghost" icon={<Icon icon={LinkIcon} size="sm" />} isIconOnly={isNarrow} onClick={share} />
+            )}
+            {mode === 'simulator' && simScene && (
+              <Button label="Embed" variant="ghost" icon={<Icon icon={CodeBracketIcon} size="sm" />} isIconOnly={isNarrow} onClick={openEmbed} />
+            )}
+            {activeScene && (
+              <Button
+                label="Save image"
+                variant="ghost"
+                icon={<Icon icon={ArrowDownTrayIcon} size="sm" />}
+                isIconOnly={isNarrow}
+                onClick={saveImage}
+                isDisabled={!fieldVersion}
+              />
+            )}
+          </HStack>
+        )}
       </HStack>
     </LayoutHeader>
   );
@@ -1619,44 +1690,41 @@ export function App() {
   // ---- main column content
   const simBuildBar = mode === 'simulator' && simScene && (
     <div className="build-bar" role="toolbar" aria-label="Add optical parts">
-      <HStack gap={2} vAlign="center" hAlign="between" style={{flexWrap: 'wrap'}}>
-        <HStack gap={2} vAlign="center" style={{flexWrap: 'wrap'}}>
-          <DropdownMenu
-            button={{label: 'Element', size: 'sm', variant: 'secondary', icon: <Icon icon={PlusIcon} size="sm" />}}
-            items={elementMenuItems}
-            menuMaxHeight={480}
-          />
-          <DropdownMenu
-            button={{label: 'Source', size: 'sm', variant: 'secondary', icon: <Icon icon={PlusIcon} size="sm" />}}
-            items={sourceMenuItems}
-          />
-          <DropdownMenu
-            button={{label: 'Detector', size: 'sm', variant: 'secondary', icon: <Icon icon={PlusIcon} size="sm" />}}
-            items={detectorMenuItems}
-          />
-        </HStack>
-        {simSelected && (
-          <HStack gap={1} vAlign="center">
-            <Button
-              label="Duplicate"
-              size="sm"
-              variant="ghost"
-              icon={<Icon icon={DocumentDuplicateIcon} size="sm" />}
-              isIconOnly={isNarrow}
-              onClick={() => duplicateItem(simSelected)}
-            />
-            <Button
-              label="Delete"
-              size="sm"
-              variant="ghost"
-              icon={<Icon icon={TrashIcon} size="sm" />}
-              isIconOnly={isNarrow}
-              isDisabled={simSelected.kind === 'source' && simScene.sources.length <= 1}
-              onClick={() => deleteItem(simSelected)}
-            />
-          </HStack>
-        )}
-      </HStack>
+      {/* One wrapping row. The edit buttons are always there (disabled without a
+          selection), so selecting never adds a row and shifts the canvas. */}
+      <DropdownMenu
+        button={{label: 'Element', size: 'sm', variant: 'secondary', icon: <Icon icon={PlusIcon} size="sm" />}}
+        items={elementMenuItems}
+        menuMaxHeight={480}
+      />
+      <DropdownMenu
+        button={{label: 'Source', size: 'sm', variant: 'secondary', icon: <Icon icon={PlusIcon} size="sm" />}}
+        items={sourceMenuItems}
+      />
+      <DropdownMenu
+        button={{label: 'Detector', size: 'sm', variant: 'secondary', icon: <Icon icon={PlusIcon} size="sm" />}}
+        items={detectorMenuItems}
+      />
+      <div className="build-bar-edit">
+        <Button
+          label="Duplicate"
+          size="sm"
+          variant="ghost"
+          icon={<Icon icon={DocumentDuplicateIcon} size="sm" />}
+          isIconOnly={isNarrow}
+          isDisabled={!simSelected}
+          onClick={() => simSelected && duplicateItem(simSelected)}
+        />
+        <Button
+          label="Delete"
+          size="sm"
+          variant="ghost"
+          icon={<Icon icon={TrashIcon} size="sm" />}
+          isIconOnly={isNarrow}
+          isDisabled={!simSelected || (simSelected.kind === 'source' && simScene.sources.length <= 1)}
+          onClick={() => simSelected && deleteItem(simSelected)}
+        />
+      </div>
     </div>
   );
 
@@ -1713,7 +1781,7 @@ export function App() {
         content={
           <LayoutContent padding={4}>
             {mainContent}
-            {isNarrow && sidePanel}
+            {isNarrow && <div className="narrow-panel">{sidePanel}</div>}
           </LayoutContent>
         }
         end={

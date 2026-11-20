@@ -4,10 +4,15 @@
 
 body { background: var(--color-background-body, var(--color-background-surface)); }
 
-/* Build bar above the simulator canvas. */
+/* Build bar above the simulator canvas: add menus, then the edit buttons
+   pushed to the end of whichever row they land on. */
 .build-bar {
   flex: none;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
 }
+/* Phones: the scene/puzzle panel follows the canvas, with room between them. */
+.narrow-panel { margin-top: 20px; }
+.build-bar-edit { display: flex; align-items: center; gap: 4px; margin-left: auto; }
 
 /* The field fills the space left beside the panel and keeps the domain's shape. */
 .stage { flex: 1; min-height: 240px; display: flex; overflow: hidden; }
@@ -210,20 +215,26 @@ body { background: var(--color-background-body, var(--color-background-surface))
 }
 .statusbar-solve { display: flex; align-items: center; gap: 12px; flex: none; white-space: nowrap; height: 100%; }
 .statusbar-solve .astryx-divider { height: 14px; align-self: center; }
+.statusbar-tail { display: flex; align-items: center; gap: 16px; flex: 1; min-width: 0; height: 100%; }
+.statusbar-activity { display: flex; align-items: center; gap: 8px; flex: none; white-space: nowrap; }
 .statusbar-messages { display: flex; align-items: center; gap: 16px; flex: 1; min-width: 0; justify-content: flex-end; overflow: hidden; }
 .statusbar-message { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
 .statusbar-message > :last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Phones: two rows of fixed height, so nothing appearing or going (a solve
+   starting, "Refining…", a warning) changes the bar's height or reflows it:
+   the facts on top, the solve in progress and messages below. */
 @media (max-width: 860px) {
   .statusbar {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
-    height: auto; min-height: 36px; padding: 4px 16px;
-    flex-wrap: wrap; gap: 4px 12px; overflow: visible;
+    flex-direction: column; align-items: stretch; justify-content: center; gap: 0;
+    height: calc(60px + env(safe-area-inset-bottom)); padding: 4px 16px;
+    padding-bottom: max(4px, env(safe-area-inset-bottom));
     background: var(--color-background-body);
     border-top: 1px solid var(--color-border);
-    padding-bottom: max(4px, env(safe-area-inset-bottom));
   }
-  body { padding-bottom: 88px; }
-  .statusbar-messages { justify-content: flex-start; flex-basis: 100%; }
+  body { padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
+  .statusbar-solve { height: 22px; flex: none; min-width: 0; overflow: hidden; }
+  .statusbar-tail { height: 30px; flex: none; }
 }
 
 /* A segmented control whose labels don't fit on one row becomes a 2 × 2 grid. */

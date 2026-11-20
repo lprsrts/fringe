@@ -210,6 +210,8 @@ export type Quality = 'preview' | 'final';
 
 /** A worker's first solves run baseline-compiled wasm, several times slower. */
 const COLD_SOLVES = 2;
+/** A refinement predicted to finish within this is left to finish (its result unused) rather than killed. */
+const SOFT_CANCEL_S = 0.6;
 
 /** Thrown by `refine` when a newer edit cancelled it; not an error to show. */
 export class Cancelled extends Error {
@@ -218,63 +220,119 @@ export class Cancelled extends Error {
   }
 }
 
-/** One worker with its wasm instance and stored field. */
+/** Pending calls of a worker that was replaced; `retry` when the page should solve again. */
+export class Restarted extends Error {
+  constructor(
+    message: string,
+    readonly retry: boolean,
+  ) {
+    super(message);
+  }
+}
+
+const HUNG = 'The solver stopped responding and was restarted.';
+/** Longest wait for a render, detector measurement or geometry call before the worker counts as hung. */
+const CALL_TIMEOUT_MS = 15_000;
+/**
+ * A solve counts as hung after this many times its predicted time, and at
+ * least 8 s (a phone's first solves run unoptimised wasm, several times
+ * slower); 30 s when nothing was predicted.
+ */
+const SOLVE_TIMEOUT_FACTOR = 20;
+const SOLVE_TIMEOUT_MIN_MS = 8_000;
+const SOLVE_TIMEOUT_UNKNOWN_MS = 30_000;
+
+export const solveTimeoutMs = (predicted_s?: number) =>
+  predicted_s && predicted_s > 0
+    ? Math.max(SOLVE_TIMEOUT_MIN_MS, predicted_s * 1000 * SOLVE_TIMEOUT_FACTOR)
+    : SOLVE_TIMEOUT_UNKNOWN_MS;
+
+/**
+ * One worker with its wasm instance and stored field. `onFatal` runs when the
+ * wasm trapped, the worker failed, or a call outlived its timeout: a worker
+ * the browser killed (iOS does under memory pressure) never answers, and
+ * without a timeout the page would wait on it for ever.
+ */
 class Lane {
   readonly worker: Worker;
   private nextId = 0;
-  private pending = new Map<number, Pending>();
-  /** Solves run so far: the first ones run before V8 has optimised the wasm. */
+  private pending = new Map<number, Pending & {timer?: ReturnType<typeof setTimeout>}>();
+  private dead = false;
+  /** Solves run so far: the first ones run before the engine has optimised the wasm. */
   solves = 0;
 
-  constructor(onFatal: (reason: string) => void) {
+  constructor(private onFatal: (reason: string) => void) {
     this.worker = new Worker(new URL('./worker.ts', import.meta.url), {type: 'module'});
     this.worker.onmessage = ({data}) => {
       const p = this.pending.get(data.id);
       if (!p) return;
       this.pending.delete(data.id);
+      clearTimeout(p.timer);
       if (data.ok) p.resolve(data.value);
       else {
-        if (data.fatal) onFatal('The solver crashed and was restarted.');
+        if (data.fatal) this.fail('The solver crashed and was restarted.');
         p.reject(new Error(data.error));
       }
     };
     this.worker.onerror = (e) => {
       e.preventDefault();
-      onFatal(e.message || 'The solver failed to start.');
+      this.fail(e.message || 'The solver failed to start.');
     };
+    this.worker.onmessageerror = () => this.fail('The solver sent an unreadable reply and was restarted.');
   }
 
-  call<T>(op: string, ...args: unknown[]): Promise<T> {
+  private fail(reason: string) {
+    if (this.dead) return;
+    this.onFatal(reason);
+  }
+
+  /** `timeoutMs` 0 waits for ever (puzzle evaluations, whose length is unknown). */
+  call<T>(op: string, args: unknown[], timeoutMs = CALL_TIMEOUT_MS): Promise<T> {
     return new Promise<T>((resolve, reject) => {
+      if (this.dead) return reject(new Cancelled());
       const id = this.nextId++;
-      this.pending.set(id, {resolve: resolve as (v: unknown) => void, reject});
+      const timer = timeoutMs > 0 ? setTimeout(() => this.fail(HUNG), timeoutMs) : undefined;
+      this.pending.set(id, {resolve: resolve as (v: unknown) => void, reject, timer});
       this.worker.postMessage({id, op, args});
     });
   }
 
   kill(err: Error) {
+    this.dead = true;
     this.worker.terminate();
-    for (const p of this.pending.values()) p.reject(err);
+    for (const p of this.pending.values()) {
+      clearTimeout(p.timer);
+      p.reject(err);
+    }
     this.pending.clear();
   }
+}
+
+interface RefineJob {
+  lane: Lane;
+  started: number;
+  predicted_s: number;
+  /** Superseded but left to finish: killing a worker costs a new wasm instance. */
+  discarded: boolean;
 }
 
 /**
  * Three workers: a geometry one for field-free calls (outlines, checks), so
  * the overlay follows edits at once even while a solve runs; the active one
- * holds the displayed field; the spare one runs background refinement solves. A finished
- * refinement swaps the two, so the refined field becomes the active one. A
- * refinement can be cancelled at any time by replacing the spare worker,
- * which never disturbs the displayed field.
+ * holds the displayed field; the spare one runs background refinement solves.
+ * A finished refinement swaps active and spare, so the refined field becomes
+ * the active one. Cancelling a refinement that is nearly done just discards
+ * its result; a longer one is stopped by replacing the spare worker. Neither
+ * disturbs the displayed field.
  */
 export class Solver {
   private active!: Lane;
   /** Field-free work (outlines, checks, examples, puzzles), so it never waits behind a solve. */
   private geo!: Lane;
   private spare: Lane | null = null;
-  private refining = false;
-  /** Called when the worker was replaced, so the page knows the stored field is gone. */
-  onReset: (reason: string) => void = () => {};
+  private job: RefineJob | null = null;
+  /** Called when the active worker was replaced, so the page knows the stored field is gone. */
+  onReset: (reason: string, retry: boolean) => void = () => {};
 
   constructor() {
     this.active = this.lane();
@@ -282,18 +340,17 @@ export class Solver {
   }
 
   private startGeo() {
-    const lane: Lane = new Lane(() => {
-      if (lane === this.geo) {
-        lane.kill(new Error('The geometry worker crashed and was restarted.'));
-        this.startGeo();
-      }
+    const lane: Lane = new Lane((reason) => {
+      if (lane !== this.geo) return;
+      lane.kill(new Error(reason));
+      this.startGeo();
     });
     this.geo = lane;
   }
 
   private lane(): Lane {
     const lane: Lane = new Lane((reason) => {
-      if (lane === this.active) this.reset(reason);
+      if (lane === this.active) this.restart(reason, true);
       else if (lane === this.spare) this.replaceSpare();
     });
     return lane;
@@ -302,22 +359,30 @@ export class Solver {
   private replaceSpare() {
     this.spare?.kill(new Cancelled());
     this.spare = this.lane();
-    this.refining = false;
+    this.job = null;
   }
 
-  /** Drops both workers and everything in them, and starts fresh ones. */
-  reset(reason: string) {
-    this.active.kill(new Error(reason));
+  private restart(reason: string, retry: boolean) {
+    this.active.kill(new Restarted(reason, retry));
     this.spare?.kill(new Cancelled());
     this.spare = null;
-    this.refining = false;
+    this.job = null;
     this.active = this.lane();
-    this.onReset(reason);
+    this.onReset(reason, retry);
+  }
+
+  /** Drops the field workers and everything in them (a Stop), and starts fresh ones. */
+  reset(reason: string) {
+    this.restart(reason, false);
   }
 
   /** Stops a running refinement; the displayed field stays. */
   cancelRefine() {
-    if (this.refining) this.replaceSpare();
+    const job = this.job;
+    if (!job || job.discarded) return;
+    const remaining_s = job.predicted_s - (performance.now() - job.started) / 1000;
+    if (remaining_s < SOFT_CANCEL_S) job.discarded = true;
+    else this.replaceSpare();
   }
 
   /**
@@ -325,37 +390,38 @@ export class Solver {
    * the active one. Rejects with `Cancelled` when `cancelRefine` (or a reset)
    * stopped it.
    */
-  async refine(scene: string, method: string, quality: Quality): Promise<SolveMeta> {
+  async refine(scene: string, method: string, quality: Quality, predicted_s: number): Promise<SolveMeta> {
     this.cancelRefine();
     if (!this.spare) this.spare = this.lane();
     const lane = this.spare;
-    this.refining = true;
+    const job: RefineJob = {lane, started: performance.now(), predicted_s, discarded: false};
+    this.job = job;
     try {
-      const meta = await this.solveOn(lane, scene, method, quality);
-      if (lane !== this.spare) throw new Cancelled();
+      const meta = await this.solveOn(lane, scene, method, quality, predicted_s);
+      if (job.discarded || lane !== this.spare) throw new Cancelled();
       this.spare = this.active;
       this.active = lane;
       return meta;
     } catch (e) {
-      // A replaced lane's errors are just the cancellation.
-      throw lane === this.spare ? e : new Cancelled();
+      // Errors of a replaced or discarded job are just the cancellation.
+      throw lane === this.spare && !job.discarded ? e : new Cancelled();
     } finally {
-      if (lane === this.active || lane === this.spare) this.refining = false;
+      if (this.job === job) this.job = null;
     }
   }
 
   private call<T>(op: string, ...args: unknown[]): Promise<T> {
-    return this.active.call<T>(op, ...args);
+    return this.active.call<T>(op, args);
   }
 
-  private async solveOn(lane: Lane, scene: string, method: string, quality: Quality): Promise<SolveMeta> {
-    const meta = await lane.call<SolveMeta>('solve', scene, method, quality);
+  private async solveOn(lane: Lane, scene: string, method: string, quality: Quality, predicted_s?: number): Promise<SolveMeta> {
+    const meta = await lane.call<SolveMeta>('solve', [scene, method, quality], solveTimeoutMs(predicted_s));
     meta.cold = lane.solves++ < COLD_SOLVES;
     return meta;
   }
 
   private geoCall<T>(op: string, ...args: unknown[]): Promise<T> {
-    return this.geo.call<T>(op, ...args);
+    return this.geo.call<T>(op, args);
   }
 
   examples = () => this.geoCall<Example[]>('examples');
@@ -363,17 +429,17 @@ export class Solver {
   materialPresets = () => this.geoCall<MaterialPreset[]>('materialPresets');
   outlines = (scene: string) => this.geoCall<SceneOutlines>('outlines', scene);
   check = (scene: string) => this.geoCall<CheckReport>('check', scene);
-  solve = (scene: string, method: string) => this.solveOn(this.active, scene, method, 'preview');
+  solve = (scene: string, method: string, predicted_s?: number) => this.solveOn(this.active, scene, method, 'preview', predicted_s);
   measureDetectors = (detectorsJson: string) => this.call<DetectorReading[]>('measureDetectors', detectorsJson);
   render = (view: string, width: number, height: number) => this.call<Uint8Array>('render', view, width, height);
   puzzles = () => this.geoCall<PuzzleSummary[]>('puzzles');
   puzzle = (id: string) => this.geoCall<Puzzle>('puzzle', id);
   puzzleCheck = (id: string, designJson: string) => this.geoCall<PuzzleCheckReport>('puzzleCheck', id, designJson);
   // The per-source fields live in the active worker; a refinement finishing
-  // later would swap them away.
+  // later would swap them away. An evaluation's length is unknown: no timeout.
   puzzleEvaluate = (id: string, designJson: string) => {
     this.cancelRefine();
-    return this.call<PuzzleEvaluation>('puzzleEvaluate', id, designJson);
+    return this.active.call<PuzzleEvaluation>('puzzleEvaluate', [id, designJson], 0);
   };
   selectPuzzleCase = (weights: number[]) => this.call<SolveMeta>('selectPuzzleCase', weights);
   clearPuzzleFields = () => this.call<null>('clearPuzzleFields');

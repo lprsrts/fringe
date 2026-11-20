@@ -13,10 +13,21 @@
 
 import type {CheckReport, Quality, SolveMeta} from './solver';
 
+/**
+ * Phones and small machines: they heat up and throttle under sustained load,
+ * and iOS kills pages that use too much memory. There the preview skips the
+ * background final-quality solve, waits longer before refining, and leaves
+ * the CPU idle between drafts for as long as a draft took.
+ */
+export const LOW_POWER =
+  typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
+    ? true
+    : (typeof navigator !== 'undefined' ? navigator.hardwareConcurrency ?? 8 : 8) <= 4;
+
 /** Wall time a draft solve aims for while editing, in seconds. */
 export const DRAFT_BUDGET_S = 0.1;
 /** How long edits must pause before refining starts, in ms. */
-export const REFINE_DELAY_MS = 150;
+export const REFINE_DELAY_MS = LOW_POWER ? 400 : 150;
 /** Slowest full preview that is solved without a draft first. */
 const SKIP_DRAFT_S = DRAFT_BUDGET_S * 1.6;
 /** Background refinements to the final resolution only when about this fast… */
@@ -136,7 +147,7 @@ export function plan(report: CheckReport, method: string, cost: CostModel): Plan
     }
   }
 
-  const fin = report.estimates?.final;
+  const fin = LOW_POWER ? null : report.estimates?.final;
   if (fin && fin.seconds > 0 && fin.ppw && fin.memory_mb <= FINAL_MAX_MB) {
     const finS = cost.predict(method, 'final', fin.seconds, fin.ppw, fin.ppw);
     if (finS <= FINAL_MAX_S) refine.push({stage: 'final', quality: 'final', ppw: null, predicted_s: finS});
