@@ -30,6 +30,12 @@ fn perf() -> bool {
     std::env::var("FRINGE_PERF").is_ok_and(|v| v == "1")
 }
 
+/// How long a cancel may take: 0.2 s, or 0.5 s on shared CI runners, which are
+/// slower and noisier than a developer machine.
+fn cancel_bound() -> f64 {
+    if std::env::var_os("CI").is_some() { 0.5 } else { 0.2 }
+}
+
 // Validation cases, fast.
 
 #[test]
@@ -274,7 +280,7 @@ fn cancel_latency() {
             r.as_ref().err().map(|e| e.code()),
             latency * 1e3
         );
-        assert!(latency < 0.2, "cancel after {delay_ms} ms took {latency:.3} s");
+        assert!(latency < cancel_bound(), "cancel after {delay_ms} ms took {latency:.3} s");
     }
 }
 

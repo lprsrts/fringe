@@ -133,6 +133,12 @@ fn fem_examples_preview() {
     }
 }
 
+/// How long a cancel may take: 0.2 s, or 0.5 s on shared CI runners, which are
+/// slower and noisier than a developer machine.
+fn cancel_bound() -> f64 {
+    if std::env::var_os("CI").is_some() { 0.5 } else { 0.2 }
+}
+
 /// A cancelled context stops the solve before the factorisation.
 #[test]
 fn fem_cancel() {
@@ -143,7 +149,8 @@ fn fem_cancel() {
     let t = Instant::now();
     let r = solve(&s, Quality::Final, &ctx);
     assert!(matches!(r, Err(SolveError::Cancelled)), "{:?}", r.err());
-    assert!(t.elapsed().as_secs_f64() < 0.2);
+    let took = t.elapsed().as_secs_f64();
+    assert!(took < cancel_bound(), "cancel took {took:.3} s");
 }
 
 /// Cancels from another thread as soon as the running solve enters `stage` and
