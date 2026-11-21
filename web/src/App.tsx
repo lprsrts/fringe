@@ -35,6 +35,7 @@ import {ExclamationTriangleIcon, InformationCircleIcon, XCircleIcon} from '@hero
 import {DetectorBar} from './DetectorBar';
 import {FieldCanvas, type PuzzleOverlayState} from './FieldCanvas';
 import {Inspector} from './Inspector';
+import {groupIssues} from './issues';
 import {PanelSection} from './PanelSection';
 import {decompress, pageUrl, readLink, writeLink} from './link';
 import {
@@ -122,6 +123,22 @@ const COLORMAPS = [
   {value: 'phase_wheel', label: 'Phase wheel'},
 ];
 const METHOD_LABEL: Record<string, string> = {fdtd: 'FDTD', mom: 'MoM', fem: 'FEM'};
+
+/**
+ * The time a solve is expected to take, for its hang timeout. Drafts and
+ * refine steps are predicted from the full preview's estimate by a power law
+ * in resolution. MoM breaks that on scenes with many small parts, since every
+ * part keeps a minimum of panels however coarse the draft, so a healthy MoM
+ * draft could run far past its timeout and be killed as hung. For MoM, expect
+ * at least the full preview's estimate, capped so a truly hung worker is still
+ * caught within a few minutes. Other methods follow the power law well.
+ */
+const MOM_TIMEOUT_BASIS_CAP_S = 10;
+function timeoutBasis(method: string, predicted_s: number, report: CheckReport): number | undefined {
+  const est = report.estimates?.preview?.seconds ?? 0;
+  const floor = method === 'mom' ? Math.min(est, MOM_TIMEOUT_BASIS_CAP_S) : 0;
+  return Math.max(predicted_s, floor) || undefined;
+}
 
 const fmtTime = (s: number) => (s < 1 ? `${Math.round(s * 1000)} ms` : `${s.toFixed(1)} s`);
 const initialLink = readLink();
@@ -314,7 +331,12 @@ export function App() {
       setRefining(step);
       let result: SolveMeta;
       try {
-        result = await solver.refine(sceneForStep(scene, method, step, fullPpw), method, step.quality, step.predicted_s);
+        result = await solver.refine(
+          sceneForStep(scene, method, step, fullPpw),
+          method,
+          step.quality,
+          timeoutBasis(method, step.predicted_s, report) ?? step.predicted_s,
+        );
       } catch {
         // Cancelled by an edit, or this resolution failed: keep what is shown.
         break;
@@ -355,7 +377,7 @@ export function App() {
     const result = await solver.solve(
       sceneForStep(s, m, first, report.estimates?.preview?.ppw ?? null),
       m,
-      first.predicted_s || undefined,
+      timeoutBasis(m, first.predicted_s, report),
     );
     learn(m, first, report, result);
     setMeta(result);
@@ -1267,10 +1289,20 @@ export function App() {
 
   // ---- status bar
   const solvingLong = solvingSince !== null && elapsed > 0.35;
+  // Wavelength advice only where the wavelength can be changed.
+  const issueMessages = groupIssues(issues, isInPuzzle ? undefined : activeScene?.wavelength_um);
+  const hasBlockingIssue = issues.some((i) => i.severity === 'error');
+  // MoM puts every part's boundary into one dense matrix, so a scene with many
+  // separate parts (a photonic crystal, say) is slow with it and quick with FEM.
+  const momParts =
+    effectiveMethod === 'mom' && activeScene ? activeScene.elements.filter((e) => e.enabled !== false).length : 0;
+  const slowHint =
+    momParts > 20 ? `MoM is slow with many separate parts (${momParts} here); FEM or FDTD solves this scene faster.` : null;
   const messages: {severity: 'error' | 'warning' | 'info'; text: string}[] = [
     ...(error ? [{severity: 'error' as const, text: error}] : []),
     ...(notice ? [{severity: 'warning' as const, text: notice}] : []),
-    ...issues.map((i) => ({severity: i.severity, text: i.message})),
+    ...issueMessages,
+    ...(slowHint && !hasBlockingIssue ? [{severity: 'info' as const, text: slowHint}] : []),
   ];
   // What is shown; the solve in progress goes in its own slot so the facts
   // never reflow while a solve starts, refines or ends.
@@ -1291,7 +1323,13 @@ export function App() {
                   : []),
               `Solved in ${fmtTime(meta.wall_s)}`,
             ]
-          : [activeScene ? 'Solving…' : 'Loading the solver…'];
+          : [
+              !activeScene
+                ? 'Loading the solver…'
+                : solvingSince === null && (hasBlockingIssue || error)
+                  ? 'Not solved'
+                  : 'Solving…',
+            ];
   const activity = solvingLong
     ? `${checkingPuzzle ? 'Checking puzzle…' : `Solving with ${METHOD_LABEL[effectiveMethod]}…`} ${fmtTime(elapsed)}`
     : refining
@@ -1368,7 +1406,7 @@ export function App() {
 
   // ---- embed mode
   if (initialLink.embed) {
-    const blocking = error ?? issues.find((i) => i.severity === 'error')?.message ?? null;
+    const blocking = error ?? issueMessages.find((i) => i.severity === 'error')?.text ?? null;
     const full = new URLSearchParams(location.hash.slice(1));
     full.delete('embed');
     return (
