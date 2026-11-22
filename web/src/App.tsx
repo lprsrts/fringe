@@ -25,6 +25,7 @@ import {
   EllipsisHorizontalIcon,
   EyeIcon,
   EyeSlashIcon,
+  HeartIcon,
   HomeIcon,
   LinkIcon,
   PlusIcon,
@@ -123,6 +124,8 @@ const COLORMAPS = [
   {value: 'phase_wheel', label: 'Phase wheel'},
 ];
 const METHOD_LABEL: Record<string, string> = {fdtd: 'FDTD', mom: 'MoM', fem: 'FEM'};
+const SUPPORT_URL = 'https://ko-fi.com/lprsrts';
+const SUPPORT_EMBED_URL = `${SUPPORT_URL}/?hidefeed=true&widget=true&embed=true`;
 
 /**
  * The time a solve is expected to take, for its hang timeout. Drafts and
@@ -223,6 +226,7 @@ export function App() {
   const [now, setNow] = useState(0);
   const [embedOpen, setEmbedOpen] = useState(false);
   const [embedCode, setEmbedCode] = useState('');
+  const [supportOpen, setSupportOpen] = useState(false);
   const exampleScenes = useRef(new Map<string, string>());
   const puzzleCache = useRef(new Map<string, Puzzle>());
 
@@ -1720,6 +1724,7 @@ export function App() {
               ...(activeScene
                 ? [{id: 'save', label: 'Save image', icon: ArrowDownTrayIcon, onClick: saveImage, isDisabled: !fieldVersion}]
                 : []),
+              {id: 'support', label: 'Support Fringe', icon: HeartIcon, onClick: () => setSupportOpen(true)},
               {id: 'home', label: 'Fringe home', icon: HomeIcon, href: '/'},
             ]}
           />
@@ -1741,6 +1746,12 @@ export function App() {
                 isDisabled={!fieldVersion}
               />
             )}
+            <Button
+              label="Support Fringe"
+              variant="ghost"
+              icon={<Icon icon={HeartIcon} size="sm" />}
+              onClick={() => setSupportOpen(true)}
+            />
           </HStack>
         )}
       </HStack>
@@ -1877,6 +1888,29 @@ export function App() {
                 showToast({body: 'Embed code copied.', uniqueID: 'embed'});
                 setEmbedOpen(false);
               }}
+            />
+          </HStack>
+        </VStack>
+      </Dialog>
+      <Dialog isOpen={supportOpen} onOpenChange={setSupportOpen} width={560} padding={4} aria-label="Support Fringe">
+        <VStack gap={3}>
+          <Heading level={2}>Support Fringe</Heading>
+          {supportOpen && (
+            <iframe
+              className="support-frame"
+              src={SUPPORT_EMBED_URL}
+              title="Tip Alper on Ko-fi"
+            />
+          )}
+          <HStack gap={2} hAlign="end">
+            <Button label="Close" variant="ghost" onClick={() => setSupportOpen(false)} />
+            <Button
+              label="Open on Ko-fi"
+              variant="ghost"
+              icon={<Icon icon={ArrowTopRightOnSquareIcon} size="sm" />}
+              href={SUPPORT_URL}
+              target="_blank"
+              rel="noopener noreferrer"
             />
           </HStack>
         </VStack>

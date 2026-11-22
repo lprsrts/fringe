@@ -254,3 +254,11 @@ body { background: var(--color-background-body, var(--color-background-surface))
 .embed-open { position: absolute; right: 8px; bottom: 8px; }
 .crash { max-width: 560px; margin: 15vh auto 0; padding: 0 16px; }
 .embed-message { max-width: 420px; padding: 16px; text-align: center; }
+.support-frame {
+  display: block;
+  width: 100%;
+  height: min(650px, 62dvh);
+  border: 0;
+  border-radius: var(--radius-container, 8px);
+  background: #fff;
+}
