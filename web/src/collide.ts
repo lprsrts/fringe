@@ -11,6 +11,9 @@
 export type Pt = [number, number];
 export type Poly = Pt[];
 
+/** Keep one pointer event from doing unbounded geometry work on a huge scene. */
+const MAX_PATH_CHECKS = 4096;
+
 function segIntersect(a: Pt, b: Pt, c: Pt, d: Pt): boolean {
   const o = (p: Pt, q: Pt, r: Pt) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
   const d1 = o(c, d, a), d2 = o(c, d, b), d3 = o(a, b, c), d4 = o(a, b, d);
@@ -128,19 +131,20 @@ export class Clearance {
 
   /**
    * How far (0–1) the shape gets from `from` toward `to` before it first
-   * touches a neighbour. The path is sampled finely enough not to skip over
-   * the gap, so a fast drag can't tunnel through a neighbour to its far side.
+   * touches a neighbour. Each checked step moves every point by at most the
+   * clearance gap, so a fast drag can't tunnel through a small neighbour.
+   * An unusually long path advances only as far as this event can check.
    */
   private reach(from: Pose, to: Pose): number {
+    if (this.others.length === 0) return 1;
     const size = Math.max(...this.self.flat().map(([x, y]) => Math.hypot(x - this.anchor[0], y - this.anchor[1])), 1e-6);
-    const travel = Math.max(
-      Math.abs(to.dx - from.dx),
-      Math.abs(to.dy - from.dy),
-      (Math.abs(to.dRot - from.dRot) * Math.PI * size) / 180,
-      Math.abs(to.k - from.k) * size,
-    );
-    const n = Math.min(64, Math.max(1, Math.ceil(travel / this.gap)));
-    for (let i = 1; i <= n; i++) {
+    const translation = Math.hypot(to.dx - from.dx, to.dy - from.dy);
+    const rotation = (Math.abs(to.dRot - from.dRot) * Math.PI) / 180;
+    const scale = Math.abs(to.k - from.k);
+    const travel = translation + size * (scale + Math.max(Math.abs(from.k), Math.abs(to.k)) * rotation);
+    const n = Math.max(1, Math.ceil(travel / Math.max(this.gap, 1e-6)));
+    const checks = Math.min(n, MAX_PATH_CHECKS);
+    for (let i = 1; i <= checks; i++) {
       if (this.clear(this.lerp(from, to, i / n))) continue;
       let lo = (i - 1) / n, hi = i / n;
       for (let j = 0; j < 10; j++) {
@@ -150,7 +154,7 @@ export class Clearance {
       }
       return lo;
     }
-    return 1;
+    return checks / n;
   }
 
   /**
